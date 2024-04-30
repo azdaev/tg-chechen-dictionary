@@ -11,3 +11,8 @@ const (
 	ActivityTypeText   ActivityType = 1
 	ActivityTypeInline ActivityType = 2
 )
+
+type DailyActivity struct {
+	ActiveUsers int
+	Calls       int
+}

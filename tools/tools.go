@@ -76,7 +76,7 @@ func EscapeUnclosedTags(text string) string {
 	return text
 }
 
-func StatsMessageText(newMonthlyUsers int, monthlyActiveUsers int, dailyActiveUsersInMonth []int) string {
+func StatsMessageText(newMonthlyUsers int, monthlyActiveUsers int, dailyActivityInMonth []entities.DailyActivity) string {
 	messageText := fmt.Sprintf(`
 <b>Статистика</b>
 
@@ -85,12 +85,13 @@ func StatsMessageText(newMonthlyUsers int, monthlyActiveUsers int, dailyActiveUs
 Активных пользователей за месяц: %d
 
 Уникальных пользователей на протяжении месяца:
+<i>число месяца - кол-во уникальных пользователей - кол-во вызовов бота (включая инлайн)</i>
 
 `, newMonthlyUsers, monthlyActiveUsers)
 
-	for i, dau := range dailyActiveUsersInMonth {
+	for i, activity := range dailyActivityInMonth {
 		day := i + 1
-		messageText += fmt.Sprintf("%d - %d\n", day, dau)
+		messageText += fmt.Sprintf("%d - %d - %d\n", day, activity.ActiveUsers, activity.Calls)
 	}
 
 	return messageText

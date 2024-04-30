@@ -49,11 +49,11 @@ func (r *Repository) CountNewMonthlyUsers(ctx context.Context, month int, year i
 	return count, nil
 }
 
-func (r *Repository) DailyActiveUsersInMonth(ctx context.Context, month int, year int, days int) ([]int, error) {
-	result := make([]int, days)
+func (r *Repository) DailyActiveUsersInMonth(ctx context.Context, month int, year int, days int) ([]entities.DailyActivity, error) {
+	result := make([]entities.DailyActivity, days)
 	rows, err := r.db.QueryContext(
 		ctx,
-		"SELECT COUNT(DISTINCT user_id), EXTRACT(DAY FROM created_at) FROM activity GROUP BY created_at HAVING EXTRACT(MONTH FROM created_at) = $1 AND EXTRACT(YEAR FROM created_at) = $2;",
+		"SELECT day, COUNT(DISTINCT user_id) as \"dau\", COUNT(*) as \"calls\" FROM (SELECT user_id, EXTRACT(DAY FROM created_at) as \"day\"  FROM activity WHERE EXTRACT(MONTH FROM created_at) = $1 AND EXTRACT(YEAR FROM created_at) = $2) GROUP BY day;",
 		month, year,
 	)
 	if err != nil {
@@ -61,13 +61,14 @@ func (r *Repository) DailyActiveUsersInMonth(ctx context.Context, month int, yea
 	}
 
 	for rows.Next() {
-		dau, day := 0, 0
-		err = rows.Scan(&dau, &day)
+		day, dau, calls := 0, 0, 0
+		err = rows.Scan(&day, &dau, &calls)
 		if err != nil {
 			return nil, err
 		}
 
-		result[day-1] = dau
+		result[day-1].ActiveUsers = dau
+		result[day-1].Calls = calls
 	}
 
 	return result, nil

@@ -9,8 +9,7 @@ import (
 	"strconv"
 	"time"
 
-	bots "github.com/go-telegram/bot"
-	"github.com/go-telegram/bot/models"
+	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 	"github.com/sirupsen/logrus"
 )
 
@@ -18,17 +17,17 @@ type Repository interface {
 	StoreUser(ctx context.Context, userID int, username string) error
 	StoreActivity(ctx context.Context, userID int, activityType entities.ActivityType) error
 	CountNewMonthlyUsers(ctx context.Context, month int, year int) (int, error)
-	DailyActiveUsersInMonth(ctx context.Context, month int, year int, days int) ([]int, error)
+	DailyActiveUsersInMonth(ctx context.Context, month int, year int, days int) ([]entities.DailyActivity, error)
 	MonthlyActiveUsers(ctx context.Context, month int, year int) (int, error)
 }
 
 type Service struct {
 	log  *logrus.Logger
 	repo Repository
-	bot  *bots.Bot
+	bot  *tgbotapi.BotAPI
 }
 
-func NewService(log *logrus.Logger, repo Repository, bot *bots.Bot) *Service {
+func NewService(log *logrus.Logger, repo Repository, bot *tgbotapi.BotAPI) *Service {
 	return &Service{
 		log:  log,
 		repo: repo,
@@ -37,32 +36,33 @@ func NewService(log *logrus.Logger, repo Repository, bot *bots.Bot) *Service {
 }
 
 func (s *Service) Start(ctx context.Context) {
-	s.bot.RegisterHandler(
-		bots.HandlerTypeMessageText,
-		"/stats",
-		bots.MatchTypeExact,
-		s.HandleStats,
-	)
-
-	s.bot.RegisterHandlerMatchFunc(
-		func(update *models.Update) bool {
-			return update.Message.Text != ""
-		},
-		s.TextHandler,
-	)
-
-	s.bot.RegisterHandlerMatchFunc(
-		func(update *models.Update) bool {
-			return update.InlineQuery != nil
-		},
-		s.InlineHandler,
-	)
 	s.log.Info("starting service")
-	s.bot.Start(ctx)
+
+	u := tgbotapi.NewUpdate(0)
+	u.Timeout = 60
+
+	updates := s.bot.GetUpdatesChan(u)
+
+	for update := range updates {
+		if update.Message != nil {
+			if update.Message.Command() == "stats" {
+				s.HandleStats(ctx, &update)
+				continue
+			}
+
+			s.HandleText(ctx, &update)
+			continue
+		}
+
+		if update.InlineQuery != nil {
+			s.HandleInline(ctx, &update)
+			continue
+		}
+	}
 }
 
-func (s *Service) TextHandler(ctx context.Context, bot *bots.Bot, update *models.Update) {
-	err := s.repo.StoreUser(ctx, int(update.Message.From.ID), update.Message.From.Username)
+func (s *Service) HandleText(ctx context.Context, update *tgbotapi.Update) {
+	err := s.repo.StoreUser(ctx, int(update.Message.From.ID), update.Message.From.UserName)
 	if err != nil {
 		s.log.WithError(err).Error("error storing user")
 		return
@@ -77,10 +77,7 @@ func (s *Service) TextHandler(ctx context.Context, bot *bots.Bot, update *models
 	m := update.Message
 	translations := tools.Translate(m.Text)
 	if len(translations) == 0 {
-		_, err = bot.SendMessage(ctx, &bots.SendMessageParams{
-			ChatID: m.Chat.ID,
-			Text:   "К сожалению, нет перевода",
-		})
+		_, err = s.bot.Send(tgbotapi.NewMessage(m.Chat.ID, "К сожалению, нет перевода"))
 		if err != nil {
 			s.log.WithError(err).Error("error sending message")
 			return
@@ -88,11 +85,9 @@ func (s *Service) TextHandler(ctx context.Context, bot *bots.Bot, update *models
 	}
 
 	for i := range translations {
-		_, err = bot.SendMessage(ctx, &bots.SendMessageParams{
-			ChatID:    m.Chat.ID,
-			Text:      fmt.Sprintf("<b>%s</b> - %s", translations[i].Original, translations[i].Translate),
-			ParseMode: "html",
-		})
+		msg := tgbotapi.NewMessage(m.Chat.ID, fmt.Sprintf("<b>%s</b> - %s", translations[i].Original, translations[i].Translate))
+		msg.ParseMode = "html"
+		_, err = s.bot.Send(msg)
 		if err != nil {
 			s.log.WithError(err).Error("error sending message")
 			return
@@ -100,51 +95,53 @@ func (s *Service) TextHandler(ctx context.Context, bot *bots.Bot, update *models
 	}
 }
 
-func (s *Service) InlineHandler(ctx context.Context, bot *bots.Bot, update *models.Update) {
+func (s *Service) HandleInline(ctx context.Context, update *tgbotapi.Update) {
 	translations := tools.Translate(update.InlineQuery.Query)
 
-	results := make([]models.InlineQueryResult, len(translations))
+	articles := make([]interface{}, len(translations))
 
-	for i := range results {
-		results[i] = &models.InlineQueryResultArticle{
-			ID:    strconv.Itoa(i),
-			Title: tools.Clean(translations[i].Original),
-			InputMessageContent: &models.InputTextMessageContent{
-				MessageText: fmt.Sprintf("<b>%s</b> - %s", translations[i].Original, translations[i].Translate),
-				ParseMode:   "html",
-			},
-			Description: tools.Clean(translations[i].Translate),
+	for i := range articles {
+		article := tgbotapi.NewInlineQueryResultArticle(update.InlineQuery.ID+strconv.Itoa(i), tools.Clean(translations[i].Original), "")
+		article.Description = tools.Clean(translations[i].Translate)
+		article.InputMessageContent = tgbotapi.InputTextMessageContent{
+			Text:      fmt.Sprintf("<b>%s</b> - %s", translations[i].Original, translations[i].Translate),
+			ParseMode: "html",
 		}
+
+		articles[i] = article
 	}
 
-	ok, err := bot.AnswerInlineQuery(ctx, &bots.AnswerInlineQueryParams{
+	inlineConf := tgbotapi.InlineConfig{
 		InlineQueryID: update.InlineQuery.ID,
-		Results:       results,
 		IsPersonal:    true,
-	})
+		CacheTime:     0,
+		Results:       articles,
+	}
+
+	resp, err := s.bot.Request(inlineConf)
 	if err != nil {
 		s.log.WithError(err).Error("error answering inline query")
 		return
 	}
-	if !ok {
-		s.log.Error("error answering inline query")
+	if !resp.Ok {
+		s.log.Error("error answering inline query", resp.Description)
 		return
 	}
 
-	err = s.repo.StoreUser(ctx, int(update.Message.From.ID), update.Message.From.Username)
+	err = s.repo.StoreUser(ctx, int(update.InlineQuery.From.ID), update.InlineQuery.From.UserName)
 	if err != nil {
 		s.log.WithError(err).Error("error sending message")
 		return
 	}
 
-	err = s.repo.StoreActivity(ctx, int(update.Message.From.ID), entities.ActivityTypeInline)
+	err = s.repo.StoreActivity(ctx, int(update.InlineQuery.From.ID), entities.ActivityTypeInline)
 	if err != nil {
 		s.log.WithError(err).Error("error storing activity")
 		return
 	}
 }
 
-func (s *Service) HandleStats(ctx context.Context, bot *bots.Bot, update *models.Update) {
+func (s *Service) HandleStats(ctx context.Context, update *tgbotapi.Update) {
 	if strconv.Itoa(int(update.Message.From.ID)) != os.Getenv("TG_ADMIN_ID") {
 		return
 	}
@@ -170,9 +167,15 @@ func (s *Service) HandleStats(ctx context.Context, bot *bots.Bot, update *models
 		return
 	}
 
-	_, err = bot.SendMessage(ctx, &bots.SendMessageParams{
-		ChatID:    update.Message.Chat.ID,
-		Text:      tools.StatsMessageText(newMonthlyUsers, monthlyActiveUsers, dailyActiveUsersLastMonth),
-		ParseMode: "html",
-	})
+	msg := tgbotapi.NewMessage(
+		update.Message.Chat.ID,
+		tools.StatsMessageText(newMonthlyUsers, monthlyActiveUsers, dailyActiveUsersLastMonth),
+	)
+	msg.ParseMode = "html"
+
+	_, err = s.bot.Send(msg)
+	if err != nil {
+		s.log.WithError(err).Error("error sending message")
+		return
+	}
 }
