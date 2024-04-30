@@ -101,25 +101,13 @@ func (s *Service) TextHandler(ctx context.Context, bot *bots.Bot, update *models
 }
 
 func (s *Service) InlineHandler(ctx context.Context, bot *bots.Bot, update *models.Update) {
-	err := s.repo.StoreUser(ctx, int(update.Message.From.ID), update.Message.From.Username)
-	if err != nil {
-		s.log.WithError(err).Error("error sending message")
-		return
-	}
-
-	err = s.repo.StoreActivity(ctx, int(update.Message.From.ID), entities.ActivityTypeInline)
-	if err != nil {
-		s.log.WithError(err).Error("error storing activity")
-		return
-	}
-
 	translations := tools.Translate(update.InlineQuery.Query)
 
 	results := make([]models.InlineQueryResult, len(translations))
 
 	for i := range results {
 		results[i] = &models.InlineQueryResultArticle{
-			ID:    update.InlineQuery.ID + strconv.Itoa(i),
+			ID:    strconv.Itoa(i),
 			Title: tools.Clean(translations[i].Original),
 			InputMessageContent: &models.InputTextMessageContent{
 				MessageText: fmt.Sprintf("<b>%s</b> - %s", translations[i].Original, translations[i].Translate),
@@ -129,7 +117,7 @@ func (s *Service) InlineHandler(ctx context.Context, bot *bots.Bot, update *mode
 		}
 	}
 
-	_, err = bot.AnswerInlineQuery(ctx, &bots.AnswerInlineQueryParams{
+	ok, err := bot.AnswerInlineQuery(ctx, &bots.AnswerInlineQueryParams{
 		InlineQueryID: update.InlineQuery.ID,
 		Results:       results,
 		IsPersonal:    true,
@@ -138,10 +126,20 @@ func (s *Service) InlineHandler(ctx context.Context, bot *bots.Bot, update *mode
 		s.log.WithError(err).Error("error answering inline query")
 		return
 	}
+	if !ok {
+		s.log.Error("error answering inline query")
+		return
+	}
 
 	err = s.repo.StoreUser(ctx, int(update.Message.From.ID), update.Message.From.Username)
 	if err != nil {
-		s.log.WithError(err).Error("error storing user")
+		s.log.WithError(err).Error("error sending message")
+		return
+	}
+
+	err = s.repo.StoreActivity(ctx, int(update.Message.From.ID), entities.ActivityTypeInline)
+	if err != nil {
+		s.log.WithError(err).Error("error storing activity")
 		return
 	}
 }
