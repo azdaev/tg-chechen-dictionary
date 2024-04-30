@@ -1,0 +1,35 @@
+version: "3"
+
+services:
+  postgres:
+    container_name: chetoru_postgres_container
+    image: postgres
+    environment:
+      POSTGRES_USER: ${PG_USER}
+      POSTGRES_PASSWORD: ${PG_PASSWORD}
+      PGDATA: /data/postgres
+    volumes:
+      - postgres:/data/postgres
+    ports:
+      - "5433:5432"
+    networks:
+      - internal-network
+    restart: unless-stopped
+
+  golang:
+    container_name: chetoru_golang_container
+    depends_on:
+      - postgres
+    build: .
+    ports:
+      - "8081:8081"
+    networks:
+      - internal-network
+    restart: unless-stopped
+
+networks:
+  internal-network:
+    driver: bridge
+
+volumes:
+  postgres:

@@ -2,7 +2,7 @@ package tools
 
 import (
 	"bytes"
-	"chetoru/models"
+	"chetoru/internal/models"
 	"encoding/json"
 	"fmt"
 	"mime/multipart"
@@ -11,7 +11,7 @@ import (
 	"strings"
 )
 
-func Translate(word string) []models.TranslationResponse {
+func Translate(word string) []entities.TranslationResponse {
 	values := map[string]string{
 		"word": word,
 	}
@@ -36,9 +36,9 @@ func Translate(word string) []models.TranslationResponse {
 	}
 	defer resp.Body.Close()
 
-	response := make(map[string][]models.TranslationResponse)
+	response := make(map[string][]entities.TranslationResponse)
 	json.NewDecoder(resp.Body).Decode(&response)
-	translations := make([]models.TranslationResponse, 0)
+	translations := make([]entities.TranslationResponse, 0)
 
 	for key := range response {
 		translation := response[key][0]
@@ -74,4 +74,24 @@ func EscapeUnclosedTags(text string) string {
 		return Clean(text) //TODO: optimize - one function for check. if true clean
 	}
 	return text
+}
+
+func StatsMessageText(newMonthlyUsers int, monthlyActiveUsers int, dailyActiveUsersInMonth []int) string {
+	messageText := fmt.Sprintf(`
+<b>Статистика</b>
+
+Новых пользователей за месяц: %d
+
+Активных пользователей за месяц: %d
+
+Уникальных пользователей на протяжении месяца:
+
+`, newMonthlyUsers, monthlyActiveUsers)
+
+	for i, dau := range dailyActiveUsersInMonth {
+		day := i + 1
+		messageText += fmt.Sprintf("%d - %d\n", day, dau)
+	}
+
+	return messageText
 }

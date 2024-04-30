@@ -1,9 +1,12 @@
-FROM golang:1.20
+FROM golang:1.22.1
 
 WORKDIR /app
 
+RUN go install github.com/pressly/goose/v3/cmd/goose@latest
+
 COPY go.mod go.sum ./
 RUN go mod download
+
 
 COPY . .
 
