@@ -46,32 +46,51 @@ func (s *Service) Start(ctx context.Context) {
 	for update := range updates {
 		if update.Message != nil {
 			if update.Message.Command() == "stats" {
-				s.HandleStats(ctx, &update)
+				err := s.HandleStats(ctx, &update)
+				if err != nil {
+					s.log.
+						WithError(err).
+						Error("service.HandleStats")
+				}
 				continue
 			}
 
-			s.HandleText(ctx, &update)
+			err := s.HandleText(ctx, &update)
+			if err != nil {
+				s.log.
+					WithField("user_id", update.Message.From.ID).
+					WithField("username", update.Message.From.UserName).
+					WithField("message", update.Message.Text).
+					WithError(err).
+					Error("service.HandleText")
+			}
 			continue
 		}
 
 		if update.InlineQuery != nil {
-			s.HandleInline(ctx, &update)
+			err := s.HandleInline(ctx, &update)
+			if err != nil {
+				s.log.
+					WithField("user_id", update.InlineQuery.From.ID).
+					WithField("username", update.InlineQuery.From.UserName).
+					WithField("message", update.InlineQuery.Query).
+					WithError(err).
+					Error("service.HandleInline")
+			}
 			continue
 		}
 	}
 }
 
-func (s *Service) HandleText(ctx context.Context, update *tgbotapi.Update) {
+func (s *Service) HandleText(ctx context.Context, update *tgbotapi.Update) error {
 	err := s.repo.StoreUser(ctx, int(update.Message.From.ID), update.Message.From.UserName)
 	if err != nil {
-		s.log.WithError(err).Error("error storing user")
-		return
+		return fmt.Errorf("repo.StoreUser: %w", err)
 	}
 
 	err = s.repo.StoreActivity(ctx, int(update.Message.From.ID), entities.ActivityTypeText)
 	if err != nil {
-		s.log.WithError(err).Error("error storing activity")
-		return
+		return fmt.Errorf("repo.StoreActivity: %w", err)
 	}
 
 	m := update.Message
@@ -79,8 +98,7 @@ func (s *Service) HandleText(ctx context.Context, update *tgbotapi.Update) {
 	if len(translations) == 0 {
 		_, err = s.bot.Send(tgbotapi.NewMessage(m.Chat.ID, "К сожалению, нет перевода"))
 		if err != nil {
-			s.log.WithError(err).Error("error sending message")
-			return
+			return fmt.Errorf("bot.Send: %w", err)
 		}
 	}
 
@@ -89,13 +107,14 @@ func (s *Service) HandleText(ctx context.Context, update *tgbotapi.Update) {
 		msg.ParseMode = "html"
 		_, err = s.bot.Send(msg)
 		if err != nil {
-			s.log.WithError(err).Error("error sending message")
-			return
+			return fmt.Errorf("bot.Send: %w", err)
 		}
 	}
+
+	return nil
 }
 
-func (s *Service) HandleInline(ctx context.Context, update *tgbotapi.Update) {
+func (s *Service) HandleInline(ctx context.Context, update *tgbotapi.Update) error {
 	translations := tools.Translate(update.InlineQuery.Query)
 
 	articles := make([]interface{}, len(translations))
@@ -120,30 +139,28 @@ func (s *Service) HandleInline(ctx context.Context, update *tgbotapi.Update) {
 
 	resp, err := s.bot.Request(inlineConf)
 	if err != nil {
-		s.log.WithError(err).Error("error answering inline query")
-		return
+		return fmt.Errorf("bot.Request: %w", err)
 	}
 	if !resp.Ok {
-		s.log.Error("error answering inline query", resp.Description)
-		return
+		return fmt.Errorf("bot.Request: %s", resp.Description)
 	}
 
 	err = s.repo.StoreUser(ctx, int(update.InlineQuery.From.ID), update.InlineQuery.From.UserName)
 	if err != nil {
-		s.log.WithError(err).Error("error sending message")
-		return
+		return fmt.Errorf("repo.StoreUser: %w", err)
 	}
 
 	err = s.repo.StoreActivity(ctx, int(update.InlineQuery.From.ID), entities.ActivityTypeInline)
 	if err != nil {
-		s.log.WithError(err).Error("error storing activity")
-		return
+		return fmt.Errorf("repo.StoreActivity: %w", err)
 	}
+
+	return nil
 }
 
-func (s *Service) HandleStats(ctx context.Context, update *tgbotapi.Update) {
+func (s *Service) HandleStats(ctx context.Context, update *tgbotapi.Update) error {
 	if strconv.Itoa(int(update.Message.From.ID)) != os.Getenv("TG_ADMIN_ID") {
-		return
+		return nil
 	}
 
 	day := time.Now().Day()
@@ -151,20 +168,17 @@ func (s *Service) HandleStats(ctx context.Context, update *tgbotapi.Update) {
 	year := time.Now().Year()
 	newMonthlyUsers, err := s.repo.CountNewMonthlyUsers(ctx, month, year)
 	if err != nil {
-		s.log.WithError(err).Error("error counting new monthly users")
-		return
+		return fmt.Errorf("repo.CountNewMonthlyUsers: %w", err)
 	}
 
 	dailyActiveUsersLastMonth, err := s.repo.DailyActiveUsersInMonth(ctx, month, year, day)
 	if err != nil {
-		s.log.WithError(err).Error("error counting daily active users")
-		return
+		return fmt.Errorf("repo.DailyActiveUsersInMonth: %w", err)
 	}
 
 	monthlyActiveUsers, err := s.repo.MonthlyActiveUsers(ctx, month, year)
 	if err != nil {
-		s.log.WithError(err).Error("error counting monthly active users")
-		return
+		return fmt.Errorf("repo.MonthlyActiveUsers: %w", err)
 	}
 
 	msg := tgbotapi.NewMessage(
@@ -175,7 +189,8 @@ func (s *Service) HandleStats(ctx context.Context, update *tgbotapi.Update) {
 
 	_, err = s.bot.Send(msg)
 	if err != nil {
-		s.log.WithError(err).Error("error sending message")
-		return
+		return fmt.Errorf("bot.Send: %w", err)
 	}
+
+	return nil
 }
