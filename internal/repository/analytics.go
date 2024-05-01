@@ -38,7 +38,7 @@ func (r *Repository) CountNewMonthlyUsers(ctx context.Context, month int, year i
 	count := 0
 	row := r.db.QueryRowContext(
 		ctx,
-		"SELECT COUNT(id) FROM users WHERE EXTRACT(MONTH FROM created_at) = $1 AND EXTRACT(YEAR FROM created_at) = $2;",
+		"SELECT COUNT(id) FROM users WHERE EXTRACT(MONTH FROM created_at AT TIME ZONE 'europe/moscow') = $1 AND EXTRACT(YEAR FROM created_at AT TIME ZONE 'europe/moscow') = $2;",
 		month, year,
 	)
 	err := row.Scan(&count)
@@ -53,7 +53,7 @@ func (r *Repository) DailyActiveUsersInMonth(ctx context.Context, month int, yea
 	result := make([]entities.DailyActivity, days)
 	rows, err := r.db.QueryContext(
 		ctx,
-		"SELECT day, COUNT(DISTINCT user_id) as \"dau\", COUNT(*) as \"calls\" FROM (SELECT user_id, EXTRACT(DAY FROM created_at) as \"day\"  FROM activity WHERE EXTRACT(MONTH FROM created_at) = $1 AND EXTRACT(YEAR FROM created_at) = $2) GROUP BY day;",
+		"SELECT day, COUNT(DISTINCT user_id) as \"dau\", COUNT(*) as \"calls\" FROM (SELECT user_id, EXTRACT(DAY FROM created_at AT TIME ZONE 'europe/moscow') as \"day\"  FROM activity WHERE EXTRACT(MONTH FROM created_at AT TIME ZONE 'europe/moscow') = $1 AND EXTRACT(YEAR FROM created_at AT TIME ZONE 'europe/moscow') = $2) GROUP BY day;",
 		month, year,
 	)
 	if err != nil {
@@ -78,7 +78,7 @@ func (r *Repository) MonthlyActiveUsers(ctx context.Context, month int, year int
 	count := 0
 	row := r.db.QueryRowContext(
 		ctx,
-		"SELECT COUNT(DISTINCT user_id) FROM activity WHERE EXTRACT(MONTH FROM created_at) = $1 AND EXTRACT(YEAR FROM created_at) = $2;",
+		"SELECT COUNT(DISTINCT user_id) FROM activity WHERE EXTRACT(MONTH FROM created_at AT TIME ZONE 'europe/moscow') = $1 AND EXTRACT(YEAR FROM created_at AT TIME ZONE 'europe/moscow') = $2;",
 		month, year,
 	)
 
