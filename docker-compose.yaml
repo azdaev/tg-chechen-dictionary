@@ -8,6 +8,7 @@ services:
       POSTGRES_USER: ${PG_USER}
       POSTGRES_PASSWORD: ${PG_PASSWORD}
       PGDATA: /data/postgres
+      TZ: Europe/Moscow
     volumes:
       - postgres:/data/postgres
     ports:
@@ -18,6 +19,8 @@ services:
 
   golang:
     container_name: chetoru_golang_container
+    environment:
+      TZ: Europe/Moscow
     depends_on:
       - postgres
     build: .

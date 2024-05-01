@@ -67,7 +67,7 @@ func (s *Service) Start(ctx context.Context) {
 			continue
 		}
 
-		if update.InlineQuery != nil {
+		if update.InlineQuery != nil && update.InlineQuery.Query != "" {
 			err := s.HandleInline(ctx, &update)
 			if err != nil {
 				s.log.
