@@ -172,7 +172,12 @@ func (s *Service) HandleInline(ctx context.Context, update *tgbotapi.Update) err
 }
 
 func (s *Service) HandleStart(update *tgbotapi.Update) error {
-	_, err := s.bot.Send(tgbotapi.NewAnimation(update.Message.Chat.ID, tgbotapi.FilePath(PathInlineGIF)))
+	_, err := s.bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "Отправь мне слово на русском или чеченском, а я скину перевод. Ещё ты можешь пользоваться ботом в других переписках, пример на гифке."))
+	if err != nil {
+		return fmt.Errorf("bot.Send: %w", err)
+	}
+
+	_, err = s.bot.Send(tgbotapi.NewAnimation(update.Message.Chat.ID, tgbotapi.FilePath(PathInlineGIF)))
 	if err != nil {
 		return fmt.Errorf("bot.Send: %w", err)
 	}
