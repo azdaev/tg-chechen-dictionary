@@ -5,6 +5,7 @@ import (
 	"chetoru/tools"
 	"context"
 	"fmt"
+
 	"os"
 	"strconv"
 	"time"
@@ -12,6 +13,8 @@ import (
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 	"github.com/sirupsen/logrus"
 )
+
+const PathInlineGIF = "internal/service/inline.gif"
 
 type Repository interface {
 	StoreUser(ctx context.Context, userID int, username string) error
@@ -45,6 +48,16 @@ func (s *Service) Start(ctx context.Context) {
 
 	for update := range updates {
 		if update.Message != nil {
+			if update.Message.Command() == "start" {
+				err := s.HandleStart(&update)
+				if err != nil {
+					s.log.
+						WithError(err).
+						Error("service.HandleStart")
+				}
+				continue
+			}
+
 			if update.Message.Command() == "stats" {
 				err := s.HandleStats(ctx, &update)
 				if err != nil {
@@ -153,6 +166,15 @@ func (s *Service) HandleInline(ctx context.Context, update *tgbotapi.Update) err
 	err = s.repo.StoreActivity(ctx, int(update.InlineQuery.From.ID), entities.ActivityTypeInline)
 	if err != nil {
 		return fmt.Errorf("repo.StoreActivity: %w", err)
+	}
+
+	return nil
+}
+
+func (s *Service) HandleStart(update *tgbotapi.Update) error {
+	_, err := s.bot.Send(tgbotapi.NewAnimation(update.Message.Chat.ID, tgbotapi.FilePath(PathInlineGIF)))
+	if err != nil {
+		return fmt.Errorf("bot.Send: %w", err)
 	}
 
 	return nil
