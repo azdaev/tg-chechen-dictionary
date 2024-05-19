@@ -14,7 +14,7 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-const PathInlineGIF = "internal/service/inline.gif"
+const PathInlineVideo = "internal/service/inline.mp4"
 
 type Repository interface {
 	StoreUser(ctx context.Context, userID int, username string) error
@@ -172,12 +172,10 @@ func (s *Service) HandleInline(ctx context.Context, update *tgbotapi.Update) err
 }
 
 func (s *Service) HandleStart(update *tgbotapi.Update) error {
-	_, err := s.bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "Отправь мне слово на русском или чеченском, а я скину перевод. Ещё ты можешь пользоваться ботом в других переписках, пример на гифке."))
-	if err != nil {
-		return fmt.Errorf("bot.Send: %w", err)
-	}
+	video := tgbotapi.NewVideo(update.Message.Chat.ID, tgbotapi.FilePath(PathInlineVideo))
+	video.Caption = "Отправь мне слово на русском или чеченском, а я скину перевод. Ещё ты можешь пользоваться ботом в других переписках, как на видео"
 
-	_, err = s.bot.Send(tgbotapi.NewAnimation(update.Message.Chat.ID, tgbotapi.FilePath(PathInlineGIF)))
+	_, err := s.bot.Send(video)
 	if err != nil {
 		return fmt.Errorf("bot.Send: %w", err)
 	}
