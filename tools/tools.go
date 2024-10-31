@@ -23,7 +23,7 @@ func Translate(word string) []entities.TranslationResponse {
 	}
 	formWriter.Close()
 
-	req, err := http.NewRequest("POST", "https://ps95.ru/dikdosham/dosh.php", data)
+	req, err := http.NewRequest("POST", "https://ps95.ru/dikdosham/backend/get_translate.php", data)
 	if err != nil {
 		fmt.Println(err)
 	}
