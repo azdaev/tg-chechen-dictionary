@@ -1,8 +1,10 @@
 package main
 
 import (
+	"chetoru/internal/business"
+	"chetoru/internal/net"
 	"chetoru/internal/repository"
-	"chetoru/internal/service"
+
 	"context"
 	"database/sql"
 	"fmt"
@@ -48,6 +50,8 @@ func main() {
 
 	bot.Debug = false
 
-	botService := service.NewService(log, usersRepo, bot)
+	translatorBusiness := business.NewBusiness()
+
+	botService := net.NewNet(log, usersRepo, bot, translatorBusiness)
 	botService.Start(ctx)
 }

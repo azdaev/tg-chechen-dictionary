@@ -1,6 +1,17 @@
-package entities
+package models
 
 type TranslationResponse struct {
+	Data []struct {
+		DictName string `json:"dictName"`
+		Words    []struct {
+			Id        string `json:"id"`
+			Word      string `json:"word"`
+			Translate string `json:"translate"`
+		} `json:"words"`
+	} `json:"data"`
+}
+
+type TranslationPairs struct {
 	Original  string `json:"word"`
 	Translate string `json:"translate"`
 }

@@ -1,11 +1,11 @@
-package service
+package net
 
 import (
-	entities "chetoru/internal/models"
-	"chetoru/tools"
+	"chetoru/internal/models"
+	"chetoru/pkg/tools"
+
 	"context"
 	"fmt"
-
 	"os"
 	"strconv"
 	"time"
@@ -16,29 +16,35 @@ import (
 
 const PathInlineVideo = "internal/service/inline.mp4"
 
+type Business interface {
+	Translate(word string) []models.TranslationPairs
+}
+
 type Repository interface {
 	StoreUser(ctx context.Context, userID int, username string) error
-	StoreActivity(ctx context.Context, userID int, activityType entities.ActivityType) error
+	StoreActivity(ctx context.Context, userID int, activityType models.ActivityType) error
 	CountNewMonthlyUsers(ctx context.Context, month int, year int) (int, error)
-	DailyActiveUsersInMonth(ctx context.Context, month int, year int, days int) ([]entities.DailyActivity, error)
+	DailyActiveUsersInMonth(ctx context.Context, month int, year int, days int) ([]models.DailyActivity, error)
 	MonthlyActiveUsers(ctx context.Context, month int, year int) (int, error)
 }
 
-type Service struct {
-	log  *logrus.Logger
-	repo Repository
-	bot  *tgbotapi.BotAPI
+type Net struct {
+	log      *logrus.Logger
+	repo     Repository
+	business Business
+	bot      *tgbotapi.BotAPI
 }
 
-func NewService(log *logrus.Logger, repo Repository, bot *tgbotapi.BotAPI) *Service {
-	return &Service{
-		log:  log,
-		repo: repo,
-		bot:  bot,
+func NewNet(log *logrus.Logger, repo Repository, bot *tgbotapi.BotAPI, business Business) *Net {
+	return &Net{
+		log:      log,
+		repo:     repo,
+		bot:      bot,
+		business: business,
 	}
 }
 
-func (s *Service) Start(ctx context.Context) {
+func (s *Net) Start(ctx context.Context) {
 	s.log.Info("starting service")
 
 	u := tgbotapi.NewUpdate(0)
@@ -95,19 +101,19 @@ func (s *Service) Start(ctx context.Context) {
 	}
 }
 
-func (s *Service) HandleText(ctx context.Context, update *tgbotapi.Update) error {
+func (s *Net) HandleText(ctx context.Context, update *tgbotapi.Update) error {
 	err := s.repo.StoreUser(ctx, int(update.Message.From.ID), update.Message.From.UserName)
 	if err != nil {
 		return fmt.Errorf("repo.StoreUser: %w", err)
 	}
 
-	err = s.repo.StoreActivity(ctx, int(update.Message.From.ID), entities.ActivityTypeText)
+	err = s.repo.StoreActivity(ctx, int(update.Message.From.ID), models.ActivityTypeText)
 	if err != nil {
 		return fmt.Errorf("repo.StoreActivity: %w", err)
 	}
 
 	m := update.Message
-	translations := tools.Translate(m.Text)
+	translations := s.business.Translate(m.Text)
 	if len(translations) == 0 {
 		_, err = s.bot.Send(tgbotapi.NewMessage(m.Chat.ID, "К сожалению, нет перевода"))
 		if err != nil {
@@ -127,8 +133,8 @@ func (s *Service) HandleText(ctx context.Context, update *tgbotapi.Update) error
 	return nil
 }
 
-func (s *Service) HandleInline(ctx context.Context, update *tgbotapi.Update) error {
-	translations := tools.Translate(update.InlineQuery.Query)
+func (s *Net) HandleInline(ctx context.Context, update *tgbotapi.Update) error {
+	translations := s.business.Translate(update.InlineQuery.Query)
 
 	articles := make([]interface{}, len(translations))
 
@@ -163,7 +169,7 @@ func (s *Service) HandleInline(ctx context.Context, update *tgbotapi.Update) err
 		return fmt.Errorf("repo.StoreUser: %w", err)
 	}
 
-	err = s.repo.StoreActivity(ctx, int(update.InlineQuery.From.ID), entities.ActivityTypeInline)
+	err = s.repo.StoreActivity(ctx, int(update.InlineQuery.From.ID), models.ActivityTypeInline)
 	if err != nil {
 		return fmt.Errorf("repo.StoreActivity: %w", err)
 	}
@@ -171,7 +177,7 @@ func (s *Service) HandleInline(ctx context.Context, update *tgbotapi.Update) err
 	return nil
 }
 
-func (s *Service) HandleStart(update *tgbotapi.Update) error {
+func (s *Net) HandleStart(update *tgbotapi.Update) error {
 	video := tgbotapi.NewVideo(update.Message.Chat.ID, tgbotapi.FilePath(PathInlineVideo))
 	video.Caption = "Отправь мне слово на русском или чеченском, а я скину перевод. Ещё ты можешь пользоваться ботом в других переписках, как на видео"
 
@@ -183,7 +189,7 @@ func (s *Service) HandleStart(update *tgbotapi.Update) error {
 	return nil
 }
 
-func (s *Service) HandleStats(ctx context.Context, update *tgbotapi.Update) error {
+func (s *Net) HandleStats(ctx context.Context, update *tgbotapi.Update) error {
 	if strconv.Itoa(int(update.Message.From.ID)) != os.Getenv("TG_ADMIN_ID") {
 		return nil
 	}
@@ -208,7 +214,7 @@ func (s *Service) HandleStats(ctx context.Context, update *tgbotapi.Update) erro
 
 	msg := tgbotapi.NewMessage(
 		update.Message.Chat.ID,
-		tools.StatsMessageText(newMonthlyUsers, monthlyActiveUsers, dailyActiveUsersLastMonth),
+		statsMessageText(newMonthlyUsers, monthlyActiveUsers, dailyActiveUsersLastMonth),
 	)
 	msg.ParseMode = "html"
 
@@ -218,4 +224,25 @@ func (s *Service) HandleStats(ctx context.Context, update *tgbotapi.Update) erro
 	}
 
 	return nil
+}
+
+func statsMessageText(newMonthlyUsers int, monthlyActiveUsers int, dailyActivityInMonth []models.DailyActivity) string {
+	messageText := fmt.Sprintf(`
+<b>Статистика</b>
+
+Новых пользователей за месяц: %d
+
+Активных пользователей за месяц: %d
+
+Уникальных пользователей на протяжении месяца:
+<i>число месяца - кол-во уникальных пользователей - кол-во вызовов бота (включая инлайн)</i>
+
+`, newMonthlyUsers, monthlyActiveUsers)
+
+	for i, activity := range dailyActivityInMonth {
+		day := i + 1
+		messageText += fmt.Sprintf("%d - %d - %d\n", day, activity.ActiveUsers, activity.Calls)
+	}
+
+	return messageText
 }
