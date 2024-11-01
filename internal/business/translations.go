@@ -3,6 +3,7 @@ package business
 import (
 	"chetoru/internal/models"
 	"chetoru/pkg/tools"
+	"unicode/utf8"
 
 	"bytes"
 	"encoding/json"
@@ -55,6 +56,10 @@ func (b *Business) Translate(word string) []models.TranslationPairs {
 			translation.Original = tools.EscapeUnclosedTags(translation.Original)
 			translation.Translate = tools.EscapeUnclosedTags(translation.Translate)
 			translations = append(translations, translation)
+		}
+
+		if utf8.RuneCountInString(word) < 3 && len(translations) >= 30 {
+			break
 		}
 	}
 
