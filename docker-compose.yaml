@@ -37,7 +37,7 @@ services:
     volumes:
       - redis_data:/data
     ports:
-      - "6379:6379"
+      - "6380:6380"
     networks:
       - internal-network
     restart: unless-stopped
