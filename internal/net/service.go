@@ -14,7 +14,7 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-const PathInlineVideo = "internal/service/inline.mp4"
+const PathInlineVideo = "internal/net/inline.mp4"
 
 type Business interface {
 	Translate(word string) []models.TranslationPairs
