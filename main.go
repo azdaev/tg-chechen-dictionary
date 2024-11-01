@@ -2,6 +2,7 @@ package main
 
 import (
 	"chetoru/internal/business"
+	"chetoru/internal/cache"
 	"chetoru/internal/net"
 	"chetoru/internal/repository"
 
@@ -50,7 +51,8 @@ func main() {
 
 	bot.Debug = false
 
-	translatorBusiness := business.NewBusiness()
+	redisCache := cache.NewCache(os.Getenv("REDIS_ADDR"))
+	translatorBusiness := business.NewBusiness(redisCache)
 
 	botService := net.NewNet(log, usersRepo, bot, translatorBusiness)
 	botService.Start(ctx)

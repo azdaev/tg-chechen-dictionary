@@ -67,20 +67,20 @@ func NewNet(log *logrus.Logger, repo Repository, bot *tgbotapi.BotAPI, business 
 	}
 }
 
-func (s *Net) Start(ctx context.Context) {
-	s.log.Info("starting service")
+func (n *Net) Start(ctx context.Context) {
+	n.log.Info("starting service")
 
 	u := tgbotapi.NewUpdate(0)
 	u.Timeout = 60
 
-	updates := s.bot.GetUpdatesChan(u)
+	updates := n.bot.GetUpdatesChan(u)
 
 	for update := range updates {
 		// Обработка callback запросов
 		if update.CallbackQuery != nil && strings.HasPrefix(update.CallbackQuery.Data, "more_") {
-			err := s.HandleMoreTranslations(ctx, &update)
+			err := n.HandleMoreTranslations(ctx, &update)
 			if err != nil {
-				s.log.WithError(err).Error("service.HandleMoreTranslations")
+				n.log.WithError(err).Error("service.HandleMoreTranslations")
 			}
 			continue
 		}
@@ -88,9 +88,9 @@ func (s *Net) Start(ctx context.Context) {
 		// Обработка текстовых сообщений
 		if update.Message != nil {
 			if update.Message.Command() == "start" {
-				err := s.HandleStart(&update)
+				err := n.HandleStart(&update)
 				if err != nil {
-					s.log.
+					n.log.
 						WithError(err).
 						Error("service.HandleStart")
 				}
@@ -98,18 +98,18 @@ func (s *Net) Start(ctx context.Context) {
 			}
 
 			if update.Message.Command() == "stats" {
-				err := s.HandleStats(ctx, &update)
+				err := n.HandleStats(ctx, &update)
 				if err != nil {
-					s.log.
+					n.log.
 						WithError(err).
 						Error("service.HandleStats")
 				}
 				continue
 			}
 
-			err := s.HandleText(ctx, &update)
+			err := n.HandleText(ctx, &update)
 			if err != nil {
-				s.log.
+				n.log.
 					WithField("user_id", update.Message.From.ID).
 					WithField("username", update.Message.From.UserName).
 					WithField("message", update.Message.Text).
@@ -121,9 +121,9 @@ func (s *Net) Start(ctx context.Context) {
 
 		// Обработка inline запросов
 		if update.InlineQuery != nil && update.InlineQuery.Query != "" {
-			err := s.HandleInline(ctx, &update)
+			err := n.HandleInline(ctx, &update)
 			if err != nil {
-				s.log.
+				n.log.
 					WithField("user_id", update.InlineQuery.From.ID).
 					WithField("username", update.InlineQuery.From.UserName).
 					WithField("message", update.InlineQuery.Query).
@@ -135,21 +135,21 @@ func (s *Net) Start(ctx context.Context) {
 	}
 }
 
-func (s *Net) HandleText(ctx context.Context, update *tgbotapi.Update) error {
-	err := s.repo.StoreUser(ctx, int(update.Message.From.ID), update.Message.From.UserName)
+func (n *Net) HandleText(ctx context.Context, update *tgbotapi.Update) error {
+	err := n.repo.StoreUser(ctx, int(update.Message.From.ID), update.Message.From.UserName)
 	if err != nil {
 		return fmt.Errorf("repo.StoreUser: %w", err)
 	}
 
-	err = s.repo.StoreActivity(ctx, int(update.Message.From.ID), models.ActivityTypeText)
+	err = n.repo.StoreActivity(ctx, int(update.Message.From.ID), models.ActivityTypeText)
 	if err != nil {
 		return fmt.Errorf("repo.StoreActivity: %w", err)
 	}
 
 	m := update.Message
-	translations := s.business.Translate(m.Text)
+	translations := n.business.Translate(m.Text)
 	if len(translations) == 0 {
-		_, err = s.bot.Send(tgbotapi.NewMessage(m.Chat.ID, NoTranslationText))
+		_, err = n.bot.Send(tgbotapi.NewMessage(m.Chat.ID, NoTranslationText))
 		if err != nil {
 			return fmt.Errorf("bot.Send: %w", err)
 		}
@@ -180,7 +180,7 @@ func (s *Net) HandleText(ctx context.Context, update *tgbotapi.Update) error {
 		msg.Text += "\n\n" + MoreTranslationsHelpText
 	}
 
-	_, err = s.bot.Send(msg)
+	_, err = n.bot.Send(msg)
 	if err != nil {
 		return fmt.Errorf("bot.Send: %w", err)
 	}
@@ -188,8 +188,8 @@ func (s *Net) HandleText(ctx context.Context, update *tgbotapi.Update) error {
 	return nil
 }
 
-func (s *Net) HandleInline(ctx context.Context, update *tgbotapi.Update) error {
-	translations := s.business.Translate(update.InlineQuery.Query)
+func (n *Net) HandleInline(ctx context.Context, update *tgbotapi.Update) error {
+	translations := n.business.Translate(update.InlineQuery.Query)
 
 	articles := make([]interface{}, len(translations))
 
@@ -211,7 +211,7 @@ func (s *Net) HandleInline(ctx context.Context, update *tgbotapi.Update) error {
 		Results:       articles,
 	}
 
-	resp, err := s.bot.Request(inlineConf)
+	resp, err := n.bot.Request(inlineConf)
 	if err != nil {
 		return fmt.Errorf("bot.Request: %w", err)
 	}
@@ -219,12 +219,12 @@ func (s *Net) HandleInline(ctx context.Context, update *tgbotapi.Update) error {
 		return fmt.Errorf("bot.Request: %s", resp.Description)
 	}
 
-	err = s.repo.StoreUser(ctx, int(update.InlineQuery.From.ID), update.InlineQuery.From.UserName)
+	err = n.repo.StoreUser(ctx, int(update.InlineQuery.From.ID), update.InlineQuery.From.UserName)
 	if err != nil {
 		return fmt.Errorf("repo.StoreUser: %w", err)
 	}
 
-	err = s.repo.StoreActivity(ctx, int(update.InlineQuery.From.ID), models.ActivityTypeInline)
+	err = n.repo.StoreActivity(ctx, int(update.InlineQuery.From.ID), models.ActivityTypeInline)
 	if err != nil {
 		return fmt.Errorf("repo.StoreActivity: %w", err)
 	}
@@ -232,11 +232,11 @@ func (s *Net) HandleInline(ctx context.Context, update *tgbotapi.Update) error {
 	return nil
 }
 
-func (s *Net) HandleStart(update *tgbotapi.Update) error {
+func (n *Net) HandleStart(update *tgbotapi.Update) error {
 	video := tgbotapi.NewVideo(update.Message.Chat.ID, tgbotapi.FilePath(PathInlineVideo))
 	video.Caption = StartMessageText
 
-	_, err := s.bot.Send(video)
+	_, err := n.bot.Send(video)
 	if err != nil {
 		return fmt.Errorf("bot.Send: %w", err)
 	}
@@ -244,7 +244,7 @@ func (s *Net) HandleStart(update *tgbotapi.Update) error {
 	return nil
 }
 
-func (s *Net) HandleStats(ctx context.Context, update *tgbotapi.Update) error {
+func (n *Net) HandleStats(ctx context.Context, update *tgbotapi.Update) error {
 	if strconv.Itoa(int(update.Message.From.ID)) != os.Getenv("TG_ADMIN_ID") {
 		return nil
 	}
@@ -252,17 +252,17 @@ func (s *Net) HandleStats(ctx context.Context, update *tgbotapi.Update) error {
 	day := time.Now().Day()
 	month := int(time.Now().Month())
 	year := time.Now().Year()
-	newMonthlyUsers, err := s.repo.CountNewMonthlyUsers(ctx, month, year)
+	newMonthlyUsers, err := n.repo.CountNewMonthlyUsers(ctx, month, year)
 	if err != nil {
 		return fmt.Errorf("repo.CountNewMonthlyUsers: %w", err)
 	}
 
-	dailyActiveUsersLastMonth, err := s.repo.DailyActiveUsersInMonth(ctx, month, year, day)
+	dailyActiveUsersLastMonth, err := n.repo.DailyActiveUsersInMonth(ctx, month, year, day)
 	if err != nil {
 		return fmt.Errorf("repo.DailyActiveUsersInMonth: %w", err)
 	}
 
-	monthlyActiveUsers, err := s.repo.MonthlyActiveUsers(ctx, month, year)
+	monthlyActiveUsers, err := n.repo.MonthlyActiveUsers(ctx, month, year)
 	if err != nil {
 		return fmt.Errorf("repo.MonthlyActiveUsers: %w", err)
 	}
@@ -273,7 +273,7 @@ func (s *Net) HandleStats(ctx context.Context, update *tgbotapi.Update) error {
 	)
 	msg.ParseMode = "html"
 
-	_, err = s.bot.Send(msg)
+	_, err = n.bot.Send(msg)
 	if err != nil {
 		return fmt.Errorf("bot.Send: %w", err)
 	}
@@ -292,7 +292,7 @@ func statsMessageText(newMonthlyUsers int, monthlyActiveUsers int, dailyActivity
 	return messageText
 }
 
-func (s *Net) HandleMoreTranslations(ctx context.Context, update *tgbotapi.Update) error {
+func (n *Net) HandleMoreTranslations(ctx context.Context, update *tgbotapi.Update) error {
 	parts := strings.Split(update.CallbackQuery.Data, "_")
 	if len(parts) != 3 {
 		return fmt.Errorf("invalid callback data format")
@@ -301,7 +301,7 @@ func (s *Net) HandleMoreTranslations(ctx context.Context, update *tgbotapi.Updat
 	word := parts[1]                    // слово, которое нужно перевести
 	offset, _ := strconv.Atoi(parts[2]) // номер первого перевода, который нужно показать
 
-	translations := s.business.Translate(word)
+	translations := n.business.Translate(word)
 
 	// Получаем следующие 4 перевода
 	end := min(offset+4, len(translations))
@@ -323,14 +323,14 @@ func (s *Net) HandleMoreTranslations(ctx context.Context, update *tgbotapi.Updat
 		msg.ReplyMarkup = keyboard
 	}
 
-	_, err := s.bot.Send(msg)
+	_, err := n.bot.Send(msg)
 	if err != nil {
 		return fmt.Errorf("bot.Send: %w", err)
 	}
 
 	// Отвечаем на callback query, чтобы убрать "часики" с кнопки
 	callback := tgbotapi.NewCallback(update.CallbackQuery.ID, "")
-	_, err = s.bot.Request(callback)
+	_, err = n.bot.Request(callback)
 	if err != nil {
 		return fmt.Errorf("bot.Request: %w", err)
 	}

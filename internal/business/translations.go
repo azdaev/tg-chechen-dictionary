@@ -6,19 +6,33 @@ import (
 	"unicode/utf8"
 
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"mime/multipart"
 	"net/http"
+
+	"chetoru/internal/cache"
 )
 
-type Business struct{}
+type Business struct {
+	cache *cache.Cache
+}
 
-func NewBusiness() *Business {
-	return &Business{}
+func NewBusiness(cache *cache.Cache) *Business {
+	return &Business{
+		cache: cache,
+	}
 }
 
 func (b *Business) Translate(word string) []models.TranslationPairs {
+	// Пробуем получить перевод из кэша
+	translations, err := b.cache.Get(context.Background(), word)
+	if err == nil {
+		return translations
+	}
+
+	// Если в кэше нет, делаем запрос к API
 	values := map[string]string{
 		"word": word,
 	}
@@ -45,7 +59,7 @@ func (b *Business) Translate(word string) []models.TranslationPairs {
 
 	var response models.TranslationResponse
 	json.NewDecoder(resp.Body).Decode(&response)
-	translations := make([]models.TranslationPairs, 0)
+	translations = make([]models.TranslationPairs, 0)
 
 	for _, dict := range response.Data {
 		for _, word := range dict.Words {
@@ -61,6 +75,12 @@ func (b *Business) Translate(word string) []models.TranslationPairs {
 		if utf8.RuneCountInString(word) < 3 && len(translations) >= 30 {
 			break
 		}
+	}
+
+	// Сохраняем результат в кэш
+	err = b.cache.Set(context.Background(), word, translations)
+	if err != nil {
+		fmt.Printf("failed to cache translation: %v\n", err)
 	}
 
 	return translations

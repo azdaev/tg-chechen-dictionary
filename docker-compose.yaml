@@ -30,9 +30,22 @@ services:
       - internal-network
     restart: unless-stopped
 
+  redis:
+    container_name: chetoru_redis_container
+    image: redis:alpine
+    command: redis-server --save 60 1 --loglevel warning --appendonly yes
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"
+    networks:
+      - internal-network
+    restart: unless-stopped
+
 networks:
   internal-network:
     driver: bridge
 
 volumes:
   postgres:
+  redis_data:
