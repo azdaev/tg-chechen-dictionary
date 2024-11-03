@@ -44,5 +44,5 @@ func (c *Cache) Set(ctx context.Context, key string, translations []models.Trans
 		return err
 	}
 
-	return c.client.Set(ctx, key, data, 24*time.Hour).Err()
+	return c.client.Set(ctx, key, data, 24*30*time.Hour).Err()
 }

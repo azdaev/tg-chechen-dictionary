@@ -8,20 +8,23 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"fmt"
 	"mime/multipart"
 	"net/http"
 
 	"chetoru/internal/cache"
+
+	"github.com/sirupsen/logrus"
 )
 
 type Business struct {
 	cache *cache.Cache
+	log   *logrus.Logger
 }
 
-func NewBusiness(cache *cache.Cache) *Business {
+func NewBusiness(cache *cache.Cache, log *logrus.Logger) *Business {
 	return &Business{
 		cache: cache,
+		log:   log,
 	}
 }
 
@@ -46,14 +49,14 @@ func (b *Business) Translate(word string) []models.TranslationPairs {
 
 	req, err := http.NewRequest("POST", "https://ps95.ru/dikdosham/backend/get_translate.php", data)
 	if err != nil {
-		fmt.Println(err)
+		b.log.Printf("failed to create request: %v\n", err)
 	}
 	req.Header.Set("Content-Type", formWriter.FormDataContentType())
 
 	client := &http.Client{}
 	resp, err := client.Do(req)
 	if err != nil {
-		fmt.Println(err)
+		b.log.Printf("failed to do request: %v\n", err)
 	}
 	defer resp.Body.Close()
 
@@ -78,10 +81,12 @@ func (b *Business) Translate(word string) []models.TranslationPairs {
 	}
 
 	// Сохраняем результат в кэш
-	err = b.cache.Set(context.Background(), word, translations)
-	if err != nil {
-		fmt.Printf("failed to cache translation: %v\n", err)
-	}
+	go func() {
+		err = b.cache.Set(context.Background(), word, translations)
+		if err != nil {
+			b.log.Printf("failed to cache translation: %v\n", err)
+		}
+	}()
 
 	return translations
 }
