@@ -13,8 +13,6 @@ services:
       REDIS_ADDR: redis:6379
       TG_BOT_TOKEN: ${TG_BOT_TOKEN}
       TG_ADMIN_ID: ${TG_ADMIN_ID}
-    depends_on:
-      - postgres
     build: .
     ports:
       - "8081:8081"
