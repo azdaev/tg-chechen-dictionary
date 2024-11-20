@@ -13,7 +13,6 @@ import (
 	"os/signal"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
-	"github.com/joho/godotenv"
 	_ "github.com/lib/pq"
 	"github.com/sirupsen/logrus"
 )
@@ -23,10 +22,6 @@ func main() {
 	defer cancel()
 
 	log := logrus.New()
-
-	if err := godotenv.Load(); err != nil {
-		panic("no .env file found")
-	}
 
 	psqlInfo := fmt.Sprintf(
 		"host=%s port=%s user=%s password=%s dbname=%s sslmode=disable",
