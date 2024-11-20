@@ -13,9 +13,12 @@ services:
       REDIS_ADDR: redis:6379
       TG_BOT_TOKEN: ${TG_BOT_TOKEN}
       TG_ADMIN_ID: ${TG_ADMIN_ID}
+      GOPROXY: https://proxy.golang.org,direct
     build: .
     ports:
       - "8081:8081"
+    dns:
+      - 8.8.8.8
     networks:
       - internal-network
     restart: unless-stopped
