@@ -5,10 +5,13 @@ services:
     container_name: chetoru_postgres_container
     image: postgres
     environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
+      POSTGRES_USER: ${PG_USER}
+      POSTGRES_DB: ${PG_DB_NAME}
+      POSTGRES_PASSWORD: ${PG_PASSWORD}
       PGDATA: /data/postgres
       TZ: Europe/Moscow
+    env_file:
+      - .env
     volumes:
       - postgres:/data/postgres
     ports:
