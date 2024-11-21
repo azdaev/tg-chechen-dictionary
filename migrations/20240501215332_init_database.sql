@@ -17,6 +17,6 @@ create table if not exists activity (
 
 -- +goose Down
 -- +goose StatementBegin
-drop table if exists users;
 drop table if exists activity;
+drop table if exists users;
 -- +goose StatementEnd
