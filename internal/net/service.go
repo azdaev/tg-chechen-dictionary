@@ -135,7 +135,20 @@ func (n *Net) Start(ctx context.Context) {
 }
 
 func (n *Net) HandleText(ctx context.Context, update *tgbotapi.Update) error {
-	err := n.repo.StoreUser(ctx, int(update.Message.From.ID), update.Message.From.UserName)
+	loaderMessage, err := n.bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "⌛️"))
+	if err != nil {
+		return fmt.Errorf("bot.Send: %w", err)
+	}
+
+	defer func() {
+		n.bot.Send(
+			tgbotapi.NewDeleteMessage(update.Message.Chat.ID, loaderMessage.MessageID),
+		)
+	}()
+
+	n.bot.Send(tgbotapi.NewChatAction(update.Message.Chat.ID, tgbotapi.ChatTyping))
+
+	err = n.repo.StoreUser(ctx, int(update.Message.From.ID), update.Message.From.UserName)
 	if err != nil {
 		return fmt.Errorf("repo.StoreUser: %w", err)
 	}

@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"database/sql"
 	"time"
 )
 
@@ -22,6 +23,9 @@ func (r *Repository) GetLastDonationMessage(ctx context.Context, userID int) (ti
 		userID,
 	).Scan(&lastSent)
 
+	if err == sql.ErrNoRows {
+		return time.Time{}, err
+	}
 	if err != nil {
 		return time.Time{}, err
 	}
@@ -30,10 +34,12 @@ func (r *Repository) GetLastDonationMessage(ctx context.Context, userID int) (ti
 
 func (r *Repository) ShouldSendDonationMessage(ctx context.Context, userID int) (bool, error) {
 	lastSent, err := r.GetLastDonationMessage(ctx, userID)
-	if err == nil {
-		// If we found a last message, check if a week has passed
-		return time.Since(lastSent) > 7*24*time.Hour, nil
+	if err == sql.ErrNoRows {
+		return true, nil
 	}
-	// If no message was found (err != nil), we should send one
-	return true, nil
+	if err != nil {
+		return false, err
+	}
+	// If we found a last message, check if a week has passed
+	return time.Since(lastSent) > 7*24*time.Hour, nil
 }
