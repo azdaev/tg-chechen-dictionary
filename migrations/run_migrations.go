@@ -3,6 +3,7 @@ package main
 import (
 	"database/sql"
 	"embed"
+	"flag"
 	"fmt"
 	"log"
 	"os"
@@ -15,6 +16,9 @@ import (
 var embedMigrations embed.FS
 
 func main() {
+	isDown := flag.Bool("down", false, "set this flag to run down migrations")
+	flag.Parse()
+
 	psqlInfo := fmt.Sprintf(
 		"host=%s port=%s user=%s password=%s dbname=%s sslmode=disable",
 		os.Getenv("PG_HOST"),
@@ -35,7 +39,16 @@ func main() {
 		log.Fatal(err)
 	}
 
-	if err := goose.Up(db, "."); err != nil {
-		log.Fatal(err)
+	switch {
+	case *isDown:
+		if err := goose.Down(db, "."); err != nil {
+			log.Fatal(err)
+		}
+	default:
+		if err := goose.Up(db, "."); err != nil {
+			log.Fatal(err)
+		}
 	}
+
+	log.Println("Migration complete")
 }
