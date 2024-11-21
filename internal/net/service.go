@@ -32,7 +32,8 @@ const (
 Уникальных пользователей на протяжении месяца:
 <i>число месяца - кол-во уникальных пользователей - кол-во вызовов бота (включая инлайн)</i>
 `
-	DailyStatsFormat = "%d - %d - %d\n"
+	DailyStatsFormat      = "%d - %d - %d\n"
+	DonationMessageFormat = "Чтобы наш проект мог продолжить работать, вы можете помочь нам:\n\n%s"
 )
 
 type Business interface {
@@ -45,6 +46,8 @@ type Repository interface {
 	CountNewMonthlyUsers(ctx context.Context, month int, year int) (int, error)
 	DailyActiveUsersInMonth(ctx context.Context, month int, year int, days int) ([]models.DailyActivity, error)
 	MonthlyActiveUsers(ctx context.Context, month int, year int) (int, error)
+	ShouldSendDonationMessage(ctx context.Context, userID int) (bool, error)
+	StoreDonationMessage(ctx context.Context, userID int) error
 }
 
 type Net struct {
@@ -179,6 +182,25 @@ func (n *Net) HandleText(ctx context.Context, update *tgbotapi.Update) error {
 	_, err = n.bot.Send(msg)
 	if err != nil {
 		return fmt.Errorf("bot.Send: %w", err)
+	}
+
+	// Check if we should send a donation message
+	shouldSend, err := n.repo.ShouldSendDonationMessage(ctx, int(update.Message.From.ID))
+	if err != nil {
+		return fmt.Errorf("failed to check donation message status: %w", err)
+	}
+
+	if shouldSend {
+		donationMsg := tgbotapi.NewMessage(m.Chat.ID, fmt.Sprintf(DonationMessageFormat, os.Getenv("DONATION_LINK")))
+		_, err = n.bot.Send(donationMsg)
+		if err != nil {
+			return fmt.Errorf("failed to send donation message: %w", err)
+		}
+
+		err = n.repo.StoreDonationMessage(ctx, int(update.Message.From.ID))
+		if err != nil {
+			return fmt.Errorf("failed to store donation message: %w", err)
+		}
 	}
 
 	return nil
