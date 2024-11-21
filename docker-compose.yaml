@@ -32,6 +32,7 @@ services:
       REDIS_ADDR: ${REDIS_ADDR}
       TG_BOT_TOKEN: ${TG_BOT_TOKEN}
       TG_ADMIN_ID: ${TG_ADMIN_ID}
+      DONATION_LINK: ${DONATION_LINK}
     env_file:
       - .env # for local
     depends_on:
