@@ -39,6 +39,11 @@ func main() {
 	defer db.Close()
 	usersRepo := repository.NewRepository(db)
 
+	err = db.Ping()
+	if err != nil {
+		log.Fatal("cannot ping database", err)
+	}
+
 	bot, err := tgbotapi.NewBotAPI(os.Getenv("TG_BOT_TOKEN"))
 	if err != nil {
 		panic(err)
