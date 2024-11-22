@@ -33,7 +33,7 @@ const (
 <i>число месяца - кол-во уникальных пользователей - кол-во вызовов бота (включая инлайн)</i>
 `
 	DailyStatsFormat      = "%d - %d - %d\n"
-	DonationMessageFormat = "Чтобы наш проект мог продолжить работать, вы можете помочь нам"
+	DonationMessageFormat = "🌱 Чтобы наш проект мог продолжить работать, вы можете помочь нам"
 )
 
 type Business interface {
@@ -207,7 +207,7 @@ func (n *Net) HandleText(ctx context.Context, update *tgbotapi.Update) error {
 		donationMsg := tgbotapi.NewMessage(m.Chat.ID, DonationMessageFormat)
 		donationMsg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(
 			tgbotapi.NewInlineKeyboardRow(
-				tgbotapi.NewInlineKeyboardButtonURL("Поддержать нас", os.Getenv("DONATION_LINK")),
+				tgbotapi.NewInlineKeyboardButtonURL("🚀 Поддержать нас", os.Getenv("DONATION_LINK")),
 			),
 		)
 		_, err = n.bot.Send(donationMsg)
