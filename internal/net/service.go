@@ -338,6 +338,13 @@ func (n *Net) HandleMoreTranslations(ctx context.Context, update *tgbotapi.Updat
 	offset, _ := strconv.Atoi(parts[2]) // номер первого перевода, который нужно показать
 
 	translations := n.business.Translate(word)
+	if len(translations) == 0 {
+		_, err := n.bot.Send(tgbotapi.NewMessage(update.CallbackQuery.Message.Chat.ID, NoTranslationText))
+		if err != nil {
+			return fmt.Errorf("bot.Send: %w", err)
+		}
+		return nil
+	}
 
 	// Получаем следующие 4 перевода
 	end := min(offset+4, len(translations))
