@@ -4,11 +4,10 @@ import (
 	"database/sql"
 	"embed"
 	"flag"
-	"fmt"
 	"log"
 	"os"
 
-	_ "github.com/lib/pq"
+	_ "github.com/mattn/go-sqlite3"
 	"github.com/pressly/goose/v3"
 )
 
@@ -19,23 +18,19 @@ func main() {
 	isDown := flag.Bool("down", false, "set this flag to run down migrations")
 	flag.Parse()
 
-	psqlInfo := fmt.Sprintf(
-		"host=%s port=%s user=%s password=%s dbname=%s sslmode=disable",
-		os.Getenv("PG_HOST"),
-		os.Getenv("PG_PORT"),
-		os.Getenv("PG_USER"),
-		os.Getenv("PG_PASSWORD"),
-		os.Getenv("PG_DB_NAME"),
-	)
+	dbPath := os.Getenv("DB_PATH")
+	if dbPath == "" {
+		dbPath = "./database.db"
+	}
 
-	db, err := sql.Open("postgres", psqlInfo)
+	db, err := sql.Open("sqlite3", dbPath)
 	if err != nil {
 		log.Fatal(err)
 	}
 
 	goose.SetBaseFS(embedMigrations)
 
-	if err := goose.SetDialect("postgres"); err != nil {
+	if err := goose.SetDialect("sqlite3"); err != nil {
 		log.Fatal(err)
 	}
 
