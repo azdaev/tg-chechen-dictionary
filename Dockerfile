@@ -1,13 +1,15 @@
-FROM golang:1.24.1
+FROM golang:1.23-alpine
 
 WORKDIR /app
 
-COPY go.mod go.sum ./   
+# Install dependencies
+RUN apk add --no-cache gcc musl-dev sqlite-dev
+
+# Copy and build
+COPY go.mod go.sum ./
 RUN go mod download
 
 COPY . .
+RUN go build -o chetoru .
 
-RUN go build -o /chetoru
-RUN go build -o /app/migrate ./migrations/run_migrations.go
-
-CMD ["/chetoru"]
+CMD ["./chetoru"]
