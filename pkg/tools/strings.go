@@ -167,7 +167,8 @@ func parseExamples(text string) []string {
 	var examples []string
 
 	// Сначала разделим по точкам с запятой
-	for part := range strings.SplitSeq(text, ";") {
+	parts := strings.Split(text, ";")
+	for _, part := range parts {
 		part = strings.TrimSpace(part)
 		if part == "" {
 			continue
