@@ -78,7 +78,7 @@ func FormatTranslation(text string) string {
 
 		// Добавляем номер значения
 		if i > 0 && i-1 < len(meaningNumbers) {
-			result.WriteString(fmt.Sprintf("%s%s ", getNumberEmoji(meaningIndex), meaningNumbers[i-1]))
+			result.WriteString(fmt.Sprintf("%s ", getNumberEmoji(meaningIndex)))
 			meaningIndex++
 		} else if i == 0 && len(meaningNumbers) == 0 {
 			// Если всего одно значение без нумерации
@@ -97,10 +97,12 @@ func FormatTranslation(text string) string {
 		if semicolonIndex == -1 {
 			// Нет примеров, только основной перевод
 			mainTranslation := cleanTranslation(meaning)
+			mainTranslation = expandAbbreviations(mainTranslation)
 			result.WriteString(mainTranslation)
 		} else {
 			// Есть основной перевод и примеры
 			mainTranslation := cleanTranslation(meaning[:semicolonIndex])
+			mainTranslation = expandAbbreviations(mainTranslation)
 			examples := meaning[semicolonIndex+1:]
 
 			result.WriteString(mainTranslation)
@@ -114,6 +116,8 @@ func FormatTranslation(text string) string {
 					if word != "" {
 						example = replaceTildeWithWord(example, word)
 					}
+					// Заменяем сокращения в примерах
+					example = expandAbbreviations(example)
 					result.WriteString(fmt.Sprintf("   • %s\n", example))
 				}
 			}
@@ -199,6 +203,11 @@ func parseExamples(text string) []string {
 		}
 	}
 
+	// Ограничиваем количество примеров до 5
+	if len(examples) > 5 {
+		examples = examples[:5]
+	}
+
 	return examples
 }
 
@@ -219,22 +228,43 @@ func replaceTildeWithWord(text, word string) string {
 
 	// Получаем основу слова для правильного склонения
 	wordBase := getWordBase(word)
+	lowerWord := strings.ToLower(word)
 
-	// Заменяем различные варианты тильды
+	// Словарь популярных окончаний для правильного склонения
+	commonEndings := map[string]string{
+		"а":    wordBase + "а",    // родительный ед.ч.
+		"у":    wordBase + "у",    // дательный ед.ч.
+		"ом":   wordBase + "ом",   // творительный ед.ч.
+		"е":    wordBase + "е",    // предложный ед.ч.
+		"ой":   wordBase + "ой",   // творительный ед.ч. (жен.род)
+		"ах":   wordBase + "ах",   // предложный мн.ч.
+		"ами":  wordBase + "ами",  // творительный мн.ч.
+		"ы":    wordBase + "ы",    // именительный мн.ч.
+		"и":    wordBase + "и",    // именительный мн.ч. / родительный ед.ч. (жен.род)
+		"ях":   wordBase + "ях",   // предложный мн.ч. (мягкая основа)
+		"ями":  wordBase + "ями",  // творительный мн.ч. (мягкая основа)
+		"ов":   wordBase + "ов",   // родительный мн.ч. (муж.род)
+		"ев":   wordBase + "ев",   // родительный мн.ч. (мягкая основа)
+		"ам":   wordBase + "ам",   // дательный мн.ч.
+		"ём":   wordBase + "ём",   // творительный ед.ч. (мягкая основа)
+		"о":    lowerWord,         // винительный ед.ч. (для слов типа "слово")
+	}
+
 	result := text
 
-	// Простая замена ~а, ~у, ~ой и т.д. на основу + окончание
+	// Сначала заменяем конкретные окончания из словаря
 	tildeRe := regexp.MustCompile(`~([а-яё]+)`)
 	result = tildeRe.ReplaceAllStringFunc(result, func(match string) string {
 		ending := match[1:] // убираем тильду
-		if ending == "" {
-			return strings.ToLower(word) // если нет окончания, возвращаем полное слово в нижнем регистре
+		if replacement, exists := commonEndings[ending]; exists {
+			return replacement
 		}
+		// Если окончание не найдено в словаре, используем базовую замену
 		return wordBase + ending
 	})
 
-	// Замена одиночной тильды на полное слово (которая не была заменена выше)
-	result = strings.ReplaceAll(result, "~", strings.ToLower(word))
+	// Замена одиночной тильды на полное слово
+	result = strings.ReplaceAll(result, "~", lowerWord)
 
 	return result
 }
@@ -253,4 +283,66 @@ func getWordBase(word string) string {
 	}
 
 	return word
+}
+
+// expandAbbreviations заменяет словарные сокращения на полные формы
+func expandAbbreviations(text string) string {
+	// Словарь сокращений и их расшифровок
+	abbreviations := map[string]string{
+		"тж.":        "также",
+		"вводн. сл.": "(вводное слово)",
+		"разг.":      "(разговорное)",
+		"прост.":     "(просторечие)",
+		"перен.":     "(переносное)",
+		"устар.":     "(устаревшее)",
+		"книжн.":     "(книжное)",
+		"офиц.":      "(официальное)",
+		"спец.":      "(специальное)",
+		"мед.":       "(медицинское)",
+		"воен.":      "(военное)",
+		"юр.":        "(юридическое)",
+		"тех.":       "(техническое)",
+		"муз.":       "(музыкальное)",
+		"мат.":       "(математическое)",
+		"физ.":       "(физическое)",
+		"хим.":       "(химическое)",
+		"биол.":      "(биологическое)",
+		"геол.":      "(геологическое)",
+		"бот.":       "(ботаническое)",
+		"зоол.":      "(зоологическое)",
+		"геогр.":     "(географическое)",
+		"ист.":       "(историческое)",
+		"эк.":        "(экономическое)",
+		"полит.":     "(политическое)",
+		"рел.":       "(религиозное)",
+		"филос.":     "(философское)",
+		"лит.":       "(литературное)",
+		"поэт.":      "(поэтическое)",
+		"ирон.":      "(ироничное)",
+		"шутл.":      "(шутливое)",
+		"пренебр.":   "(пренебрежительное)",
+		"ласк.":      "(ласкательное)",
+		"уменьш.":    "уменьшительное",
+		"увелич.":    "(увеличительное)",
+		"собир.":     "(собирательное)",
+		"множ.":      "(множественное)",
+		"ед.":        "(единственное)",
+		"мн.":        "(множественное)",
+		"им.":        "(именительный)",
+		"род.":       "(родительный)",
+		"дат.":       "(дательный)",
+		"вин.":       "(винительный)",
+		"тв.":        "(творительный)",
+		"пр.":        "(предложный)",
+	}
+
+	result := text
+
+	// Заменяем сокращения с учетом границ слов
+	for abbrev, expansion := range abbreviations {
+		// Простая замена всех вхождений
+		result = strings.ReplaceAll(result, abbrev, expansion)
+	}
+
+	return result
 }
