@@ -46,3 +46,29 @@ func (c *Cache) Set(ctx context.Context, key string, translations []models.Trans
 
 	return c.client.Set(ctx, key, data, 24*30*time.Hour).Err()
 }
+
+// GetTranslationResult получает кэшированный результат с отформатированным текстом
+func (c *Cache) GetTranslationResult(ctx context.Context, key string) (*models.TranslationResult, error) {
+	val, err := c.client.Get(ctx, "formatted_"+key).Result()
+	if err != nil {
+		return nil, err
+	}
+
+	var result models.TranslationResult
+	err = json.Unmarshal([]byte(val), &result)
+	if err != nil {
+		return nil, err
+	}
+
+	return &result, nil
+}
+
+// SetTranslationResult сохраняет результат с отформатированным текстом
+func (c *Cache) SetTranslationResult(ctx context.Context, key string, result *models.TranslationResult) error {
+	data, err := json.Marshal(result)
+	if err != nil {
+		return err
+	}
+
+	return c.client.Set(ctx, "formatted_"+key, data, 24*30*time.Hour).Err()
+}

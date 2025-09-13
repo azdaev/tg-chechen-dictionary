@@ -15,6 +15,12 @@ type TranslationPairs struct {
 	Translate string `json:"translate"`
 }
 
+// TranslationResult содержит переводы и отформатированный текст для кэширования
+type TranslationResult struct {
+	Pairs     []TranslationPairs `json:"pairs"`
+	Formatted string             `json:"formatted"`
+}
+
 type ActivityType int8
 
 const (

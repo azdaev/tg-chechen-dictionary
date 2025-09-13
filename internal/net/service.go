@@ -38,6 +38,7 @@ const (
 
 type Business interface {
 	Translate(word string) []models.TranslationPairs
+	TranslateFormatted(word string) *models.TranslationResult
 }
 
 type Repository interface {
@@ -159,8 +160,8 @@ func (n *Net) HandleText(ctx context.Context, update *tgbotapi.Update) error {
 	}
 
 	m := update.Message
-	translations := n.business.Translate(m.Text)
-	if len(translations) == 0 {
+	result := n.business.TranslateFormatted(m.Text)
+	if len(result.Pairs) == 0 {
 		_, err = n.bot.Send(tgbotapi.NewMessage(m.Chat.ID, NoTranslationText))
 		if err != nil {
 			return fmt.Errorf("bot.Send: %w", err)
@@ -168,17 +169,27 @@ func (n *Net) HandleText(ctx context.Context, update *tgbotapi.Update) error {
 		return nil
 	}
 
-	// Показываем только первые 4 перевода
-	firstTranslations := translations
-	if len(translations) > MaxTranslations {
-		firstTranslations = translations[:MaxTranslations]
+	// Показываем только первые 4 перевода для кнопки "Еще"
+	firstTranslations := result.Pairs
+	if len(result.Pairs) > MaxTranslations {
+		firstTranslations = result.Pairs[:MaxTranslations]
 	}
 
-	msg := tgbotapi.NewMessage(m.Chat.ID, formatTranslations(firstTranslations))
+	// Используем кэшированный отформатированный текст для первых переводов
+	var messageText string
+	if len(result.Pairs) <= MaxTranslations {
+		// Все переводы помещаются - используем полный отформатированный текст
+		messageText = result.Formatted
+	} else {
+		// Нужно показать только первые 4 - форматируем их отдельно
+		messageText = formatTranslations(firstTranslations)
+	}
+
+	msg := tgbotapi.NewMessage(m.Chat.ID, messageText)
 	msg.ParseMode = "html"
 
-	if len(translations) > MaxTranslations {
-		remainingCount := len(translations) - MaxTranslations
+	if len(result.Pairs) > MaxTranslations {
+		remainingCount := len(result.Pairs) - MaxTranslations
 		keyboard := tgbotapi.NewInlineKeyboardMarkup(
 			tgbotapi.NewInlineKeyboardRow(
 				tgbotapi.NewInlineKeyboardButtonData(
@@ -385,7 +396,20 @@ func (n *Net) HandleMoreTranslations(ctx context.Context, update *tgbotapi.Updat
 func formatTranslations(translations []models.TranslationPairs) string {
 	var result string
 	for _, t := range translations {
-		result += fmt.Sprintf("<b>%s</b> - %s\n\n", t.Original, t.Translate)
+		// Используем новое форматирование если перевод содержит словарную статью
+		if strings.Contains(t.Original, "**") || strings.Contains(t.Translate, "**") {
+			// Определяем, какое поле содержит словарную статью
+			if strings.Contains(t.Translate, "**") {
+				formatted := tools.FormatTranslation(t.Translate)
+				result += formatted + "\n\n"
+			} else if strings.Contains(t.Original, "**") {
+				formatted := tools.FormatTranslation(t.Original)
+				result += formatted + "\n\n"
+			}
+		} else {
+			// Обычное форматирование для простых переводов
+			result += fmt.Sprintf("<b>%s</b> - %s\n\n", t.Original, t.Translate)
+		}
 	}
 	return result
 }

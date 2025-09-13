@@ -10,7 +10,9 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/sirupsen/logrus"
 )
@@ -141,4 +143,56 @@ func (b *Business) Translate(word string) []models.TranslationPairs {
 	}()
 
 	return translations
+}
+
+// TranslateFormatted возвращает переводы с отформатированным текстом, используя кэширование
+func (b *Business) TranslateFormatted(word string) *models.TranslationResult {
+	// Пробуем получить отформатированный результат из кэша
+	result, err := b.cache.GetTranslationResult(context.Background(), word)
+	if err == nil {
+		return result
+	}
+
+	// Если в кэше нет, получаем переводы обычным способом
+	translations := b.Translate(word)
+	if len(translations) == 0 {
+		return &models.TranslationResult{
+			Pairs:     []models.TranslationPairs{},
+			Formatted: "",
+		}
+	}
+
+	// Форматируем результат
+	var formattedResult string
+	for _, t := range translations {
+		// Используем новое форматирование если перевод содержит словарную статью
+		if strings.Contains(t.Original, "**") || strings.Contains(t.Translate, "**") {
+			// Определяем, какое поле содержит словарную статью
+			if strings.Contains(t.Translate, "**") {
+				formatted := tools.FormatTranslation(t.Translate)
+				formattedResult += formatted + "\n\n"
+			} else if strings.Contains(t.Original, "**") {
+				formatted := tools.FormatTranslation(t.Original)
+				formattedResult += formatted + "\n\n"
+			}
+		} else {
+			// Обычное форматирование для простых переводов
+			formattedResult += fmt.Sprintf("<b>%s</b> - %s\n\n", t.Original, t.Translate)
+		}
+	}
+
+	result = &models.TranslationResult{
+		Pairs:     translations,
+		Formatted: strings.TrimSpace(formattedResult),
+	}
+
+	// Сохраняем отформатированный результат в кэш
+	go func() {
+		err = b.cache.SetTranslationResult(context.Background(), word, result)
+		if err != nil {
+			b.log.Printf("failed to cache formatted translation: %v\n", err)
+		}
+	}()
+
+	return result
 }
