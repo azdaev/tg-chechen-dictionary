@@ -19,7 +19,7 @@ func NewRepository(db *sql.DB) *Repository {
 func (r *Repository) StoreUser(ctx context.Context, userID int, username string) error {
 	_, err := r.db.ExecContext(
 		ctx,
-		"INSERT INTO users (user_id, username) VALUES ($1, $2) ON CONFLICT (user_id) DO NOTHING;",
+		"INSERT OR IGNORE INTO users (user_id, username) VALUES (?, ?);",
 		userID, username,
 	)
 	return err
@@ -28,7 +28,7 @@ func (r *Repository) StoreUser(ctx context.Context, userID int, username string)
 func (r *Repository) StoreActivity(ctx context.Context, userID int, activityType entities.ActivityType) error {
 	_, err := r.db.ExecContext(
 		ctx,
-		"INSERT INTO activity (user_id, activity_type) VALUES ($1, $2);",
+		"INSERT INTO activity (user_id, activity_type) VALUES (?, ?);",
 		userID, activityType,
 	)
 	return err
@@ -38,7 +38,7 @@ func (r *Repository) CountNewMonthlyUsers(ctx context.Context, month int, year i
 	count := 0
 	row := r.db.QueryRowContext(
 		ctx,
-		"SELECT COUNT(id) FROM users WHERE EXTRACT(MONTH FROM created_at AT TIME ZONE 'europe/moscow') = $1 AND EXTRACT(YEAR FROM created_at AT TIME ZONE 'europe/moscow') = $2;",
+		"SELECT COUNT(id) FROM users WHERE strftime('%m', created_at) = ? AND strftime('%Y', created_at) = ?;",
 		month, year,
 	)
 	err := row.Scan(&count)
@@ -53,7 +53,7 @@ func (r *Repository) DailyActiveUsersInMonth(ctx context.Context, month int, yea
 	result := make([]entities.DailyActivity, days)
 	rows, err := r.db.QueryContext(
 		ctx,
-		"SELECT day, COUNT(DISTINCT user_id) as \"dau\", COUNT(*) as \"calls\" FROM (SELECT user_id, EXTRACT(DAY FROM created_at AT TIME ZONE 'europe/moscow') as \"day\"  FROM activity WHERE EXTRACT(MONTH FROM created_at AT TIME ZONE 'europe/moscow') = $1 AND EXTRACT(YEAR FROM created_at AT TIME ZONE 'europe/moscow') = $2) GROUP BY day;",
+		"SELECT day, COUNT(DISTINCT user_id) as \"dau\", COUNT(*) as \"calls\" FROM (SELECT user_id, strftime('%d', created_at) as \"day\"  FROM activity WHERE strftime('%m', created_at) = ? AND strftime('%Y', created_at) = ?) GROUP BY day;",
 		month, year,
 	)
 	if err != nil {
@@ -78,7 +78,7 @@ func (r *Repository) MonthlyActiveUsers(ctx context.Context, month int, year int
 	count := 0
 	row := r.db.QueryRowContext(
 		ctx,
-		"SELECT COUNT(DISTINCT user_id) FROM activity WHERE EXTRACT(MONTH FROM created_at AT TIME ZONE 'europe/moscow') = $1 AND EXTRACT(YEAR FROM created_at AT TIME ZONE 'europe/moscow') = $2;",
+		"SELECT COUNT(DISTINCT user_id) FROM activity WHERE strftime('%m', created_at) = ? AND strftime('%Y', created_at) = ?;",
 		month, year,
 	)
 

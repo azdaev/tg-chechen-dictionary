@@ -1,17 +1,17 @@
 -- +goose Up
 -- +goose StatementBegin
 create table if not exists users (
-                                     id serial primary key,
+                                     id integer primary key autoincrement,
                                      user_id varchar(255) not null unique,
                                      username varchar(255) not null unique,
-                                     created_at timestamptz not null default now()
+                                     created_at datetime not null default current_timestamp
 );
 
 create table if not exists activity (
-                                        id serial primary key,
+                                        id integer primary key autoincrement,
                                         user_id varchar(255) not null references users(user_id) on delete cascade,
                                         activity_type integer not null,
-                                        created_at timestamptz not null default now()
+                                        created_at datetime not null default current_timestamp
 );
 -- +goose StatementEnd
 

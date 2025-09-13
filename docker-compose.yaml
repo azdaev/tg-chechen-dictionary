@@ -1,43 +1,22 @@
 version: "3"
 
 services:
-  postgres:
-    container_name: chetoru_postgres_container
-    image: postgres
-    environment:
-      POSTGRES_USER: ${PG_USER}
-      POSTGRES_DB: ${PG_DB_NAME}
-      POSTGRES_PASSWORD: ${PG_PASSWORD}
-      PGDATA: /data/postgres
-      TZ: Europe/Moscow
-    env_file:
-      - .env
-    volumes:
-      - postgres:/data/postgres
-    networks:
-      - internal-network
-    restart: unless-stopped
-
   golang:
     container_name: chetoru_golang_container
     environment:
       TZ: Europe/Moscow
-      PG_HOST: ${PG_HOST} # for prod
-      PG_USER: ${PG_USER}
-      PG_PASSWORD: ${PG_PASSWORD}
-      PG_DB_NAME: ${PG_DB_NAME}
-      PG_PORT: ${PG_PORT}
+      DB_PATH: ${DB_PATH}
       REDIS_ADDR: ${REDIS_ADDR}
       TG_BOT_TOKEN: ${TG_BOT_TOKEN}
       TG_ADMIN_ID: ${TG_ADMIN_ID}
       DONATION_LINK: ${DONATION_LINK}
     env_file:
       - .env # for local
-    depends_on:
-      - postgres
     build: .
     ports:
       - "8081:8081"
+    volumes:
+      - ./data:/app/data
     networks:
       - internal-network
     restart: unless-stopped
@@ -57,5 +36,4 @@ networks:
     driver: bridge
 
 volumes:
-  postgres:
   redis_data:

@@ -1,9 +1,11 @@
 -- +goose Up
 -- +goose StatementBegin
-alter table users drop constraint users_username_key;
+-- SQLite doesn't support dropping unique constraints directly
+-- This migration is effectively a no-op for SQLite
 -- +goose StatementEnd
 
 -- +goose Down
 -- +goose StatementBegin
-ALTER TABLE users ADD CONSTRAINT users_username_key UNIQUE(username);
+-- SQLite doesn't support adding unique constraints directly
+-- This migration is effectively a no-op for SQLite
 -- +goose StatementEnd

@@ -9,7 +9,7 @@ import (
 func (r *Repository) StoreDonationMessage(ctx context.Context, userID int) error {
 	_, err := r.db.ExecContext(
 		ctx,
-		"INSERT INTO donation_messages (user_id) VALUES ($1);",
+		"INSERT INTO donation_messages (user_id) VALUES (?);",
 		userID,
 	)
 	return err
@@ -19,7 +19,7 @@ func (r *Repository) GetLastDonationMessage(ctx context.Context, userID int) (ti
 	var lastSent time.Time
 	err := r.db.QueryRowContext(
 		ctx,
-		"SELECT sent_at FROM donation_messages WHERE user_id = $1 ORDER BY sent_at DESC LIMIT 1;",
+		"SELECT sent_at FROM donation_messages WHERE user_id = ? ORDER BY sent_at DESC LIMIT 1;",
 		userID,
 	).Scan(&lastSent)
 
