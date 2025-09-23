@@ -4,6 +4,7 @@ import (
 	entities "chetoru/internal/models"
 	"context"
 	"database/sql"
+	"fmt"
 )
 
 type Repository struct {
@@ -39,7 +40,7 @@ func (r *Repository) CountNewMonthlyUsers(ctx context.Context, month int, year i
 	row := r.db.QueryRowContext(
 		ctx,
 		"SELECT COUNT(id) FROM users WHERE strftime('%m', created_at) = ? AND strftime('%Y', created_at) = ?;",
-		month, year,
+		fmt.Sprintf("%02d", month), fmt.Sprintf("%04d", year),
 	)
 	err := row.Scan(&count)
 	if err != nil {
@@ -54,17 +55,23 @@ func (r *Repository) DailyActiveUsersInMonth(ctx context.Context, month int, yea
 	rows, err := r.db.QueryContext(
 		ctx,
 		"SELECT day, COUNT(DISTINCT user_id) as \"dau\", COUNT(*) as \"calls\" FROM (SELECT user_id, strftime('%d', created_at) as \"day\"  FROM activity WHERE strftime('%m', created_at) = ? AND strftime('%Y', created_at) = ?) GROUP BY day;",
-		month, year,
+		fmt.Sprintf("%02d", month), fmt.Sprintf("%04d", year),
 	)
 	if err != nil {
 		return nil, err
 	}
+	defer rows.Close()
 
 	for rows.Next() {
 		day, dau, calls := 0, 0, 0
 		err = rows.Scan(&day, &dau, &calls)
 		if err != nil {
 			return nil, err
+		}
+
+		// Проверяем границы массива
+		if day < 1 || day > days {
+			continue
 		}
 
 		result[day-1].ActiveUsers = dau
@@ -79,7 +86,7 @@ func (r *Repository) MonthlyActiveUsers(ctx context.Context, month int, year int
 	row := r.db.QueryRowContext(
 		ctx,
 		"SELECT COUNT(DISTINCT user_id) FROM activity WHERE strftime('%m', created_at) = ? AND strftime('%Y', created_at) = ?;",
-		month, year,
+		fmt.Sprintf("%02d", month), fmt.Sprintf("%04d", year),
 	)
 
 	err := row.Scan(&count)
