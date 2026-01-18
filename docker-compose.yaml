@@ -21,7 +21,7 @@ services:
 
   redis:
     container_name: chetoru_redis_container
-    image: redis:alpine
+    image: redis:7-alpine
     command: redis-server --save 60 1 --loglevel warning --appendonly yes
     volumes:
       - redis_data:/data
