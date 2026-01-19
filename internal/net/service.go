@@ -52,8 +52,10 @@ type Repository interface {
 	ShouldSendDonationMessage(ctx context.Context, userID int) (bool, error)
 	StoreDonationMessage(ctx context.Context, userID int) error
 	ListPendingTranslationPairs(ctx context.Context, limit int) ([]repository.TranslationPair, error)
+	ListPendingTranslationPairsByWord(ctx context.Context, cleanWord string, limit int) ([]repository.TranslationPair, error)
 	MarkTranslationPairsSent(ctx context.Context, ids []int64) error
 	SetTranslationPairApproval(ctx context.Context, id int64, approved bool, approvedBy string) error
+	FindApprovedTranslationPairs(ctx context.Context, cleanWord string, limit int) ([]models.TranslationPairs, error)
 }
 
 type Net struct {
@@ -344,6 +346,8 @@ func (n *Net) HandleText(ctx context.Context, update *tgbotapi.Update) error {
 		return fmt.Errorf("bot.Send: %w", err)
 	}
 
+	n.maybeSendAutoModeration(ctx, m.Text)
+
 	// Check if we should send a donation message
 	shouldSend, err := n.repo.ShouldSendDonationMessage(ctx, int(update.Message.From.ID))
 	if err != nil {
@@ -369,6 +373,44 @@ func (n *Net) HandleText(ctx context.Context, update *tgbotapi.Update) error {
 	}
 
 	return nil
+}
+
+func (n *Net) maybeSendAutoModeration(ctx context.Context, word string) {
+	cleanWord := strings.ToLower(strings.TrimSpace(tools.Clean(word)))
+	if cleanWord == "" {
+		return
+	}
+
+	approved, err := n.repo.FindApprovedTranslationPairs(ctx, cleanWord, 1)
+	if err != nil || len(approved) > 0 {
+		return
+	}
+
+	pairs, err := n.repo.ListPendingTranslationPairsByWord(ctx, cleanWord, 20)
+	if err != nil || len(pairs) == 0 {
+		return
+	}
+
+	modChatID := moderationChatID()
+	ids := make([]int64, 0, len(pairs))
+	for _, pair := range pairs {
+		ids = append(ids, pair.ID)
+		text := formatModerationMessage(pair)
+		msg := tgbotapi.NewMessage(modChatID, text)
+		msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(
+			tgbotapi.NewInlineKeyboardRow(
+				tgbotapi.NewInlineKeyboardButtonData("✅ Approve", fmt.Sprintf("mod_approve_%d", pair.ID)),
+				tgbotapi.NewInlineKeyboardButtonData("❌ Reject", fmt.Sprintf("mod_reject_%d", pair.ID)),
+			),
+		)
+		if _, err := n.bot.Send(msg); err != nil {
+			n.log.WithError(err).WithField("pair_id", pair.ID).Warn("failed to send moderation message")
+		}
+	}
+
+	if err := n.repo.MarkTranslationPairsSent(ctx, ids); err != nil {
+		n.log.WithError(err).Warn("failed to mark moderation as sent")
+	}
 }
 
 func (n *Net) HandleInline(ctx context.Context, update *tgbotapi.Update) error {

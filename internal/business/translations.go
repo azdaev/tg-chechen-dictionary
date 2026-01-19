@@ -3,6 +3,7 @@ package business
 import (
 	"chetoru/internal/cache"
 	"chetoru/internal/models"
+	"chetoru/internal/repository"
 	"chetoru/pkg/tools"
 	"sort"
 	"unicode/utf8"
@@ -12,6 +13,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"database/sql"
 	"strings"
 
 	"github.com/sirupsen/logrus"
@@ -25,6 +27,7 @@ type Business struct {
 
 type DictionaryRepository interface {
 	FindApprovedTranslationPairs(ctx context.Context, cleanWord string, limit int) ([]models.TranslationPairs, error)
+	InsertTranslationPair(ctx context.Context, pair repository.TranslationPair) error
 }
 
 func NewBusiness(cache *cache.Cache, dictRepo DictionaryRepository, log *logrus.Logger) *Business {
@@ -136,6 +139,29 @@ func (b *Business) Translate(word string) []models.TranslationPairs {
 				translationPair.Original = tools.EscapeUnclosedTags(translationPair.Original)
 				translationPair.Translate = tools.EscapeUnclosedTags(translationPair.Translate)
 				translations = append(translations, translationPair)
+
+				if b.dictRepo != nil {
+					originalLang := inferOriginalLang(translation.LanguageCode)
+					if originalLang != "" {
+						pair := repository.TranslationPair{
+							OriginalRaw:         strings.TrimSpace(entry.Content),
+							OriginalClean:       normalizeText(entry.Content),
+							OriginalLang:        originalLang,
+							TranslationRaw:      strings.TrimSpace(translation.Content),
+							TranslationClean:    normalizeText(translation.Content),
+							TranslationLang:     translation.LanguageCode,
+							Source:              "api",
+							SourceEntryID:       toNullString(entry.EntryID),
+							SourceTranslationID: toNullString(translation.TranslationID),
+							IsApproved:          false,
+						}
+						if pair.OriginalClean != "" && pair.TranslationClean != "" {
+							if err := b.dictRepo.InsertTranslationPair(context.Background(), pair); err != nil {
+								b.log.Printf("failed to insert dictionary pair: %v\n", err)
+							}
+						}
+					}
+				}
 			}
 		}
 
@@ -168,6 +194,31 @@ func (b *Business) Translate(word string) []models.TranslationPairs {
 	}()
 
 	return translations
+}
+
+func normalizeText(text string) string {
+	clean := tools.Clean(text)
+	clean = strings.TrimSpace(clean)
+	clean = strings.ToLower(clean)
+	return clean
+}
+
+func inferOriginalLang(translationLang string) string {
+	switch translationLang {
+	case "RUS":
+		return "CHE"
+	case "CHE":
+		return "RUS"
+	default:
+		return ""
+	}
+}
+
+func toNullString(v string) sql.NullString {
+	if strings.TrimSpace(v) == "" {
+		return sql.NullString{}
+	}
+	return sql.NullString{String: v, Valid: true}
 }
 
 // TranslateFormatted возвращает переводы с отформатированным текстом, используя кэширование

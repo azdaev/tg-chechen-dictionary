@@ -108,6 +108,65 @@ func (r *Repository) ListPendingTranslationPairs(ctx context.Context, limit int)
 	return result, rows.Err()
 }
 
+func (r *Repository) ListPendingTranslationPairsByWord(ctx context.Context, cleanWord string, limit int) ([]TranslationPair, error) {
+	if limit <= 0 {
+		limit = 20
+	}
+
+	rows, err := r.db.QueryContext(
+		ctx,
+		`select
+			id,
+			original_raw,
+			original_clean,
+			original_lang,
+			translation_raw,
+			translation_clean,
+			translation_lang,
+			source,
+			source_entry_id,
+			source_translation_id,
+			is_approved,
+			moderation_sent_at
+		from dictionary_pairs
+		where is_approved = 0
+		  and moderation_sent_at is null
+		  and (original_clean = ? or translation_clean = ?)
+		limit ?;`,
+		cleanWord, cleanWord, limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	result := make([]TranslationPair, 0, limit)
+	for rows.Next() {
+		var pair TranslationPair
+		var isApproved int
+		if err := rows.Scan(
+			&pair.ID,
+			&pair.OriginalRaw,
+			&pair.OriginalClean,
+			&pair.OriginalLang,
+			&pair.TranslationRaw,
+			&pair.TranslationClean,
+			&pair.TranslationLang,
+			&pair.Source,
+			&pair.SourceEntryID,
+			&pair.SourceTranslationID,
+			&isApproved,
+			&pair.ModerationSentAt,
+		); err != nil {
+			return nil, err
+		}
+		pair.IsApproved = isApproved == 1
+		result = append(result, pair)
+	}
+
+	return result, rows.Err()
+}
+
 func (r *Repository) MarkTranslationPairsSent(ctx context.Context, ids []int64) error {
 	if len(ids) == 0 {
 		return nil
