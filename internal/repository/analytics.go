@@ -35,6 +35,28 @@ func (r *Repository) StoreActivity(ctx context.Context, userID int, activityType
 	return err
 }
 
+func (r *Repository) ListUserIDs(ctx context.Context) ([]int64, error) {
+	rows, err := r.db.QueryContext(
+		ctx,
+		"SELECT user_id FROM users;",
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var ids []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+
+	return ids, rows.Err()
+}
+
 func (r *Repository) CountNewMonthlyUsers(ctx context.Context, month int, year int) (int, error) {
 	count := 0
 	row := r.db.QueryRowContext(

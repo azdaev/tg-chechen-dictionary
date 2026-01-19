@@ -36,7 +36,16 @@ const (
 	DailyStatsFormat      = "%d - %d - %d\n"
 	DonationMessageFormat = "🌱 Чтобы наш проект мог продолжить работать, вы можете помочь нам"
 	DefaultModerationChat = int64(-5204234916)
+	BroadcastParseMode    = "html"
+	BroadcastSendDelay    = 100 * time.Millisecond
 )
+
+type broadcastPayload struct {
+	Text     string
+	PhotoID  string
+	Caption  string
+	HasPhoto bool
+}
 
 type Business interface {
 	Translate(word string) []models.TranslationPairs
@@ -51,6 +60,7 @@ type Repository interface {
 	MonthlyActiveUsers(ctx context.Context, month int, year int) (int, error)
 	ShouldSendDonationMessage(ctx context.Context, userID int) (bool, error)
 	StoreDonationMessage(ctx context.Context, userID int) error
+	ListUserIDs(ctx context.Context) ([]int64, error)
 	ListPendingTranslationPairs(ctx context.Context, limit int) ([]repository.TranslationPair, error)
 	ListPendingTranslationPairsByWord(ctx context.Context, cleanWord string, limit int) ([]repository.TranslationPair, error)
 	MarkTranslationPairsSent(ctx context.Context, ids []int64) error
@@ -59,10 +69,12 @@ type Repository interface {
 }
 
 type Net struct {
-	log      *logrus.Logger
-	repo     Repository
-	business Business
-	bot      *tgbotapi.BotAPI
+	log               *logrus.Logger
+	repo              Repository
+	business          Business
+	bot               *tgbotapi.BotAPI
+	awaitingBroadcast bool
+	pendingBroadcast  *broadcastPayload
 }
 
 func NewNet(log *logrus.Logger, repo Repository, bot *tgbotapi.BotAPI, business Business) *Net {
@@ -84,6 +96,13 @@ func (n *Net) Start(ctx context.Context) {
 
 	for update := range updates {
 		// Обработка callback запросов
+		if update.CallbackQuery != nil && strings.HasPrefix(update.CallbackQuery.Data, "broadcast_") {
+			err := n.HandleBroadcastCallback(ctx, &update)
+			if err != nil {
+				n.log.WithError(err).Error("service.HandleBroadcastCallback")
+			}
+			continue
+		}
 		if update.CallbackQuery != nil && strings.HasPrefix(update.CallbackQuery.Data, "more_") {
 			err := n.HandleMoreTranslations(ctx, &update)
 			if err != nil {
@@ -129,6 +148,34 @@ func (n *Net) Start(ctx context.Context) {
 				}
 				continue
 			}
+			if update.Message.Command() == "broadcast" {
+				err := n.HandleBroadcast(ctx, &update)
+				if err != nil {
+					n.log.
+						WithError(err).
+						Error("service.HandleBroadcast")
+				}
+				continue
+			}
+			if update.Message.Command() == "broadcast_cancel" {
+				err := n.HandleBroadcastCancel(&update)
+				if err != nil {
+					n.log.
+						WithError(err).
+						Error("service.HandleBroadcastCancel")
+				}
+				continue
+			}
+
+			if n.isAwaitingBroadcastContent(&update) {
+				err := n.HandleBroadcastContent(&update)
+				if err != nil {
+					n.log.
+						WithError(err).
+						Error("service.HandleBroadcastContent")
+				}
+				continue
+			}
 
 			err := n.HandleText(ctx, &update)
 			if err != nil {
@@ -156,6 +203,202 @@ func (n *Net) Start(ctx context.Context) {
 			continue
 		}
 	}
+}
+
+func (n *Net) HandleBroadcast(ctx context.Context, update *tgbotapi.Update) error {
+	if !n.isAdmin(update.Message.From.ID) {
+		return nil
+	}
+
+	n.awaitingBroadcast = true
+	n.pendingBroadcast = nil
+	msg := tgbotapi.NewMessage(update.Message.Chat.ID, "Отправьте текст или фото с подписью. Я покажу превью перед рассылкой.")
+	_, err := n.bot.Send(msg)
+	return err
+}
+
+func (n *Net) HandleBroadcastCancel(update *tgbotapi.Update) error {
+	if !n.isAdmin(update.Message.From.ID) {
+		return nil
+	}
+
+	n.awaitingBroadcast = false
+	n.pendingBroadcast = nil
+	msg := tgbotapi.NewMessage(update.Message.Chat.ID, "Рассылка отменена.")
+	_, err := n.bot.Send(msg)
+	return err
+}
+
+func (n *Net) HandleBroadcastContent(update *tgbotapi.Update) error {
+	if !n.isAdmin(update.Message.From.ID) {
+		return nil
+	}
+
+	payload, err := buildBroadcastPayload(update.Message)
+	if err != nil {
+		msg := tgbotapi.NewMessage(update.Message.Chat.ID, err.Error())
+		_, sendErr := n.bot.Send(msg)
+		if sendErr != nil {
+			return sendErr
+		}
+		return nil
+	}
+
+	n.awaitingBroadcast = false
+	n.pendingBroadcast = payload
+	preview, err := n.sendBroadcastPreview(update.Message.Chat.ID, payload)
+	if err != nil {
+		return err
+	}
+	_, err = n.bot.Send(preview)
+	return err
+}
+
+func (n *Net) HandleBroadcastCallback(ctx context.Context, update *tgbotapi.Update) error {
+	if update.CallbackQuery == nil {
+		return nil
+	}
+
+	if !n.isAdmin(update.CallbackQuery.From.ID) {
+		return nil
+	}
+
+	data := update.CallbackQuery.Data
+	switch data {
+	case "broadcast_send":
+		return n.sendBroadcast(ctx, update)
+	case "broadcast_cancel":
+		n.pendingBroadcast = nil
+		callback := tgbotapi.NewCallback(update.CallbackQuery.ID, "Отменено")
+		_, err := n.bot.Request(callback)
+		if err != nil {
+			return fmt.Errorf("bot.Request: %w", err)
+		}
+		msg := tgbotapi.NewMessage(update.CallbackQuery.Message.Chat.ID, "Рассылка отменена.")
+		_, err = n.bot.Send(msg)
+		return err
+	default:
+		return nil
+	}
+}
+
+func (n *Net) sendBroadcast(ctx context.Context, update *tgbotapi.Update) error {
+	payload := n.pendingBroadcast
+	if payload == nil {
+		callback := tgbotapi.NewCallback(update.CallbackQuery.ID, "Нет данных для рассылки")
+		_, err := n.bot.Request(callback)
+		return err
+	}
+
+	userIDs, err := n.repo.ListUserIDs(ctx)
+	if err != nil {
+		return fmt.Errorf("repo.ListUserIDs: %w", err)
+	}
+
+	sent := 0
+	failed := 0
+	for _, userID := range userIDs {
+		sendErr := n.sendBroadcastPayload(userID, payload)
+		if sendErr != nil {
+			failed++
+			n.log.WithError(sendErr).WithField("user_id", userID).Warn("broadcast send failed")
+		} else {
+			sent++
+		}
+		time.Sleep(BroadcastSendDelay)
+	}
+
+	n.pendingBroadcast = nil
+
+	callback := tgbotapi.NewCallback(update.CallbackQuery.ID, "Рассылка запущена")
+	if _, err := n.bot.Request(callback); err != nil {
+		return fmt.Errorf("bot.Request: %w", err)
+	}
+
+	summary := fmt.Sprintf("Рассылка завершена. Всего: %d, отправлено: %d, ошибки: %d", len(userIDs), sent, failed)
+	msg := tgbotapi.NewMessage(update.CallbackQuery.Message.Chat.ID, summary)
+	_, err = n.bot.Send(msg)
+	return err
+}
+
+func (n *Net) sendBroadcastPreview(chatID int64, payload *broadcastPayload) (tgbotapi.Chattable, error) {
+	if payload.HasPhoto {
+		preview := tgbotapi.NewPhoto(chatID, tgbotapi.FileID(payload.PhotoID))
+		preview.Caption = payload.Caption
+		preview.ParseMode = BroadcastParseMode
+		preview.ReplyMarkup = broadcastPreviewKeyboard()
+		return preview, nil
+	}
+
+	preview := tgbotapi.NewMessage(chatID, payload.Text)
+	preview.ParseMode = BroadcastParseMode
+	preview.ReplyMarkup = broadcastPreviewKeyboard()
+	return preview, nil
+}
+
+func (n *Net) sendBroadcastPayload(chatID int64, payload *broadcastPayload) error {
+	if payload.HasPhoto {
+		msg := tgbotapi.NewPhoto(chatID, tgbotapi.FileID(payload.PhotoID))
+		msg.Caption = payload.Caption
+		msg.ParseMode = BroadcastParseMode
+		_, err := n.bot.Send(msg)
+		return err
+	}
+
+	msg := tgbotapi.NewMessage(chatID, payload.Text)
+	msg.ParseMode = BroadcastParseMode
+	_, err := n.bot.Send(msg)
+	return err
+}
+
+func (n *Net) isAwaitingBroadcastContent(update *tgbotapi.Update) bool {
+	if update.Message == nil {
+		return false
+	}
+
+	if !n.awaitingBroadcast {
+		return false
+	}
+
+	return n.isAdmin(update.Message.From.ID)
+}
+
+func (n *Net) isAdmin(userID int64) bool {
+	return strconv.Itoa(int(userID)) == os.Getenv("TG_ADMIN_ID")
+}
+
+func buildBroadcastPayload(message *tgbotapi.Message) (*broadcastPayload, error) {
+	if message == nil {
+		return nil, fmt.Errorf("Нет сообщения для рассылки")
+	}
+
+	if message.Photo != nil && len(message.Photo) > 0 {
+		photo := message.Photo[len(message.Photo)-1]
+		caption := message.Caption
+		return &broadcastPayload{
+			PhotoID:  photo.FileID,
+			Caption:  caption,
+			HasPhoto: true,
+		}, nil
+	}
+
+	text := strings.TrimSpace(message.Text)
+	if text == "" {
+		return nil, fmt.Errorf("Нужен текст или фото с подписью для рассылки")
+	}
+
+	return &broadcastPayload{
+		Text: text,
+	}, nil
+}
+
+func broadcastPreviewKeyboard() tgbotapi.InlineKeyboardMarkup {
+	return tgbotapi.NewInlineKeyboardMarkup(
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("✅ Отправить", "broadcast_send"),
+			tgbotapi.NewInlineKeyboardButtonData("❌ Отмена", "broadcast_cancel"),
+		),
+	)
 }
 
 func (n *Net) HandleModerate(ctx context.Context, update *tgbotapi.Update) error {
