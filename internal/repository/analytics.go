@@ -38,7 +38,7 @@ func (r *Repository) StoreActivity(ctx context.Context, userID int, activityType
 func (r *Repository) ListUserIDs(ctx context.Context) ([]int64, error) {
 	rows, err := r.db.QueryContext(
 		ctx,
-		"SELECT user_id FROM users;",
+		"SELECT user_id FROM users WHERE is_blocked = 0;",
 	)
 	if err != nil {
 		return nil, err
@@ -55,6 +55,24 @@ func (r *Repository) ListUserIDs(ctx context.Context) ([]int64, error) {
 	}
 
 	return ids, rows.Err()
+}
+
+func (r *Repository) MarkUserBlocked(ctx context.Context, userID int64, reason string) error {
+	_, err := r.db.ExecContext(
+		ctx,
+		"UPDATE users SET is_blocked = 1, blocked_at = current_timestamp, blocked_reason = ? WHERE user_id = ?;",
+		reason, userID,
+	)
+	return err
+}
+
+func (r *Repository) MarkUserUnblocked(ctx context.Context, userID int64) error {
+	_, err := r.db.ExecContext(
+		ctx,
+		"UPDATE users SET is_blocked = 0, blocked_at = null, blocked_reason = null WHERE user_id = ?;",
+		userID,
+	)
+	return err
 }
 
 func (r *Repository) CountNewMonthlyUsers(ctx context.Context, month int, year int) (int, error) {

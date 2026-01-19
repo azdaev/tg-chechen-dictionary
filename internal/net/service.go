@@ -61,6 +61,8 @@ type Repository interface {
 	ShouldSendDonationMessage(ctx context.Context, userID int) (bool, error)
 	StoreDonationMessage(ctx context.Context, userID int) error
 	ListUserIDs(ctx context.Context) ([]int64, error)
+	MarkUserBlocked(ctx context.Context, userID int64, reason string) error
+	MarkUserUnblocked(ctx context.Context, userID int64) error
 	ListPendingTranslationPairs(ctx context.Context, limit int) ([]repository.TranslationPair, error)
 	ListPendingTranslationPairsByWord(ctx context.Context, cleanWord string, limit int) ([]repository.TranslationPair, error)
 	MarkTranslationPairsSent(ctx context.Context, ids []int64) error
@@ -266,7 +268,17 @@ func (n *Net) HandleBroadcastCallback(ctx context.Context, update *tgbotapi.Upda
 	data := update.CallbackQuery.Data
 	switch data {
 	case "broadcast_send":
-		return n.sendBroadcast(ctx, update)
+		callback := tgbotapi.NewCallback(update.CallbackQuery.ID, "Отправляю")
+		if _, err := n.bot.Request(callback); err != nil {
+			return fmt.Errorf("bot.Request: %w", err)
+		}
+
+		go func() {
+			if err := n.sendBroadcast(ctx, update); err != nil {
+				n.log.WithError(err).Error("service.sendBroadcast")
+			}
+		}()
+		return nil
 	case "broadcast_cancel":
 		n.pendingBroadcast = nil
 		callback := tgbotapi.NewCallback(update.CallbackQuery.ID, "Отменено")
@@ -297,10 +309,18 @@ func (n *Net) sendBroadcast(ctx context.Context, update *tgbotapi.Update) error 
 
 	sent := 0
 	failed := 0
+	blocked := 0
 	for _, userID := range userIDs {
 		sendErr := n.sendBroadcastPayload(userID, payload)
 		if sendErr != nil {
 			failed++
+			if n.isBlockedError(sendErr) {
+				if err := n.repo.MarkUserBlocked(ctx, userID, sendErr.Error()); err != nil {
+					n.log.WithError(err).WithField("user_id", userID).Warn("failed to mark user blocked")
+				} else {
+					blocked++
+				}
+			}
 			n.log.WithError(sendErr).WithField("user_id", userID).Warn("broadcast send failed")
 		} else {
 			sent++
@@ -310,12 +330,7 @@ func (n *Net) sendBroadcast(ctx context.Context, update *tgbotapi.Update) error 
 
 	n.pendingBroadcast = nil
 
-	callback := tgbotapi.NewCallback(update.CallbackQuery.ID, "Рассылка запущена")
-	if _, err := n.bot.Request(callback); err != nil {
-		return fmt.Errorf("bot.Request: %w", err)
-	}
-
-	summary := fmt.Sprintf("Рассылка завершена. Всего: %d, отправлено: %d, ошибки: %d", len(userIDs), sent, failed)
+	summary := fmt.Sprintf("Рассылка завершена. Всего: %d, отправлено: %d, ошибки: %d, заблокировано: %d", len(userIDs), sent, failed, blocked)
 	msg := tgbotapi.NewMessage(update.CallbackQuery.Message.Chat.ID, summary)
 	_, err = n.bot.Send(msg)
 	return err
@@ -399,6 +414,16 @@ func broadcastPreviewKeyboard() tgbotapi.InlineKeyboardMarkup {
 			tgbotapi.NewInlineKeyboardButtonData("❌ Отмена", "broadcast_cancel"),
 		),
 	)
+}
+
+func (n *Net) isBlockedError(err error) bool {
+	if err == nil {
+		return false
+	}
+	errStr := err.Error()
+	return strings.Contains(errStr, "bot was blocked") ||
+		strings.Contains(errStr, "user is deactivated") ||
+		strings.Contains(errStr, "chat not found")
 }
 
 func (n *Net) HandleModerate(ctx context.Context, update *tgbotapi.Update) error {
@@ -533,6 +558,10 @@ func (n *Net) HandleText(ctx context.Context, update *tgbotapi.Update) error {
 	err = n.repo.StoreUser(ctx, int(update.Message.From.ID), update.Message.From.UserName)
 	if err != nil {
 		return fmt.Errorf("repo.StoreUser: %w", err)
+	}
+
+	if err := n.repo.MarkUserUnblocked(ctx, update.Message.From.ID); err != nil {
+		n.log.WithError(err).WithField("user_id", update.Message.From.ID).Warn("failed to unblock user")
 	}
 
 	err = n.repo.StoreActivity(ctx, int(update.Message.From.ID), models.ActivityTypeText)
@@ -690,6 +719,10 @@ func (n *Net) HandleInline(ctx context.Context, update *tgbotapi.Update) error {
 	err = n.repo.StoreUser(ctx, int(update.InlineQuery.From.ID), update.InlineQuery.From.UserName)
 	if err != nil {
 		return fmt.Errorf("repo.StoreUser: %w", err)
+	}
+
+	if err := n.repo.MarkUserUnblocked(ctx, update.InlineQuery.From.ID); err != nil {
+		n.log.WithError(err).WithField("user_id", update.InlineQuery.From.ID).Warn("failed to unblock user")
 	}
 
 	err = n.repo.StoreActivity(ctx, int(update.InlineQuery.From.ID), models.ActivityTypeInline)
