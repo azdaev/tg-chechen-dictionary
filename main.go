@@ -47,7 +47,7 @@ func main() {
 	bot.Debug = false
 
 	redisCache := cache.NewCache(os.Getenv("REDIS_ADDR"))
-	translatorBusiness := business.NewBusiness(redisCache, log)
+	translatorBusiness := business.NewBusiness(redisCache, usersRepo, log)
 
 	botService := net.NewNet(log, usersRepo, bot, translatorBusiness)
 	botService.Start(ctx)

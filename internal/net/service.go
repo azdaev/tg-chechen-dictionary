@@ -2,6 +2,7 @@ package net
 
 import (
 	"chetoru/internal/models"
+	"chetoru/internal/repository"
 	"chetoru/pkg/tools"
 
 	"context"
@@ -34,6 +35,7 @@ const (
 `
 	DailyStatsFormat      = "%d - %d - %d\n"
 	DonationMessageFormat = "🌱 Чтобы наш проект мог продолжить работать, вы можете помочь нам"
+	DefaultModerationChat = int64(-5204234916)
 )
 
 type Business interface {
@@ -49,6 +51,9 @@ type Repository interface {
 	MonthlyActiveUsers(ctx context.Context, month int, year int) (int, error)
 	ShouldSendDonationMessage(ctx context.Context, userID int) (bool, error)
 	StoreDonationMessage(ctx context.Context, userID int) error
+	ListPendingTranslationPairs(ctx context.Context, limit int) ([]repository.TranslationPair, error)
+	MarkTranslationPairsSent(ctx context.Context, ids []int64) error
+	SetTranslationPairApproval(ctx context.Context, id int64, approved bool, approvedBy string) error
 }
 
 type Net struct {
@@ -84,6 +89,13 @@ func (n *Net) Start(ctx context.Context) {
 			}
 			continue
 		}
+		if update.CallbackQuery != nil && strings.HasPrefix(update.CallbackQuery.Data, "mod_") {
+			err := n.HandleModerationCallback(ctx, &update)
+			if err != nil {
+				n.log.WithError(err).Error("service.HandleModerationCallback")
+			}
+			continue
+		}
 
 		// Обработка текстовых сообщений
 		if update.Message != nil {
@@ -103,6 +115,15 @@ func (n *Net) Start(ctx context.Context) {
 					n.log.
 						WithError(err).
 						Error("service.HandleStats")
+				}
+				continue
+			}
+			if update.Message.Command() == "moderate" {
+				err := n.HandleModerate(ctx, &update)
+				if err != nil {
+					n.log.
+						WithError(err).
+						Error("service.HandleModerate")
 				}
 				continue
 			}
@@ -133,6 +154,121 @@ func (n *Net) Start(ctx context.Context) {
 			continue
 		}
 	}
+}
+
+func (n *Net) HandleModerate(ctx context.Context, update *tgbotapi.Update) error {
+	if strconv.Itoa(int(update.Message.From.ID)) != os.Getenv("TG_ADMIN_ID") {
+		return nil
+	}
+
+	limit := 20
+	args := strings.Fields(update.Message.CommandArguments())
+	if len(args) > 0 {
+		if parsed, err := strconv.Atoi(args[0]); err == nil && parsed > 0 {
+			limit = parsed
+		}
+	}
+
+	pairs, err := n.repo.ListPendingTranslationPairs(ctx, limit)
+	if err != nil {
+		return fmt.Errorf("repo.ListPendingTranslationPairs: %w", err)
+	}
+	if len(pairs) == 0 {
+		_, err = n.bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "Нет новых слов для модерации."))
+		return err
+	}
+
+	modChatID := moderationChatID()
+	ids := make([]int64, 0, len(pairs))
+	for _, pair := range pairs {
+		ids = append(ids, pair.ID)
+		text := formatModerationMessage(pair)
+		msg := tgbotapi.NewMessage(modChatID, text)
+		msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(
+			tgbotapi.NewInlineKeyboardRow(
+				tgbotapi.NewInlineKeyboardButtonData("✅ Approve", fmt.Sprintf("mod_approve_%d", pair.ID)),
+				tgbotapi.NewInlineKeyboardButtonData("❌ Reject", fmt.Sprintf("mod_reject_%d", pair.ID)),
+			),
+		)
+		if _, err := n.bot.Send(msg); err != nil {
+			n.log.WithError(err).WithField("pair_id", pair.ID).Warn("failed to send moderation message")
+		}
+	}
+
+	if err := n.repo.MarkTranslationPairsSent(ctx, ids); err != nil {
+		return fmt.Errorf("repo.MarkTranslationPairsSent: %w", err)
+	}
+
+	_, err = n.bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, fmt.Sprintf("Отправлено на модерацию: %d", len(pairs))))
+	return err
+}
+
+func (n *Net) HandleModerationCallback(ctx context.Context, update *tgbotapi.Update) error {
+	data := update.CallbackQuery.Data
+	parts := strings.Split(data, "_")
+	if len(parts) != 3 {
+		return fmt.Errorf("invalid moderation callback format")
+	}
+
+	action := parts[1]
+	id, err := strconv.ParseInt(parts[2], 10, 64)
+	if err != nil {
+		return fmt.Errorf("invalid moderation id: %w", err)
+	}
+
+	var approved bool
+	var approvedBy string
+	if action == "approve" {
+		approved = true
+		approvedBy = strconv.Itoa(int(update.CallbackQuery.From.ID))
+	} else if action == "reject" {
+		approved = false
+		approvedBy = "rejected:" + strconv.Itoa(int(update.CallbackQuery.From.ID))
+	} else {
+		return fmt.Errorf("unknown moderation action: %s", action)
+	}
+
+	if err := n.repo.SetTranslationPairApproval(ctx, id, approved, approvedBy); err != nil {
+		return fmt.Errorf("repo.SetTranslationPairApproval: %w", err)
+	}
+
+	status := "❌ Rejected"
+	if approved {
+		status = "✅ Approved"
+	}
+	edited := tgbotapi.NewEditMessageText(update.CallbackQuery.Message.Chat.ID, update.CallbackQuery.Message.MessageID, status+"\n\n"+update.CallbackQuery.Message.Text)
+	if _, err := n.bot.Send(edited); err != nil {
+		n.log.WithError(err).Warn("failed to edit moderation message")
+	}
+
+	callback := tgbotapi.NewCallback(update.CallbackQuery.ID, status)
+	_, err = n.bot.Request(callback)
+	if err != nil {
+		return fmt.Errorf("bot.Request: %w", err)
+	}
+
+	return nil
+}
+
+func moderationChatID() int64 {
+	if val := os.Getenv("TG_MOD_CHAT_ID"); val != "" {
+		if id, err := strconv.ParseInt(val, 10, 64); err == nil {
+			return id
+		}
+	}
+	return DefaultModerationChat
+}
+
+func formatModerationMessage(pair repository.TranslationPair) string {
+	return fmt.Sprintf(
+		"ID: %d\n%s → %s\nraw: %s → %s\nsource: %s",
+		pair.ID,
+		pair.OriginalClean+" ("+pair.OriginalLang+")",
+		pair.TranslationClean+" ("+pair.TranslationLang+")",
+		pair.OriginalRaw,
+		pair.TranslationRaw,
+		pair.Source,
+	)
 }
 
 func (n *Net) HandleText(ctx context.Context, update *tgbotapi.Update) error {

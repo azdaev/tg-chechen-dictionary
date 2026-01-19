@@ -18,14 +18,20 @@ import (
 )
 
 type Business struct {
-	cache *cache.Cache
-	log   *logrus.Logger
+	cache    *cache.Cache
+	dictRepo DictionaryRepository
+	log      *logrus.Logger
 }
 
-func NewBusiness(cache *cache.Cache, log *logrus.Logger) *Business {
+type DictionaryRepository interface {
+	FindApprovedTranslationPairs(ctx context.Context, cleanWord string, limit int) ([]models.TranslationPairs, error)
+}
+
+func NewBusiness(cache *cache.Cache, dictRepo DictionaryRepository, log *logrus.Logger) *Business {
 	return &Business{
-		cache: cache,
-		log:   log,
+		cache:    cache,
+		dictRepo: dictRepo,
+		log:      log,
 	}
 }
 
@@ -34,6 +40,25 @@ func (b *Business) Translate(word string) []models.TranslationPairs {
 	translations, err := b.cache.Get(context.Background(), word)
 	if err == nil {
 		return translations
+	}
+
+	// Пробуем получить перевод из локальной базы
+	if b.dictRepo != nil {
+		cleanWord := strings.ToLower(strings.TrimSpace(tools.Clean(word)))
+		if cleanWord != "" {
+			localTranslations, err := b.dictRepo.FindApprovedTranslationPairs(context.Background(), cleanWord, 200)
+			if err != nil {
+				b.log.Printf("failed to read dictionary pairs: %v\n", err)
+			} else if len(localTranslations) > 0 {
+				go func() {
+					err = b.cache.Set(context.Background(), word, localTranslations)
+					if err != nil {
+						b.log.Printf("failed to cache translation: %v\n", err)
+					}
+				}()
+				return localTranslations
+			}
+		}
 	}
 
 	// Если в кэше нет, делаем запрос к API
