@@ -255,16 +255,16 @@ func (b *Business) TranslateFormatted(word string) *models.TranslationResult {
 			if strings.Contains(t.Translate, "1)") || strings.Contains(t.Translate, "2)") || strings.Contains(t.Translate, "~") {
 				// Создаем словарную статью в нужном формате
 				dictionaryEntry := fmt.Sprintf("**%s** - %s", t.Original, t.Translate)
-				formatted := tools.FormatTranslation(dictionaryEntry)
+				formatted := tools.FormatTranslationLite(dictionaryEntry)
 				formattedResult += formatted + "\n\n"
 			} else if strings.Contains(t.Original, "1)") || strings.Contains(t.Original, "2)") || strings.Contains(t.Original, "~") {
 				dictionaryEntry := fmt.Sprintf("**%s** - %s", t.Translate, t.Original)
-				formatted := tools.FormatTranslation(dictionaryEntry)
+				formatted := tools.FormatTranslationLite(dictionaryEntry)
 				formattedResult += formatted + "\n\n"
 			}
 		} else {
 			// Обычное форматирование для простых переводов
-			formattedResult += fmt.Sprintf("<b>%s</b> - %s\n\n", t.Original, t.Translate)
+			formattedResult += fmt.Sprintf("%s — %s\n\n", t.Original, tools.Clean(t.Translate))
 		}
 	}
 

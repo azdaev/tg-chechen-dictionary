@@ -131,6 +131,77 @@ func FormatTranslation(text string) string {
 	return strings.TrimSpace(result.String())
 }
 
+// FormatTranslationLite formats a dictionary entry into a lightweight, consistent style.
+func FormatTranslationLite(text string) string {
+	if text == "" {
+		return ""
+	}
+
+	// Extract main word if bolded.
+	wordRe := regexp.MustCompile(`\*\*([^*]+)\*\*`)
+	wordMatch := wordRe.FindStringSubmatch(text)
+
+	var word string
+	if len(wordMatch) > 1 {
+		word = strings.TrimSpace(wordMatch[1])
+		text = wordRe.ReplaceAllString(text, "")
+	}
+
+	text = strings.TrimSpace(text)
+	text = strings.TrimPrefix(text, "-")
+	text = strings.TrimSpace(text)
+
+	grammarRe := regexp.MustCompile(`^[а-яё]\s+`)
+	text = grammarRe.ReplaceAllString(text, "")
+
+	meaningRe := regexp.MustCompile(`(\d+\))`)
+	parts := meaningRe.Split(text, -1)
+
+	var lines []string
+	headerWritten := false
+
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+
+		semicolonIndex := findMainSemicolon(part)
+		main := part
+		examples := []string{}
+
+		if semicolonIndex != -1 {
+			main = part[:semicolonIndex]
+			examples = parseExamples(part[semicolonIndex+1:])
+		}
+
+		main = expandAbbreviations(cleanTranslation(main))
+
+		if !headerWritten {
+			if word != "" && main != "" {
+				lines = append(lines, fmt.Sprintf("%s — %s", word, main))
+			} else if word != "" {
+				lines = append(lines, word)
+			} else if main != "" {
+				lines = append(lines, main)
+			}
+			headerWritten = true
+		} else if main != "" {
+			lines = append(lines, fmt.Sprintf("• %s", main))
+		}
+
+		for _, example := range examples {
+			if word != "" {
+				example = replaceTildeWithWord(example, word)
+			}
+			example = expandAbbreviations(example)
+			lines = append(lines, fmt.Sprintf("• %s", example))
+		}
+	}
+
+	return strings.TrimSpace(strings.Join(lines, "\n"))
+}
+
 // findMainSemicolon находит первую точку с запятой, которая разделяет основной перевод и примеры
 func findMainSemicolon(text string) int {
 	// Ищем первую точку с запятой, после которой есть тире (признак примера)
