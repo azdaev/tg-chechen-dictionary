@@ -648,7 +648,7 @@ func (n *Net) HandleText(ctx context.Context, update *tgbotapi.Update) error {
 }
 
 func (n *Net) maybeSendAutoModeration(ctx context.Context, word string) {
-	cleanWord := strings.ToLower(strings.TrimSpace(tools.Clean(word)))
+	cleanWord := tools.NormalizeSearch(word)
 	if cleanWord == "" {
 		return
 	}

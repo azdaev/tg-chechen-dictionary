@@ -15,6 +15,14 @@ func Clean(text string) string {
 	return output
 }
 
+func NormalizeSearch(text string) string {
+	clean := Clean(text)
+	clean = strings.TrimSpace(clean)
+	clean = strings.ToLower(clean)
+	clean = strings.ReplaceAll(clean, "ё", "е")
+	return clean
+}
+
 func EscapeUnclosedTags(text string) string {
 	re := regexp.MustCompile(`<[^>]*>`)
 	matches := re.FindAllString(text, -1)
@@ -303,22 +311,22 @@ func replaceTildeWithWord(text, word string) string {
 
 	// Словарь популярных окончаний для правильного склонения
 	commonEndings := map[string]string{
-		"а":    wordBase + "а",    // родительный ед.ч.
-		"у":    wordBase + "у",    // дательный ед.ч.
-		"ом":   wordBase + "ом",   // творительный ед.ч.
-		"е":    wordBase + "е",    // предложный ед.ч.
-		"ой":   wordBase + "ой",   // творительный ед.ч. (жен.род)
-		"ах":   wordBase + "ах",   // предложный мн.ч.
-		"ами":  wordBase + "ами",  // творительный мн.ч.
-		"ы":    wordBase + "ы",    // именительный мн.ч.
-		"и":    wordBase + "и",    // именительный мн.ч. / родительный ед.ч. (жен.род)
-		"ях":   wordBase + "ях",   // предложный мн.ч. (мягкая основа)
-		"ями":  wordBase + "ями",  // творительный мн.ч. (мягкая основа)
-		"ов":   wordBase + "ов",   // родительный мн.ч. (муж.род)
-		"ев":   wordBase + "ев",   // родительный мн.ч. (мягкая основа)
-		"ам":   wordBase + "ам",   // дательный мн.ч.
-		"ём":   wordBase + "ём",   // творительный ед.ч. (мягкая основа)
-		"о":    lowerWord,         // винительный ед.ч. (для слов типа "слово")
+		"а":   wordBase + "а",   // родительный ед.ч.
+		"у":   wordBase + "у",   // дательный ед.ч.
+		"ом":  wordBase + "ом",  // творительный ед.ч.
+		"е":   wordBase + "е",   // предложный ед.ч.
+		"ой":  wordBase + "ой",  // творительный ед.ч. (жен.род)
+		"ах":  wordBase + "ах",  // предложный мн.ч.
+		"ами": wordBase + "ами", // творительный мн.ч.
+		"ы":   wordBase + "ы",   // именительный мн.ч.
+		"и":   wordBase + "и",   // именительный мн.ч. / родительный ед.ч. (жен.род)
+		"ях":  wordBase + "ях",  // предложный мн.ч. (мягкая основа)
+		"ями": wordBase + "ями", // творительный мн.ч. (мягкая основа)
+		"ов":  wordBase + "ов",  // родительный мн.ч. (муж.род)
+		"ев":  wordBase + "ев",  // родительный мн.ч. (мягкая основа)
+		"ам":  wordBase + "ам",  // дательный мн.ч.
+		"ём":  wordBase + "ём",  // творительный ед.ч. (мягкая основа)
+		"о":   lowerWord,        // винительный ед.ч. (для слов типа "слово")
 	}
 
 	result := text

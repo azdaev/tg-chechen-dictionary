@@ -10,10 +10,10 @@ import (
 
 	"bytes"
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"database/sql"
 	"strings"
 
 	"github.com/sirupsen/logrus"
@@ -39,22 +39,23 @@ func NewBusiness(cache *cache.Cache, dictRepo DictionaryRepository, log *logrus.
 }
 
 func (b *Business) Translate(word string) []models.TranslationPairs {
+	cacheKey := tools.NormalizeSearch(word)
 	// Пробуем получить перевод из кэша
-	translations, err := b.cache.Get(context.Background(), word)
+	translations, err := b.cache.Get(context.Background(), cacheKey)
 	if err == nil {
 		return translations
 	}
 
 	// Пробуем получить перевод из локальной базы
 	if b.dictRepo != nil {
-		cleanWord := strings.ToLower(strings.TrimSpace(tools.Clean(word)))
+		cleanWord := tools.NormalizeSearch(word)
 		if cleanWord != "" {
 			localTranslations, err := b.dictRepo.FindApprovedTranslationPairs(context.Background(), cleanWord, 200)
 			if err != nil {
 				b.log.Printf("failed to read dictionary pairs: %v\n", err)
 			} else if len(localTranslations) > 0 {
 				go func() {
-					err = b.cache.Set(context.Background(), word, localTranslations)
+					err = b.cache.Set(context.Background(), cacheKey, localTranslations)
 					if err != nil {
 						b.log.Printf("failed to cache translation: %v\n", err)
 					}
@@ -187,7 +188,7 @@ func (b *Business) Translate(word string) []models.TranslationPairs {
 
 	// Сохраняем результат в кэш
 	go func() {
-		err = b.cache.Set(context.Background(), word, translations)
+		err = b.cache.Set(context.Background(), cacheKey, translations)
 		if err != nil {
 			b.log.Printf("failed to cache translation: %v\n", err)
 		}
@@ -197,10 +198,7 @@ func (b *Business) Translate(word string) []models.TranslationPairs {
 }
 
 func normalizeText(text string) string {
-	clean := tools.Clean(text)
-	clean = strings.TrimSpace(clean)
-	clean = strings.ToLower(clean)
-	return clean
+	return tools.NormalizeSearch(text)
 }
 
 func inferOriginalLang(translationLang string) string {
@@ -223,8 +221,9 @@ func toNullString(v string) sql.NullString {
 
 // TranslateFormatted возвращает переводы с отформатированным текстом, используя кэширование
 func (b *Business) TranslateFormatted(word string) *models.TranslationResult {
+	cacheKey := tools.NormalizeSearch(word)
 	// Пробуем получить отформатированный результат из кэша
-	result, err := b.cache.GetTranslationResult(context.Background(), word)
+	result, err := b.cache.GetTranslationResult(context.Background(), cacheKey)
 	if err == nil {
 		return result
 	}
@@ -275,7 +274,7 @@ func (b *Business) TranslateFormatted(word string) *models.TranslationResult {
 
 	// Сохраняем отформатированный результат в кэш
 	go func() {
-		err = b.cache.SetTranslationResult(context.Background(), word, result)
+		err = b.cache.SetTranslationResult(context.Background(), cacheKey, result)
 		if err != nil {
 			b.log.Printf("failed to cache formatted translation: %v\n", err)
 		}
