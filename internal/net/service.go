@@ -671,7 +671,8 @@ func (n *Net) HandleText(ctx context.Context, update *tgbotapi.Update) error {
 		return fmt.Errorf("bot.Send: %w", err)
 	}
 
-	n.maybeSendAutoModeration(ctx, m.Text)
+	// Auto-moderation is now triggered via Business.onPairReady callback
+	// after AI formatting completes (see main.go)
 
 	// Check if we should send a donation message
 	shouldSend, err := n.repo.ShouldSendDonationMessage(ctx, int(update.Message.From.ID))
@@ -700,7 +701,9 @@ func (n *Net) HandleText(ctx context.Context, update *tgbotapi.Update) error {
 	return nil
 }
 
-func (n *Net) maybeSendAutoModeration(ctx context.Context, word string) {
+// SendAutoModeration sends pending pairs for a word to moderation chat.
+// Called from Business.onPairReady callback after AI formatting completes.
+func (n *Net) SendAutoModeration(ctx context.Context, word string) {
 	cleanWord := tools.NormalizeSearch(word)
 	if cleanWord == "" {
 		return

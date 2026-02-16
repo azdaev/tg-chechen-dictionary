@@ -21,11 +21,16 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+// OnPairReady is called after a new pair is saved and AI formatting completes (or is skipped).
+// pairID is the database ID, cleanWord is the normalized search term.
+type OnPairReady func(pairID int64, cleanWord string)
+
 type Business struct {
-	cache    *cache.Cache
-	dictRepo DictionaryRepository
-	aiClient *ai.Client // optional, can be nil
-	log      *logrus.Logger
+	cache       *cache.Cache
+	dictRepo    DictionaryRepository
+	aiClient    *ai.Client // optional, can be nil
+	log         *logrus.Logger
+	onPairReady OnPairReady
 }
 
 type DictionaryRepository interface {
@@ -42,6 +47,11 @@ func NewBusiness(cache *cache.Cache, dictRepo DictionaryRepository, aiClient *ai
 		aiClient: aiClient,
 		log:      log,
 	}
+}
+
+// SetOnPairReady sets a callback that fires after a pair is saved and AI-formatted.
+func (b *Business) SetOnPairReady(fn OnPairReady) {
+	b.onPairReady = fn
 }
 
 func (b *Business) Translate(word string) []models.TranslationPairs {
@@ -351,13 +361,19 @@ func (b *Business) storeTranslationPair(entry models.Entry, translation models.T
 	pairID, err := b.dictRepo.InsertTranslationPair(context.Background(), pair)
 	if err != nil {
 		b.log.Printf("failed to insert dictionary pair: %v\n", err)
-	} else if b.aiClient != nil && pairID > 0 {
-		go b.formatPairWithAI(pairID, pair.OriginalRaw, pair.TranslationRaw)
+		return
+	}
+
+	if b.aiClient != nil && pairID > 0 {
+		go b.formatPairWithAI(pairID, pair.OriginalClean, pair.OriginalRaw, pair.TranslationRaw)
+	} else if b.onPairReady != nil && pairID > 0 {
+		// No AI client — trigger moderation immediately
+		go b.onPairReady(pairID, pair.OriginalClean)
 	}
 }
 
-// formatPairWithAI asynchronously formats a dictionary pair using AI and saves it to DB
-func (b *Business) formatPairWithAI(pairID int64, originalRaw, translationRaw string) {
+// formatPairWithAI asynchronously formats a dictionary pair using AI, saves it, then triggers moderation.
+func (b *Business) formatPairWithAI(pairID int64, cleanWord, originalRaw, translationRaw string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
@@ -368,13 +384,17 @@ func (b *Business) formatPairWithAI(pairID int64, originalRaw, translationRaw st
 	formatted, err := b.aiClient.FormatDictionaryEntry(ctx, rawEntry)
 	if err != nil {
 		b.log.Printf("ai formatting failed for pair %d: %v\n", pairID, err)
-		return
+	} else {
+		// Save to database
+		if err := b.dictRepo.UpdateTranslationPairFormatting(ctx, pairID, formatted, ""); err != nil {
+			b.log.Printf("failed to save ai formatting for pair %d: %v\n", pairID, err)
+		} else {
+			b.log.Printf("successfully formatted pair %d with AI\n", pairID)
+		}
 	}
 
-	// Save to database
-	if err := b.dictRepo.UpdateTranslationPairFormatting(ctx, pairID, formatted, ""); err != nil {
-		b.log.Printf("failed to save ai formatting for pair %d: %v\n", pairID, err)
-	} else {
-		b.log.Printf("successfully formatted pair %d with AI\n", pairID)
+	// Trigger moderation after AI formatting (or failed attempt)
+	if b.onPairReady != nil {
+		b.onPairReady(pairID, cleanWord)
 	}
 }
