@@ -13,9 +13,10 @@ type Cache struct {
 	client *redis.Client
 }
 
-func NewCache(addr string) *Cache {
+func NewCache(addr, password string) *Cache {
 	client := redis.NewClient(&redis.Options{
-		Addr: addr,
+		Addr:     addr,
+		Password: password,
 	})
 
 	return &Cache{

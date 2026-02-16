@@ -47,7 +47,7 @@ func main() {
 
 	bot.Debug = false
 
-	redisCache := cache.NewCache(os.Getenv("REDIS_ADDR"))
+	redisCache := cache.NewCache(os.Getenv("REDIS_ADDR"), os.Getenv("REDIS_PASSWORD"))
 
 	// Initialize AI client (optional)
 	var aiClient *ai.Client
