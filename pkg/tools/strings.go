@@ -362,13 +362,21 @@ func replaceTildeWithWord(text, word string) string {
 func getWordBase(word string) string {
 	word = strings.ToLower(word)
 
-	// Работаем с рунами для правильной обработки UTF-8
 	runes := []rune(word)
-	if len(runes) > 1 {
-		lastRune := string(runes[len(runes)-1])
-		if strings.Contains("аеёиоуыэюя", lastRune) {
-			return string(runes[:len(runes)-1])
-		}
+	if len(runes) < 2 {
+		return word
+	}
+
+	// Прилагательные на -ый, -ий, -ой → убираем 2 символа
+	last2 := string(runes[len(runes)-2:])
+	if last2 == "ый" || last2 == "ий" || last2 == "ой" {
+		return string(runes[:len(runes)-2])
+	}
+
+	// Существительные/глаголы на гласную → убираем 1 символ
+	lastRune := string(runes[len(runes)-1])
+	if strings.Contains("аеёиоуыэюя", lastRune) {
+		return string(runes[:len(runes)-1])
 	}
 
 	return word
