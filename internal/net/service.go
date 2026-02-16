@@ -864,11 +864,11 @@ func formatTranslations(translations []models.TranslationPairs) string {
 			if strings.Contains(t.Translate, "1)") || strings.Contains(t.Translate, "2)") || strings.Contains(t.Translate, "~") {
 				// Создаем словарную статью в нужном формате
 				dictionaryEntry := fmt.Sprintf("**%s** - %s", t.Original, t.Translate)
-				formatted := tools.FormatTranslationLite(dictionaryEntry)
+				formatted := tools.FormatTranslationLite(dictionaryEntry, t.Original)
 				result += formatted + "\n\n"
 			} else if strings.Contains(t.Original, "1)") || strings.Contains(t.Original, "2)") || strings.Contains(t.Original, "~") {
 				dictionaryEntry := fmt.Sprintf("**%s** - %s", t.Translate, t.Original)
-				formatted := tools.FormatTranslationLite(dictionaryEntry)
+				formatted := tools.FormatTranslationLite(dictionaryEntry, t.Translate)
 				result += formatted + "\n\n"
 			}
 		} else {

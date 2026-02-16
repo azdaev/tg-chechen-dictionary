@@ -152,20 +152,18 @@ func FormatTranslation(text string) string {
 }
 
 // FormatTranslationLite formats a dictionary entry into a lightweight, consistent style.
-func FormatTranslationLite(text string) string {
+// originalWord is used for tilde replacement (~ое -> чёрное)
+func FormatTranslationLite(text string, originalWord string) string {
 	if text == "" {
 		return ""
 	}
 
-	// Extract main word if bolded.
+	// Use provided original word, or extract from bolded text as fallback
+	word := strings.TrimSpace(originalWord)
+	
+	// Remove bolded word from text if present
 	wordRe := regexp.MustCompile(`\*\*([^*]+)\*\*`)
-	wordMatch := wordRe.FindStringSubmatch(text)
-
-	var word string
-	if len(wordMatch) > 1 {
-		word = strings.TrimSpace(wordMatch[1])
-		text = wordRe.ReplaceAllString(text, "")
-	}
+	text = wordRe.ReplaceAllString(text, "")
 
 	text = strings.TrimSpace(text)
 	text = strings.TrimPrefix(text, "-")
@@ -354,8 +352,8 @@ func replaceTildeWithWord(text, word string) string {
 		return wordBase + ending
 	})
 
-	// Замена одиночной тильды на полное слово
-	result = strings.ReplaceAll(result, "~", lowerWord)
+	// Замена одиночной тильды на основу слова
+	result = strings.ReplaceAll(result, "~", wordBase)
 
 	return result
 }
