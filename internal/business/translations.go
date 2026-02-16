@@ -1,6 +1,7 @@
 package business
 
 import (
+	"chetoru/internal/ai"
 	"chetoru/internal/cache"
 	"chetoru/internal/models"
 	"chetoru/internal/repository"
@@ -15,6 +16,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/sirupsen/logrus"
 )
@@ -22,18 +24,21 @@ import (
 type Business struct {
 	cache    *cache.Cache
 	dictRepo DictionaryRepository
+	aiClient *ai.Client // optional, can be nil
 	log      *logrus.Logger
 }
 
 type DictionaryRepository interface {
 	FindApprovedTranslationPairs(ctx context.Context, cleanWord string, limit int) ([]models.TranslationPairs, error)
-	InsertTranslationPair(ctx context.Context, pair repository.TranslationPair) error
+	InsertTranslationPair(ctx context.Context, pair repository.TranslationPair) (int64, error)
+	UpdateTranslationPairFormatting(ctx context.Context, id int64, formattedAI, formattedChosen string) error
 }
 
-func NewBusiness(cache *cache.Cache, dictRepo DictionaryRepository, log *logrus.Logger) *Business {
+func NewBusiness(cache *cache.Cache, dictRepo DictionaryRepository, aiClient *ai.Client, log *logrus.Logger) *Business {
 	return &Business{
 		cache:    cache,
 		dictRepo: dictRepo,
+		aiClient: aiClient,
 		log:      log,
 	}
 }
@@ -157,8 +162,12 @@ func (b *Business) Translate(word string) []models.TranslationPairs {
 							IsApproved:          true,
 						}
 						if pair.OriginalClean != "" && pair.TranslationClean != "" {
-							if err := b.dictRepo.InsertTranslationPair(context.Background(), pair); err != nil {
+							pairID, err := b.dictRepo.InsertTranslationPair(context.Background(), pair)
+							if err != nil {
 								b.log.Printf("failed to insert dictionary pair: %v\n", err)
+							} else if b.aiClient != nil && pairID > 0 {
+								// Asynchronously format with AI
+								go b.formatPairWithAI(pairID, pair.OriginalRaw, pair.TranslationRaw)
 							}
 						}
 					}
@@ -281,4 +290,27 @@ func (b *Business) TranslateFormatted(word string) *models.TranslationResult {
 	}()
 
 	return result
+}
+
+// formatPairWithAI asynchronously formats a dictionary pair using AI and saves it to DB
+func (b *Business) formatPairWithAI(pairID int64, originalRaw, translationRaw string) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	// Build raw entry for formatting
+	rawEntry := fmt.Sprintf("**%s** - %s", originalRaw, translationRaw)
+
+	// Format with AI
+	formatted, err := b.aiClient.FormatDictionaryEntry(ctx, rawEntry)
+	if err != nil {
+		b.log.Printf("ai formatting failed for pair %d: %v\n", pairID, err)
+		return
+	}
+
+	// Save to database
+	if err := b.dictRepo.UpdateTranslationPairFormatting(ctx, pairID, formatted, ""); err != nil {
+		b.log.Printf("failed to save ai formatting for pair %d: %v\n", pairID, err)
+	} else {
+		b.log.Printf("successfully formatted pair %d with AI\n", pairID)
+	}
 }
