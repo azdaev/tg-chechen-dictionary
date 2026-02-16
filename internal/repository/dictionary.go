@@ -8,18 +8,21 @@ import (
 )
 
 type TranslationPair struct {
-	ID                 int64
-	OriginalRaw        string
-	OriginalClean      string
-	OriginalLang       string
-	TranslationRaw     string
-	TranslationClean   string
-	TranslationLang    string
-	Source             string
-	SourceEntryID      sql.NullString
+	ID                  int64
+	OriginalRaw         string
+	OriginalClean       string
+	OriginalLang        string
+	TranslationRaw      string
+	TranslationClean    string
+	TranslationLang     string
+	Source              string
+	SourceEntryID       sql.NullString
 	SourceTranslationID sql.NullString
-	IsApproved         bool
-	ModerationSentAt   sql.NullTime
+	IsApproved          bool
+	ModerationSentAt    sql.NullTime
+	FormattedAI         sql.NullString
+	FormattedChosen     sql.NullString
+	FormatVersion       sql.NullString
 }
 
 func (r *Repository) InsertTranslationPair(ctx context.Context, pair TranslationPair) (int64, error) {
@@ -96,7 +99,10 @@ func (r *Repository) ListPendingTranslationPairs(ctx context.Context, limit int)
 			source_entry_id,
 			source_translation_id,
 			is_approved,
-			moderation_sent_at
+			moderation_sent_at,
+			formatted_ai,
+			formatted_chosen,
+			format_version
 		from dictionary_pairs
 		where is_approved = 0 and moderation_sent_at is null
 		limit ?;`,
@@ -124,6 +130,9 @@ func (r *Repository) ListPendingTranslationPairs(ctx context.Context, limit int)
 			&pair.SourceTranslationID,
 			&isApproved,
 			&pair.ModerationSentAt,
+			&pair.FormattedAI,
+			&pair.FormattedChosen,
+			&pair.FormatVersion,
 		); err != nil {
 			return nil, err
 		}
@@ -153,7 +162,10 @@ func (r *Repository) ListPendingTranslationPairsByWord(ctx context.Context, clea
 			source_entry_id,
 			source_translation_id,
 			is_approved,
-			moderation_sent_at
+			moderation_sent_at,
+			formatted_ai,
+			formatted_chosen,
+			format_version
 		from dictionary_pairs
 		where is_approved = 0
 		  and moderation_sent_at is null
@@ -183,6 +195,9 @@ func (r *Repository) ListPendingTranslationPairsByWord(ctx context.Context, clea
 			&pair.SourceTranslationID,
 			&isApproved,
 			&pair.ModerationSentAt,
+			&pair.FormattedAI,
+			&pair.FormattedChosen,
+			&pair.FormatVersion,
 		); err != nil {
 			return nil, err
 		}
@@ -214,6 +229,24 @@ func (r *Repository) SetTranslationPairApproval(ctx context.Context, id int64, a
 		    approved_at = current_timestamp,
 		    approved_by = ?
 		where id = ?;`,
+		approvedInt,
+		approvedBy,
+		id,
+	)
+	return err
+}
+
+func (r *Repository) SetTranslationPairFormattingChoice(ctx context.Context, id int64, choice string, approved bool, approvedBy string) error {
+	approvedInt := boolToInt(approved)
+	_, err := r.db.ExecContext(
+		ctx,
+		`update dictionary_pairs
+		set formatted_chosen = ?,
+		    is_approved = ?,
+		    approved_at = current_timestamp,
+		    approved_by = ?
+		where id = ?;`,
+		choice,
 		approvedInt,
 		approvedBy,
 		id,

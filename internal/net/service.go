@@ -454,12 +454,27 @@ func (n *Net) HandleModerate(ctx context.Context, update *tgbotapi.Update) error
 		ids = append(ids, pair.ID)
 		text := formatModerationMessage(pair)
 		msg := tgbotapi.NewMessage(modChatID, text)
-		msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(
-			tgbotapi.NewInlineKeyboardRow(
-				tgbotapi.NewInlineKeyboardButtonData("✅ Approve", fmt.Sprintf("mod_approve_%d", pair.ID)),
-				tgbotapi.NewInlineKeyboardButtonData("❌ Reject", fmt.Sprintf("mod_reject_%d", pair.ID)),
-			),
-		)
+		
+		// Show formatting choice buttons if AI formatting is available
+		if pair.FormattedAI.Valid && pair.FormattedAI.String != "" {
+			msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(
+				tgbotapi.NewInlineKeyboardRow(
+					tgbotapi.NewInlineKeyboardButtonData("📋 Legacy", fmt.Sprintf("mod_legacy_%d", pair.ID)),
+					tgbotapi.NewInlineKeyboardButtonData("✨ AI", fmt.Sprintf("mod_ai_%d", pair.ID)),
+				),
+				tgbotapi.NewInlineKeyboardRow(
+					tgbotapi.NewInlineKeyboardButtonData("❌ Reject", fmt.Sprintf("mod_reject_%d", pair.ID)),
+				),
+			)
+		} else {
+			// Fallback to simple approve/reject if AI not ready
+			msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(
+				tgbotapi.NewInlineKeyboardRow(
+					tgbotapi.NewInlineKeyboardButtonData("✅ Approve", fmt.Sprintf("mod_approve_%d", pair.ID)),
+					tgbotapi.NewInlineKeyboardButtonData("❌ Reject", fmt.Sprintf("mod_reject_%d", pair.ID)),
+				),
+			)
+		}
 		if _, err := n.bot.Send(msg); err != nil {
 			n.log.WithError(err).WithField("pair_id", pair.ID).Warn("failed to send moderation message")
 		}
@@ -486,26 +501,44 @@ func (n *Net) HandleModerationCallback(ctx context.Context, update *tgbotapi.Upd
 		return fmt.Errorf("invalid moderation id: %w", err)
 	}
 
+	approvedBy := strconv.Itoa(int(update.CallbackQuery.From.ID))
+	var status string
 	var approved bool
-	var approvedBy string
-	if action == "approve" {
+
+	switch action {
+	case "legacy":
+		// Approve with legacy formatting
+		status = "✅ Approved (Legacy)"
 		approved = true
-		approvedBy = strconv.Itoa(int(update.CallbackQuery.From.ID))
-	} else if action == "reject" {
+		if err := n.repo.SetTranslationPairFormattingChoice(ctx, id, "legacy", approved, approvedBy); err != nil {
+			return fmt.Errorf("repo.SetTranslationPairFormattingChoice: %w", err)
+		}
+	case "ai":
+		// Approve with AI formatting
+		status = "✨ Approved (AI)"
+		approved = true
+		if err := n.repo.SetTranslationPairFormattingChoice(ctx, id, "ai", approved, approvedBy); err != nil {
+			return fmt.Errorf("repo.SetTranslationPairFormattingChoice: %w", err)
+		}
+	case "approve":
+		// Legacy approve button (when AI not available)
+		status = "✅ Approved"
+		approved = true
+		if err := n.repo.SetTranslationPairApproval(ctx, id, approved, approvedBy); err != nil {
+			return fmt.Errorf("repo.SetTranslationPairApproval: %w", err)
+		}
+	case "reject":
+		// Reject
+		status = "❌ Rejected"
 		approved = false
-		approvedBy = "rejected:" + strconv.Itoa(int(update.CallbackQuery.From.ID))
-	} else {
+		approvedBy = "rejected:" + approvedBy
+		if err := n.repo.SetTranslationPairApproval(ctx, id, approved, approvedBy); err != nil {
+			return fmt.Errorf("repo.SetTranslationPairApproval: %w", err)
+		}
+	default:
 		return fmt.Errorf("unknown moderation action: %s", action)
 	}
 
-	if err := n.repo.SetTranslationPairApproval(ctx, id, approved, approvedBy); err != nil {
-		return fmt.Errorf("repo.SetTranslationPairApproval: %w", err)
-	}
-
-	status := "❌ Rejected"
-	if approved {
-		status = "✅ Approved"
-	}
 	edited := tgbotapi.NewEditMessageText(update.CallbackQuery.Message.Chat.ID, update.CallbackQuery.Message.MessageID, status+"\n\n"+update.CallbackQuery.Message.Text)
 	if _, err := n.bot.Send(edited); err != nil {
 		n.log.WithError(err).Warn("failed to edit moderation message")
@@ -530,15 +563,33 @@ func moderationChatID() int64 {
 }
 
 func formatModerationMessage(pair repository.TranslationPair) string {
-	return fmt.Sprintf(
-		"ID: %d\n%s → %s\nraw: %s → %s\nsource: %s",
-		pair.ID,
+	var sb strings.Builder
+	
+	sb.WriteString(fmt.Sprintf("ID: %d\n", pair.ID))
+	sb.WriteString(fmt.Sprintf("%s → %s\n", 
 		pair.OriginalClean+" ("+pair.OriginalLang+")",
-		pair.TranslationClean+" ("+pair.TranslationLang+")",
+		pair.TranslationClean+" ("+pair.TranslationLang+")"))
+	sb.WriteString(fmt.Sprintf("raw: %s → %s\n", pair.OriginalRaw, pair.TranslationRaw))
+	sb.WriteString(fmt.Sprintf("source: %s\n\n", pair.Source))
+	
+	// Legacy formatting (always show)
+	legacyFormat := tools.FormatTranslationLite(
+		fmt.Sprintf("**%s** - %s", pair.OriginalRaw, pair.TranslationRaw),
 		pair.OriginalRaw,
-		pair.TranslationRaw,
-		pair.Source,
 	)
+	sb.WriteString("📋 Legacy:\n")
+	sb.WriteString(legacyFormat)
+	sb.WriteString("\n\n")
+	
+	// AI formatting (if available)
+	if pair.FormattedAI.Valid && pair.FormattedAI.String != "" {
+		sb.WriteString("✨ AI:\n")
+		sb.WriteString(pair.FormattedAI.String)
+	} else {
+		sb.WriteString("✨ AI: (форматируется...)")
+	}
+	
+	return sb.String()
 }
 
 func (n *Net) HandleText(ctx context.Context, update *tgbotapi.Update) error {
@@ -669,12 +720,27 @@ func (n *Net) maybeSendAutoModeration(ctx context.Context, word string) {
 		ids = append(ids, pair.ID)
 		text := formatModerationMessage(pair)
 		msg := tgbotapi.NewMessage(modChatID, text)
-		msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(
-			tgbotapi.NewInlineKeyboardRow(
-				tgbotapi.NewInlineKeyboardButtonData("✅ Approve", fmt.Sprintf("mod_approve_%d", pair.ID)),
-				tgbotapi.NewInlineKeyboardButtonData("❌ Reject", fmt.Sprintf("mod_reject_%d", pair.ID)),
-			),
-		)
+		
+		// Show formatting choice buttons if AI formatting is available
+		if pair.FormattedAI.Valid && pair.FormattedAI.String != "" {
+			msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(
+				tgbotapi.NewInlineKeyboardRow(
+					tgbotapi.NewInlineKeyboardButtonData("📋 Legacy", fmt.Sprintf("mod_legacy_%d", pair.ID)),
+					tgbotapi.NewInlineKeyboardButtonData("✨ AI", fmt.Sprintf("mod_ai_%d", pair.ID)),
+				),
+				tgbotapi.NewInlineKeyboardRow(
+					tgbotapi.NewInlineKeyboardButtonData("❌ Reject", fmt.Sprintf("mod_reject_%d", pair.ID)),
+				),
+			)
+		} else {
+			// Fallback to simple approve/reject if AI not ready
+			msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(
+				tgbotapi.NewInlineKeyboardRow(
+					tgbotapi.NewInlineKeyboardButtonData("✅ Approve", fmt.Sprintf("mod_approve_%d", pair.ID)),
+					tgbotapi.NewInlineKeyboardButtonData("❌ Reject", fmt.Sprintf("mod_reject_%d", pair.ID)),
+				),
+			)
+		}
 		if _, err := n.bot.Send(msg); err != nil {
 			n.log.WithError(err).WithField("pair_id", pair.ID).Warn("failed to send moderation message")
 		}
