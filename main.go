@@ -13,7 +13,7 @@ import (
 	"os/signal"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
-	_ "github.com/mattn/go-sqlite3"
+	_ "modernc.org/sqlite"
 	"github.com/sirupsen/logrus"
 )
 
@@ -28,7 +28,7 @@ func main() {
 		dbPath = "./database.db"
 	}
 
-	db, err := sql.Open("sqlite3", dbPath)
+	db, err := sql.Open("sqlite", dbPath)
 	if err != nil {
 		panic(err)
 	}

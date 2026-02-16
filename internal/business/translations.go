@@ -44,33 +44,123 @@ func NewBusiness(cache *cache.Cache, dictRepo DictionaryRepository, aiClient *ai
 }
 
 func (b *Business) Translate(word string) []models.TranslationPairs {
-	cacheKey := tools.NormalizeSearch(word)
-	// Пробуем получить перевод из кэша
-	translations, err := b.cache.Get(context.Background(), cacheKey)
-	if err == nil {
+	ctx := context.Background()
+	cacheKey := normalizeCacheKey(word)
+	if translations := b.loadCachedTranslations(ctx, cacheKey); len(translations) > 0 {
 		return translations
 	}
 
-	// Пробуем получить перевод из локальной базы
-	if b.dictRepo != nil {
-		cleanWord := tools.NormalizeSearch(word)
-		if cleanWord != "" {
-			localTranslations, err := b.dictRepo.FindApprovedTranslationPairs(context.Background(), cleanWord, 200)
-			if err != nil {
-				b.log.Printf("failed to read dictionary pairs: %v\n", err)
-			} else if len(localTranslations) > 0 {
-				go func() {
-					err = b.cache.Set(context.Background(), cacheKey, localTranslations)
-					if err != nil {
-						b.log.Printf("failed to cache translation: %v\n", err)
-					}
-				}()
-				return localTranslations
-			}
+	if translations := b.loadLocalTranslations(ctx, word); len(translations) > 0 {
+		b.cacheTranslationsAsync(ctx, cacheKey, translations)
+		return translations
+	}
+
+	translations := b.fetchTranslationsWithFallback(word)
+	if len(translations) > 0 {
+		b.cacheTranslationsAsync(ctx, cacheKey, translations)
+	}
+
+	return translations
+}
+
+func normalizeText(text string) string {
+	return tools.NormalizeSearch(text)
+}
+
+func inferOriginalLang(translationLang string) string {
+	switch translationLang {
+	case "RUS":
+		return "CHE"
+	case "CHE":
+		return "RUS"
+	default:
+		return ""
+	}
+}
+
+func toNullString(v string) sql.NullString {
+	if strings.TrimSpace(v) == "" {
+		return sql.NullString{}
+	}
+	return sql.NullString{String: v, Valid: true}
+}
+
+// TranslateFormatted возвращает переводы с отформатированным текстом, используя кэширование
+func (b *Business) TranslateFormatted(word string) *models.TranslationResult {
+	ctx := context.Background()
+	cacheKey := normalizeCacheKey(word)
+	result := b.loadCachedFormatted(ctx, cacheKey)
+	if result != nil {
+		return result
+	}
+
+	// Если в кэше нет, получаем переводы обычным способом
+	translations := b.Translate(word)
+	if len(translations) == 0 {
+		return &models.TranslationResult{
+			Pairs:     []models.TranslationPairs{},
+			Formatted: "",
 		}
 	}
 
-	// Если в кэше нет, делаем запрос к API
+	// Форматируем результат
+	var formattedResult string
+	for _, t := range translations {
+		// Используем новое форматирование если перевод содержит словарную статью
+		// Признаки сложного перевода: нумерация (1), 2)) или тильды (~)
+		isComplexTranslation := strings.Contains(t.Translate, "1)") ||
+			strings.Contains(t.Translate, "2)") ||
+			strings.Contains(t.Translate, "~") ||
+			strings.Contains(t.Original, "1)") ||
+			strings.Contains(t.Original, "2)") ||
+			strings.Contains(t.Original, "~")
+
+		if isComplexTranslation {
+			// Определяем, какое поле содержит сложный перевод
+			if strings.Contains(t.Translate, "1)") || strings.Contains(t.Translate, "2)") || strings.Contains(t.Translate, "~") {
+				// Создаем словарную статью в нужном формате
+				dictionaryEntry := fmt.Sprintf("**%s** - %s", t.Original, t.Translate)
+				formatted := tools.FormatTranslationLite(dictionaryEntry)
+				formattedResult += formatted + "\n\n"
+			} else if strings.Contains(t.Original, "1)") || strings.Contains(t.Original, "2)") || strings.Contains(t.Original, "~") {
+				dictionaryEntry := fmt.Sprintf("**%s** - %s", t.Translate, t.Original)
+				formatted := tools.FormatTranslationLite(dictionaryEntry)
+				formattedResult += formatted + "\n\n"
+			}
+		} else {
+			// Обычное форматирование для простых переводов
+			formattedResult += fmt.Sprintf("%s — %s\n\n", t.Original, tools.Clean(t.Translate))
+		}
+	}
+
+	result = &models.TranslationResult{
+		Pairs:     translations,
+		Formatted: strings.TrimSpace(formattedResult),
+	}
+
+	if len(result.Pairs) > 0 {
+		b.cacheFormattedAsync(ctx, cacheKey, result)
+	}
+
+	return result
+}
+
+func (b *Business) fetchTranslationsWithFallback(word string) []models.TranslationPairs {
+	word = strings.TrimSpace(word)
+	translations := b.fetchTranslationsFromAPI(word)
+	if len(translations) > 0 {
+		return translations
+	}
+
+	altWord := tools.AlternateYo(word)
+	if altWord == "" {
+		return nil
+	}
+
+	return b.fetchTranslationsFromAPI(altWord)
+}
+
+func (b *Business) fetchTranslationsFromAPI(word string) []models.TranslationPairs {
 	query := `
 		query Find($inputText: String!) {
 			find(inputText: $inputText) {
@@ -129,7 +219,7 @@ func (b *Business) Translate(word string) []models.TranslationPairs {
 		return nil
 	}
 
-	translations = make([]models.TranslationPairs, 0)
+	translations := make([]models.TranslationPairs, 0)
 
 	// Process entries and their subentries
 	var processEntry func(entry models.Entry)
@@ -146,32 +236,7 @@ func (b *Business) Translate(word string) []models.TranslationPairs {
 				translationPair.Translate = tools.EscapeUnclosedTags(translationPair.Translate)
 				translations = append(translations, translationPair)
 
-				if b.dictRepo != nil {
-					originalLang := inferOriginalLang(translation.LanguageCode)
-					if originalLang != "" {
-						pair := repository.TranslationPair{
-							OriginalRaw:         strings.TrimSpace(entry.Content),
-							OriginalClean:       normalizeText(entry.Content),
-							OriginalLang:        originalLang,
-							TranslationRaw:      strings.TrimSpace(translation.Content),
-							TranslationClean:    normalizeText(translation.Content),
-							TranslationLang:     translation.LanguageCode,
-							Source:              "api",
-							SourceEntryID:       toNullString(entry.EntryID),
-							SourceTranslationID: toNullString(translation.TranslationID),
-							IsApproved:          true,
-						}
-						if pair.OriginalClean != "" && pair.TranslationClean != "" {
-							pairID, err := b.dictRepo.InsertTranslationPair(context.Background(), pair)
-							if err != nil {
-								b.log.Printf("failed to insert dictionary pair: %v\n", err)
-							} else if b.aiClient != nil && pairID > 0 {
-								// Asynchronously format with AI
-								go b.formatPairWithAI(pairID, pair.OriginalRaw, pair.TranslationRaw)
-							}
-						}
-					}
-				}
+				b.storeTranslationPair(entry, translation)
 			}
 		}
 
@@ -195,101 +260,99 @@ func (b *Business) Translate(word string) []models.TranslationPairs {
 		return utf8.RuneCountInString(translations[i].Original) < utf8.RuneCountInString(translations[j].Original)
 	})
 
-	// Сохраняем результат в кэш
-	go func() {
-		err = b.cache.Set(context.Background(), cacheKey, translations)
-		if err != nil {
-			b.log.Printf("failed to cache translation: %v\n", err)
-		}
-	}()
-
 	return translations
 }
 
-func normalizeText(text string) string {
-	return tools.NormalizeSearch(text)
+func normalizeCacheKey(word string) string {
+	return tools.NormalizeSearch(word)
 }
 
-func inferOriginalLang(translationLang string) string {
-	switch translationLang {
-	case "RUS":
-		return "CHE"
-	case "CHE":
-		return "RUS"
-	default:
-		return ""
+func (b *Business) loadCachedTranslations(ctx context.Context, cacheKey string) []models.TranslationPairs {
+	translations, err := b.cache.Get(ctx, cacheKey)
+	if err != nil || len(translations) == 0 {
+		return nil
 	}
+	return translations
 }
 
-func toNullString(v string) sql.NullString {
-	if strings.TrimSpace(v) == "" {
-		return sql.NullString{}
-	}
-	return sql.NullString{String: v, Valid: true}
-}
-
-// TranslateFormatted возвращает переводы с отформатированным текстом, используя кэширование
-func (b *Business) TranslateFormatted(word string) *models.TranslationResult {
-	cacheKey := tools.NormalizeSearch(word)
-	// Пробуем получить отформатированный результат из кэша
-	result, err := b.cache.GetTranslationResult(context.Background(), cacheKey)
-	if err == nil {
-		return result
-	}
-
-	// Если в кэше нет, получаем переводы обычным способом
-	translations := b.Translate(word)
+func (b *Business) cacheTranslationsAsync(ctx context.Context, cacheKey string, translations []models.TranslationPairs) {
 	if len(translations) == 0 {
-		return &models.TranslationResult{
-			Pairs:     []models.TranslationPairs{},
-			Formatted: "",
-		}
+		return
 	}
-
-	// Форматируем результат
-	var formattedResult string
-	for _, t := range translations {
-		// Используем новое форматирование если перевод содержит словарную статью
-		// Признаки сложного перевода: нумерация (1), 2)) или тильды (~)
-		isComplexTranslation := strings.Contains(t.Translate, "1)") ||
-			strings.Contains(t.Translate, "2)") ||
-			strings.Contains(t.Translate, "~") ||
-			strings.Contains(t.Original, "1)") ||
-			strings.Contains(t.Original, "2)") ||
-			strings.Contains(t.Original, "~")
-
-		if isComplexTranslation {
-			// Определяем, какое поле содержит сложный перевод
-			if strings.Contains(t.Translate, "1)") || strings.Contains(t.Translate, "2)") || strings.Contains(t.Translate, "~") {
-				// Создаем словарную статью в нужном формате
-				dictionaryEntry := fmt.Sprintf("**%s** - %s", t.Original, t.Translate)
-				formatted := tools.FormatTranslationLite(dictionaryEntry)
-				formattedResult += formatted + "\n\n"
-			} else if strings.Contains(t.Original, "1)") || strings.Contains(t.Original, "2)") || strings.Contains(t.Original, "~") {
-				dictionaryEntry := fmt.Sprintf("**%s** - %s", t.Translate, t.Original)
-				formatted := tools.FormatTranslationLite(dictionaryEntry)
-				formattedResult += formatted + "\n\n"
-			}
-		} else {
-			// Обычное форматирование для простых переводов
-			formattedResult += fmt.Sprintf("%s — %s\n\n", t.Original, tools.Clean(t.Translate))
-		}
-	}
-
-	result = &models.TranslationResult{
-		Pairs:     translations,
-		Formatted: strings.TrimSpace(formattedResult),
-	}
-
-	// Сохраняем отформатированный результат в кэш
 	go func() {
-		err = b.cache.SetTranslationResult(context.Background(), cacheKey, result)
-		if err != nil {
+		if err := b.cache.Set(ctx, cacheKey, translations); err != nil {
+			b.log.Printf("failed to cache translation: %v\n", err)
+		}
+	}()
+}
+
+func (b *Business) loadLocalTranslations(ctx context.Context, word string) []models.TranslationPairs {
+	if b.dictRepo == nil {
+		return nil
+	}
+	cleanWord := tools.NormalizeSearch(word)
+	if cleanWord == "" {
+		return nil
+	}
+	translations, err := b.dictRepo.FindApprovedTranslationPairs(ctx, cleanWord, 200)
+	if err != nil {
+		b.log.Printf("failed to read dictionary pairs: %v\n", err)
+		return nil
+	}
+	return translations
+}
+
+func (b *Business) loadCachedFormatted(ctx context.Context, cacheKey string) *models.TranslationResult {
+	result, err := b.cache.GetTranslationResult(ctx, cacheKey)
+	if err != nil || len(result.Pairs) == 0 {
+		return nil
+	}
+	return result
+}
+
+func (b *Business) cacheFormattedAsync(ctx context.Context, cacheKey string, result *models.TranslationResult) {
+	if result == nil || len(result.Pairs) == 0 {
+		return
+	}
+	go func() {
+		if err := b.cache.SetTranslationResult(ctx, cacheKey, result); err != nil {
 			b.log.Printf("failed to cache formatted translation: %v\n", err)
 		}
 	}()
+}
 
-	return result
+func (b *Business) storeTranslationPair(entry models.Entry, translation models.Translation) {
+	if b.dictRepo == nil {
+		return
+	}
+
+	originalLang := inferOriginalLang(translation.LanguageCode)
+	if originalLang == "" {
+		return
+	}
+
+	pair := repository.TranslationPair{
+		OriginalRaw:         strings.TrimSpace(entry.Content),
+		OriginalClean:       normalizeText(entry.Content),
+		OriginalLang:        originalLang,
+		TranslationRaw:      strings.TrimSpace(translation.Content),
+		TranslationClean:    normalizeText(translation.Content),
+		TranslationLang:     translation.LanguageCode,
+		Source:              "api",
+		SourceEntryID:       toNullString(entry.EntryID),
+		SourceTranslationID: toNullString(translation.TranslationID),
+		IsApproved:          true,
+	}
+	if pair.OriginalClean == "" || pair.TranslationClean == "" {
+		return
+	}
+
+	pairID, err := b.dictRepo.InsertTranslationPair(context.Background(), pair)
+	if err != nil {
+		b.log.Printf("failed to insert dictionary pair: %v\n", err)
+	} else if b.aiClient != nil && pairID > 0 {
+		go b.formatPairWithAI(pairID, pair.OriginalRaw, pair.TranslationRaw)
+	}
 }
 
 // formatPairWithAI asynchronously formats a dictionary pair using AI and saves it to DB

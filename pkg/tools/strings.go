@@ -23,6 +23,18 @@ func NormalizeSearch(text string) string {
 	return clean
 }
 
+func AlternateYo(text string) string {
+	if strings.ContainsAny(text, "ёЁ") {
+		return ""
+	}
+	if !strings.ContainsAny(text, "еЕ") {
+		return ""
+	}
+
+	replacer := strings.NewReplacer("е", "ё", "Е", "Ё")
+	return replacer.Replace(text)
+}
+
 func EscapeUnclosedTags(text string) string {
 	re := regexp.MustCompile(`<[^>]*>`)
 	matches := re.FindAllString(text, -1)

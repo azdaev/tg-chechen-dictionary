@@ -1,15 +1,28 @@
-FROM golang:1.25-alpine3.22
+# Build stage
+FROM golang:1.25-alpine3.22 AS builder
 
 WORKDIR /app
 
-# Install dependencies
-RUN apk add --no-cache gcc musl-dev sqlite-dev
-
-# Copy and build
 COPY go.mod go.sum ./
 RUN go mod download
 
 COPY . .
-RUN go build -o chetoru .
+
+RUN --mount=type=cache,target=/root/.cache/go-build \
+    --mount=type=cache,target=/go/pkg/mod \
+    CGO_ENABLED=0 go build -o chetoru . && \
+    CGO_ENABLED=0 go build -o migrate ./migrations/
+
+# Runtime stage
+FROM alpine:3.22
+
+RUN apk add --no-cache ca-certificates tzdata
+
+WORKDIR /app
+
+COPY --from=builder /app/chetoru .
+COPY --from=builder /app/migrate .
+
+ENV TZ=Europe/Moscow
 
 CMD ["./chetoru"]

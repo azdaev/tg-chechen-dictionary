@@ -14,7 +14,7 @@ import (
 	"os"
 	"strings"
 
-	_ "github.com/mattn/go-sqlite3"
+	_ "modernc.org/sqlite"
 )
 
 const apiURL = "https://v2.api.chldr.movsar.dev/v2/graphql/"
@@ -51,7 +51,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	db, err := sql.Open("sqlite3", dbPath)
+	db, err := sql.Open("sqlite", dbPath)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "failed to open db:", err)
 		os.Exit(1)
