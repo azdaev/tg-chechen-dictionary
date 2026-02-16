@@ -67,6 +67,7 @@ type Repository interface {
 	ListPendingTranslationPairsByWord(ctx context.Context, cleanWord string, limit int) ([]repository.TranslationPair, error)
 	MarkTranslationPairsSent(ctx context.Context, ids []int64) error
 	SetTranslationPairApproval(ctx context.Context, id int64, approved bool, approvedBy string) error
+	SetTranslationPairFormattingChoice(ctx context.Context, id int64, choice string, approved bool, approvedBy string) error
 	FindApprovedTranslationPairs(ctx context.Context, cleanWord string, limit int) ([]models.TranslationPairs, error)
 }
 

@@ -32,6 +32,7 @@ type DictionaryRepository interface {
 	FindApprovedTranslationPairs(ctx context.Context, cleanWord string, limit int) ([]models.TranslationPairs, error)
 	InsertTranslationPair(ctx context.Context, pair repository.TranslationPair) (int64, error)
 	UpdateTranslationPairFormatting(ctx context.Context, id int64, formattedAI, formattedChosen string) error
+	SetTranslationPairFormattingChoice(ctx context.Context, id int64, choice string, approved bool, approvedBy string) error
 }
 
 func NewBusiness(cache *cache.Cache, dictRepo DictionaryRepository, aiClient *ai.Client, log *logrus.Logger) *Business {
