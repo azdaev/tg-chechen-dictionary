@@ -154,7 +154,7 @@ func (b *Business) Translate(word string) []models.TranslationPairs {
 							Source:              "api",
 							SourceEntryID:       toNullString(entry.EntryID),
 							SourceTranslationID: toNullString(translation.TranslationID),
-							IsApproved:          false,
+							IsApproved:          true,
 						}
 						if pair.OriginalClean != "" && pair.TranslationClean != "" {
 							if err := b.dictRepo.InsertTranslationPair(context.Background(), pair); err != nil {
