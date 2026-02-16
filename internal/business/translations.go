@@ -342,7 +342,7 @@ func (b *Business) storeTranslationPair(entry models.Entry, translation models.T
 		Source:              "api",
 		SourceEntryID:       toNullString(entry.EntryID),
 		SourceTranslationID: toNullString(translation.TranslationID),
-		IsApproved:          true,
+		IsApproved:          false,
 	}
 	if pair.OriginalClean == "" || pair.TranslationClean == "" {
 		return

@@ -221,7 +221,11 @@ func (r *Repository) MarkTranslationPairsSent(ctx context.Context, ids []int64) 
 }
 
 func (r *Repository) SetTranslationPairApproval(ctx context.Context, id int64, approved bool, approvedBy string) error {
-	approvedInt := boolToInt(approved)
+	// 0 = pending, 1 = approved, -1 = rejected
+	approvedInt := 1
+	if !approved {
+		approvedInt = -1
+	}
 	_, err := r.db.ExecContext(
 		ctx,
 		`update dictionary_pairs
@@ -237,7 +241,10 @@ func (r *Repository) SetTranslationPairApproval(ctx context.Context, id int64, a
 }
 
 func (r *Repository) SetTranslationPairFormattingChoice(ctx context.Context, id int64, choice string, approved bool, approvedBy string) error {
-	approvedInt := boolToInt(approved)
+	approvedInt := 1
+	if !approved {
+		approvedInt = -1
+	}
 	_, err := r.db.ExecContext(
 		ctx,
 		`update dictionary_pairs
@@ -287,6 +294,55 @@ func (r *Repository) UpdateTranslationPairFormatting(ctx context.Context, id int
 }
 
 func (r *Repository) FindApprovedTranslationPairs(ctx context.Context, cleanWord string, limit int) ([]models.TranslationPairs, error) {
+	if limit <= 0 {
+		limit = 200
+	}
+
+	rows, err := r.db.QueryContext(
+		ctx,
+		`select
+			original_raw,
+			original_clean,
+			translation_raw,
+			translation_clean
+		from dictionary_pairs
+		where is_approved >= 0 and (original_clean = ? or translation_clean = ?)
+		limit ?;`,
+		cleanWord, cleanWord, limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	results := make([]models.TranslationPairs, 0, limit)
+	for rows.Next() {
+		var originalRaw, originalClean, translationRaw, translationClean string
+		if err := rows.Scan(&originalRaw, &originalClean, &translationRaw, &translationClean); err != nil {
+			return nil, err
+		}
+
+		if originalClean == cleanWord {
+			results = append(results, models.TranslationPairs{
+				Original:  originalRaw,
+				Translate: translationRaw,
+			})
+			continue
+		}
+
+		if translationClean == cleanWord {
+			results = append(results, models.TranslationPairs{
+				Original:  translationRaw,
+				Translate: originalRaw,
+			})
+		}
+	}
+
+	return results, rows.Err()
+}
+
+// FindStrictlyApprovedPairs returns only explicitly approved pairs (is_approved = 1)
+func (r *Repository) FindStrictlyApprovedPairs(ctx context.Context, cleanWord string, limit int) ([]models.TranslationPairs, error) {
 	if limit <= 0 {
 		limit = 200
 	}

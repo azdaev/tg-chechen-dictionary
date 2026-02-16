@@ -69,6 +69,7 @@ type Repository interface {
 	SetTranslationPairApproval(ctx context.Context, id int64, approved bool, approvedBy string) error
 	SetTranslationPairFormattingChoice(ctx context.Context, id int64, choice string, approved bool, approvedBy string) error
 	FindApprovedTranslationPairs(ctx context.Context, cleanWord string, limit int) ([]models.TranslationPairs, error)
+	FindStrictlyApprovedPairs(ctx context.Context, cleanWord string, limit int) ([]models.TranslationPairs, error)
 }
 
 type Net struct {
@@ -705,7 +706,7 @@ func (n *Net) maybeSendAutoModeration(ctx context.Context, word string) {
 		return
 	}
 
-	approved, err := n.repo.FindApprovedTranslationPairs(ctx, cleanWord, 1)
+	approved, err := n.repo.FindStrictlyApprovedPairs(ctx, cleanWord, 1)
 	if err != nil || len(approved) > 0 {
 		return
 	}
