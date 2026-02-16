@@ -1,6 +1,7 @@
 package main
 
 import (
+	"chetoru/internal/ai"
 	"chetoru/internal/business"
 	"chetoru/internal/cache"
 	"chetoru/internal/net"
@@ -47,7 +48,22 @@ func main() {
 	bot.Debug = false
 
 	redisCache := cache.NewCache(os.Getenv("REDIS_ADDR"))
-	translatorBusiness := business.NewBusiness(redisCache, usersRepo, log)
+
+	// Initialize AI client (optional)
+	var aiClient *ai.Client
+	openRouterKey := os.Getenv("OPENROUTER_API_KEY")
+	openRouterModel := os.Getenv("OPENROUTER_MODEL")
+	if openRouterKey != "" {
+		if openRouterModel == "" {
+			openRouterModel = "google/gemini-3-flash-preview"
+		}
+		aiClient = ai.New(openRouterKey, openRouterModel, log)
+		log.Printf("AI formatting enabled: %s", openRouterModel)
+	} else {
+		log.Println("AI formatting disabled (no OPENROUTER_API_KEY)")
+	}
+
+	translatorBusiness := business.NewBusiness(redisCache, usersRepo, aiClient, log)
 
 	botService := net.NewNet(log, usersRepo, bot, translatorBusiness)
 	botService.Start(ctx)

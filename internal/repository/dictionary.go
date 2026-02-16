@@ -22,8 +22,8 @@ type TranslationPair struct {
 	ModerationSentAt   sql.NullTime
 }
 
-func (r *Repository) InsertTranslationPair(ctx context.Context, pair TranslationPair) error {
-	_, err := r.db.ExecContext(
+func (r *Repository) InsertTranslationPair(ctx context.Context, pair TranslationPair) (int64, error) {
+	result, err := r.db.ExecContext(
 		ctx,
 		`insert or ignore into dictionary_pairs (
 			original_raw,
@@ -48,7 +48,33 @@ func (r *Repository) InsertTranslationPair(ctx context.Context, pair Translation
 		pair.SourceTranslationID,
 		boolToInt(pair.IsApproved),
 	)
-	return err
+	if err != nil {
+		return 0, err
+	}
+
+	// Try to get last insert ID
+	id, err := result.LastInsertId()
+	if err != nil || id == 0 {
+		// If insert was ignored (duplicate), fetch existing ID
+		var existingID int64
+		err = r.db.QueryRowContext(
+			ctx,
+			`select id from dictionary_pairs
+			where original_clean = ? and original_lang = ?
+			  and translation_clean = ? and translation_lang = ?
+			limit 1;`,
+			pair.OriginalClean,
+			pair.OriginalLang,
+			pair.TranslationClean,
+			pair.TranslationLang,
+		).Scan(&existingID)
+		if err != nil {
+			return 0, err
+		}
+		return existingID, nil
+	}
+
+	return id, nil
 }
 
 func (r *Repository) ListPendingTranslationPairs(ctx context.Context, limit int) ([]TranslationPair, error) {
@@ -210,6 +236,21 @@ func buildInClause(prefix string, ids []int64) (string, []interface{}) {
 		placeholders = append(placeholders, "?")
 	}
 	return prefix + strings.Join(placeholders, ","), args
+}
+
+func (r *Repository) UpdateTranslationPairFormatting(ctx context.Context, id int64, formattedAI, formattedChosen string) error {
+	_, err := r.db.ExecContext(
+		ctx,
+		`update dictionary_pairs
+		set formatted_ai = ?,
+		    formatted_chosen = ?,
+		    format_version = 'ai_v1'
+		where id = ?;`,
+		formattedAI,
+		formattedChosen,
+		id,
+	)
+	return err
 }
 
 func (r *Repository) FindApprovedTranslationPairs(ctx context.Context, cleanWord string, limit int) ([]models.TranslationPairs, error) {
