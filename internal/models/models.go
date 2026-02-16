@@ -11,8 +11,10 @@ type TranslationResponse struct {
 }
 
 type TranslationPairs struct {
-	Original  string `json:"word"`
-	Translate string `json:"translate"`
+	Original        string `json:"word"`
+	Translate       string `json:"translate"`
+	FormattedAI     string `json:"formatted_ai,omitempty"`
+	FormattedChosen string `json:"formatted_chosen,omitempty"`
 }
 
 // TranslationResult содержит переводы и отформатированный текст для кэширования

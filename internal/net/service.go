@@ -1,6 +1,7 @@
 package net
 
 import (
+	"chetoru/internal/cache"
 	"chetoru/internal/models"
 	"chetoru/internal/repository"
 	"chetoru/pkg/tools"
@@ -65,11 +66,10 @@ type Repository interface {
 	MarkUserUnblocked(ctx context.Context, userID int64) error
 	ListPendingTranslationPairs(ctx context.Context, limit int) ([]repository.TranslationPair, error)
 	ListPendingTranslationPairsByWord(ctx context.Context, cleanWord string, limit int) ([]repository.TranslationPair, error)
-	MarkTranslationPairsSent(ctx context.Context, ids []int64) error
-	SetTranslationPairApproval(ctx context.Context, id int64, approved bool, approvedBy string) error
-	SetTranslationPairFormattingChoice(ctx context.Context, id int64, choice string, approved bool, approvedBy string) error
-	FindApprovedTranslationPairs(ctx context.Context, cleanWord string, limit int) ([]models.TranslationPairs, error)
+	SetTranslationPairFormattingChoice(ctx context.Context, id int64, choice string) error
+	FindTranslationPairs(ctx context.Context, cleanWord string, limit int) ([]models.TranslationPairs, error)
 	FindStrictlyApprovedPairs(ctx context.Context, cleanWord string, limit int) ([]models.TranslationPairs, error)
+	GetPairCleanWords(ctx context.Context, pairID int64) ([]string, error)
 }
 
 type Net struct {
@@ -77,16 +77,18 @@ type Net struct {
 	repo              Repository
 	business          Business
 	bot               *tgbotapi.BotAPI
+	cache             *cache.Cache
 	awaitingBroadcast bool
 	pendingBroadcast  *broadcastPayload
 }
 
-func NewNet(log *logrus.Logger, repo Repository, bot *tgbotapi.BotAPI, business Business) *Net {
+func NewNet(log *logrus.Logger, repo Repository, bot *tgbotapi.BotAPI, business Business, cache *cache.Cache) *Net {
 	return &Net{
 		log:      log,
 		repo:     repo,
 		bot:      bot,
 		business: business,
+		cache:    cache,
 	}
 }
 
@@ -451,39 +453,29 @@ func (n *Net) HandleModerate(ctx context.Context, update *tgbotapi.Update) error
 	}
 
 	modChatID := moderationChatID()
-	ids := make([]int64, 0, len(pairs))
 	for _, pair := range pairs {
-		ids = append(ids, pair.ID)
 		text := formatModerationMessage(pair)
 		msg := tgbotapi.NewMessage(modChatID, text)
 		
-		// Show formatting choice buttons if AI formatting is available
+		// Show simplified buttons: only AI and Delete
 		if pair.FormattedAI.Valid && pair.FormattedAI.String != "" {
 			msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(
 				tgbotapi.NewInlineKeyboardRow(
-					tgbotapi.NewInlineKeyboardButtonData("📋 Legacy", fmt.Sprintf("mod_legacy_%d", pair.ID)),
-					tgbotapi.NewInlineKeyboardButtonData("✨ AI", fmt.Sprintf("mod_ai_%d", pair.ID)),
-				),
-				tgbotapi.NewInlineKeyboardRow(
-					tgbotapi.NewInlineKeyboardButtonData("❌ Reject", fmt.Sprintf("mod_reject_%d", pair.ID)),
+					tgbotapi.NewInlineKeyboardButtonData("✅ Принять AI", fmt.Sprintf("mod_ai_%d", pair.ID)),
+					tgbotapi.NewInlineKeyboardButtonData("🗑 Удалить", fmt.Sprintf("mod_delete_%d", pair.ID)),
 				),
 			)
 		} else {
-			// Fallback to simple approve/reject if AI not ready
+			// If AI formatting is not ready, show only delete option
 			msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(
 				tgbotapi.NewInlineKeyboardRow(
-					tgbotapi.NewInlineKeyboardButtonData("✅ Approve", fmt.Sprintf("mod_approve_%d", pair.ID)),
-					tgbotapi.NewInlineKeyboardButtonData("❌ Reject", fmt.Sprintf("mod_reject_%d", pair.ID)),
+					tgbotapi.NewInlineKeyboardButtonData("🗑 Удалить", fmt.Sprintf("mod_delete_%d", pair.ID)),
 				),
 			)
 		}
 		if _, err := n.bot.Send(msg); err != nil {
 			n.log.WithError(err).WithField("pair_id", pair.ID).Warn("failed to send moderation message")
 		}
-	}
-
-	if err := n.repo.MarkTranslationPairsSent(ctx, ids); err != nil {
-		return fmt.Errorf("repo.MarkTranslationPairsSent: %w", err)
 	}
 
 	_, err = n.bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, fmt.Sprintf("Отправлено на модерацию: %d", len(pairs))))
@@ -503,43 +495,36 @@ func (n *Net) HandleModerationCallback(ctx context.Context, update *tgbotapi.Upd
 		return fmt.Errorf("invalid moderation id: %w", err)
 	}
 
-	approvedBy := strconv.Itoa(int(update.CallbackQuery.From.ID))
 	var status string
-	var approved bool
+	var choice string
 
 	switch action {
-	case "legacy":
-		// Approve with legacy formatting
-		status = "✅ Approved (Legacy)"
-		approved = true
-		if err := n.repo.SetTranslationPairFormattingChoice(ctx, id, "legacy", approved, approvedBy); err != nil {
-			return fmt.Errorf("repo.SetTranslationPairFormattingChoice: %w", err)
-		}
 	case "ai":
-		// Approve with AI formatting
-		status = "✨ Approved (AI)"
-		approved = true
-		if err := n.repo.SetTranslationPairFormattingChoice(ctx, id, "ai", approved, approvedBy); err != nil {
+		// Accept AI formatting
+		status = "✅ Принято (AI)"
+		choice = "ai"
+		if err := n.repo.SetTranslationPairFormattingChoice(ctx, id, choice); err != nil {
 			return fmt.Errorf("repo.SetTranslationPairFormattingChoice: %w", err)
 		}
-	case "approve":
-		// Legacy approve button (when AI not available)
-		status = "✅ Approved"
-		approved = true
-		if err := n.repo.SetTranslationPairApproval(ctx, id, approved, approvedBy); err != nil {
-			return fmt.Errorf("repo.SetTranslationPairApproval: %w", err)
-		}
-	case "reject":
-		// Reject
-		status = "❌ Rejected"
-		approved = false
-		approvedBy = "rejected:" + approvedBy
-		if err := n.repo.SetTranslationPairApproval(ctx, id, approved, approvedBy); err != nil {
-			return fmt.Errorf("repo.SetTranslationPairApproval: %w", err)
+	case "delete":
+		// Delete (mark as deleted)
+		status = "🗑 Удалено"
+		choice = "deleted"
+		if err := n.repo.SetTranslationPairFormattingChoice(ctx, id, choice); err != nil {
+			return fmt.Errorf("repo.SetTranslationPairFormattingChoice: %w", err)
 		}
 	default:
 		return fmt.Errorf("unknown moderation action: %s", action)
 	}
+
+	// Invalidate cache for this word
+	// We need to extract the clean word from the message or get it from database
+	// For simplicity, let's get pairs that contain this ID and invalidate their clean words
+	go func() {
+		// This is a background task to invalidate cache
+		// We could improve this by passing the cleanWord directly, but for now this works
+		n.invalidateCacheForPair(ctx, id)
+	}()
 
 	edited := tgbotapi.NewEditMessageText(update.CallbackQuery.Message.Chat.ID, update.CallbackQuery.Message.MessageID, status+"\n\n"+update.CallbackQuery.Message.Text)
 	if _, err := n.bot.Send(edited); err != nil {
@@ -553,6 +538,27 @@ func (n *Net) HandleModerationCallback(ctx context.Context, update *tgbotapi.Upd
 	}
 
 	return nil
+}
+
+// invalidateCacheForPair invalidates cache for a specific pair
+func (n *Net) invalidateCacheForPair(ctx context.Context, pairID int64) {
+	if n.cache == nil {
+		return
+	}
+
+	cleanWords, err := n.repo.GetPairCleanWords(ctx, pairID)
+	if err != nil {
+		n.log.WithError(err).Warn("failed to get clean words for cache invalidation")
+		return
+	}
+
+	for _, word := range cleanWords {
+		if word == "" {
+			continue
+		}
+		_ = n.cache.Delete(ctx, word)
+		_ = n.cache.Delete(ctx, "formatted_"+word)
+	}
 }
 
 func moderationChatID() int64 {
@@ -720,39 +726,29 @@ func (n *Net) SendAutoModeration(ctx context.Context, word string) {
 	}
 
 	modChatID := moderationChatID()
-	ids := make([]int64, 0, len(pairs))
 	for _, pair := range pairs {
-		ids = append(ids, pair.ID)
 		text := formatModerationMessage(pair)
 		msg := tgbotapi.NewMessage(modChatID, text)
 		
-		// Show formatting choice buttons if AI formatting is available
+		// Show simplified buttons: only AI and Delete
 		if pair.FormattedAI.Valid && pair.FormattedAI.String != "" {
 			msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(
 				tgbotapi.NewInlineKeyboardRow(
-					tgbotapi.NewInlineKeyboardButtonData("📋 Legacy", fmt.Sprintf("mod_legacy_%d", pair.ID)),
-					tgbotapi.NewInlineKeyboardButtonData("✨ AI", fmt.Sprintf("mod_ai_%d", pair.ID)),
-				),
-				tgbotapi.NewInlineKeyboardRow(
-					tgbotapi.NewInlineKeyboardButtonData("❌ Reject", fmt.Sprintf("mod_reject_%d", pair.ID)),
+					tgbotapi.NewInlineKeyboardButtonData("✅ Принять AI", fmt.Sprintf("mod_ai_%d", pair.ID)),
+					tgbotapi.NewInlineKeyboardButtonData("🗑 Удалить", fmt.Sprintf("mod_delete_%d", pair.ID)),
 				),
 			)
 		} else {
-			// Fallback to simple approve/reject if AI not ready
+			// If AI formatting is not ready, show only delete option
 			msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(
 				tgbotapi.NewInlineKeyboardRow(
-					tgbotapi.NewInlineKeyboardButtonData("✅ Approve", fmt.Sprintf("mod_approve_%d", pair.ID)),
-					tgbotapi.NewInlineKeyboardButtonData("❌ Reject", fmt.Sprintf("mod_reject_%d", pair.ID)),
+					tgbotapi.NewInlineKeyboardButtonData("🗑 Удалить", fmt.Sprintf("mod_delete_%d", pair.ID)),
 				),
 			)
 		}
 		if _, err := n.bot.Send(msg); err != nil {
 			n.log.WithError(err).WithField("pair_id", pair.ID).Warn("failed to send moderation message")
 		}
-	}
-
-	if err := n.repo.MarkTranslationPairsSent(ctx, ids); err != nil {
-		n.log.WithError(err).Warn("failed to mark moderation as sent")
 	}
 }
 
@@ -921,8 +917,14 @@ func (n *Net) HandleMoreTranslations(ctx context.Context, update *tgbotapi.Updat
 func formatTranslations(translations []models.TranslationPairs) string {
 	var result string
 	for _, t := range translations {
-		// Используем новое форматирование если перевод содержит словарную статью
-		// Признаки сложного перевода: нумерация (1), 2)) или тильды (~)
+		// Проверяем, должны ли мы использовать AI форматирование
+		if t.FormattedChosen == "ai" && t.FormattedAI != "" {
+			result += t.FormattedAI + "\n\n"
+			continue
+		}
+
+		// Используем legacy форматирование
+		// Определяем сложность перевода: нумерация (1), 2)) или тильды (~)
 		isComplexTranslation := strings.Contains(t.Translate, "1)") ||
 			strings.Contains(t.Translate, "2)") ||
 			strings.Contains(t.Translate, "~") ||

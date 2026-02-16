@@ -65,7 +65,7 @@ func main() {
 
 	translatorBusiness := business.NewBusiness(redisCache, usersRepo, aiClient, log)
 
-	botService := net.NewNet(log, usersRepo, bot, translatorBusiness)
+	botService := net.NewNet(log, usersRepo, bot, translatorBusiness, redisCache)
 
 	// Wire callback: after AI formatting → send to moderation
 	translatorBusiness.SetOnPairReady(func(pairID int64, cleanWord string) {

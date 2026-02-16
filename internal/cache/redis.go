@@ -73,3 +73,8 @@ func (c *Cache) SetTranslationResult(ctx context.Context, key string, result *mo
 
 	return c.client.Set(ctx, "formatted_"+key, data, 24*30*time.Hour).Err()
 }
+
+// Delete удаляет ключ из кэша
+func (c *Cache) Delete(ctx context.Context, key string) error {
+	return c.client.Del(ctx, key).Err()
+}

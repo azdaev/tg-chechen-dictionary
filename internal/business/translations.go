@@ -34,10 +34,10 @@ type Business struct {
 }
 
 type DictionaryRepository interface {
-	FindApprovedTranslationPairs(ctx context.Context, cleanWord string, limit int) ([]models.TranslationPairs, error)
+	FindTranslationPairs(ctx context.Context, cleanWord string, limit int) ([]models.TranslationPairs, error)
 	InsertTranslationPair(ctx context.Context, pair repository.TranslationPair) (int64, error)
 	UpdateTranslationPairFormatting(ctx context.Context, id int64, formattedAI, formattedChosen string) error
-	SetTranslationPairFormattingChoice(ctx context.Context, id int64, choice string, approved bool, approvedBy string) error
+	SetTranslationPairFormattingChoice(ctx context.Context, id int64, choice string) error
 }
 
 func NewBusiness(cache *cache.Cache, dictRepo DictionaryRepository, aiClient *ai.Client, log *logrus.Logger) *Business {
@@ -117,8 +117,14 @@ func (b *Business) TranslateFormatted(word string) *models.TranslationResult {
 	// Форматируем результат
 	var formattedResult string
 	for _, t := range translations {
-		// Используем новое форматирование если перевод содержит словарную статью
-		// Признаки сложного перевода: нумерация (1), 2)) или тильды (~)
+		// Проверяем, должны ли мы использовать AI форматирование
+		if t.FormattedChosen == "ai" && t.FormattedAI != "" {
+			formattedResult += t.FormattedAI + "\n\n"
+			continue
+		}
+
+		// Используем legacy форматирование
+		// Определяем сложность перевода: нумерация (1), 2)) или тильды (~)
 		isComplexTranslation := strings.Contains(t.Translate, "1)") ||
 			strings.Contains(t.Translate, "2)") ||
 			strings.Contains(t.Translate, "~") ||
@@ -305,7 +311,7 @@ func (b *Business) loadLocalTranslations(ctx context.Context, word string) []mod
 	if cleanWord == "" {
 		return nil
 	}
-	translations, err := b.dictRepo.FindApprovedTranslationPairs(ctx, cleanWord, 200)
+	translations, err := b.dictRepo.FindTranslationPairs(ctx, cleanWord, 200)
 	if err != nil {
 		b.log.Printf("failed to read dictionary pairs: %v\n", err)
 		return nil
@@ -352,7 +358,6 @@ func (b *Business) storeTranslationPair(entry models.Entry, translation models.T
 		Source:              "api",
 		SourceEntryID:       toNullString(entry.EntryID),
 		SourceTranslationID: toNullString(translation.TranslationID),
-		IsApproved:          false,
 	}
 	if pair.OriginalClean == "" || pair.TranslationClean == "" {
 		return

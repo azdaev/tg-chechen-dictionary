@@ -18,8 +18,6 @@ type TranslationPair struct {
 	Source              string
 	SourceEntryID       sql.NullString
 	SourceTranslationID sql.NullString
-	IsApproved          bool
-	ModerationSentAt    sql.NullTime
 	FormattedAI         sql.NullString
 	FormattedChosen     sql.NullString
 	FormatVersion       sql.NullString
@@ -37,9 +35,8 @@ func (r *Repository) InsertTranslationPair(ctx context.Context, pair Translation
 			translation_lang,
 			source,
 			source_entry_id,
-			source_translation_id,
-			is_approved
-		) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`,
+			source_translation_id
+		) values (?, ?, ?, ?, ?, ?, ?, ?, ?);`,
 		pair.OriginalRaw,
 		pair.OriginalClean,
 		pair.OriginalLang,
@@ -49,7 +46,6 @@ func (r *Repository) InsertTranslationPair(ctx context.Context, pair Translation
 		pair.Source,
 		pair.SourceEntryID,
 		pair.SourceTranslationID,
-		boolToInt(pair.IsApproved),
 	)
 	if err != nil {
 		return 0, err
@@ -98,13 +94,11 @@ func (r *Repository) ListPendingTranslationPairs(ctx context.Context, limit int)
 			source,
 			source_entry_id,
 			source_translation_id,
-			is_approved,
-			moderation_sent_at,
 			formatted_ai,
 			formatted_chosen,
 			format_version
 		from dictionary_pairs
-		where is_approved = 0 and moderation_sent_at is null
+		where formatted_chosen is null and formatted_ai is not null
 		limit ?;`,
 		limit,
 	)
@@ -116,7 +110,6 @@ func (r *Repository) ListPendingTranslationPairs(ctx context.Context, limit int)
 	result := make([]TranslationPair, 0, limit)
 	for rows.Next() {
 		var pair TranslationPair
-		var isApproved int
 		if err := rows.Scan(
 			&pair.ID,
 			&pair.OriginalRaw,
@@ -128,15 +121,12 @@ func (r *Repository) ListPendingTranslationPairs(ctx context.Context, limit int)
 			&pair.Source,
 			&pair.SourceEntryID,
 			&pair.SourceTranslationID,
-			&isApproved,
-			&pair.ModerationSentAt,
 			&pair.FormattedAI,
 			&pair.FormattedChosen,
 			&pair.FormatVersion,
 		); err != nil {
 			return nil, err
 		}
-		pair.IsApproved = isApproved == 1
 		result = append(result, pair)
 	}
 
@@ -161,14 +151,12 @@ func (r *Repository) ListPendingTranslationPairsByWord(ctx context.Context, clea
 			source,
 			source_entry_id,
 			source_translation_id,
-			is_approved,
-			moderation_sent_at,
 			formatted_ai,
 			formatted_chosen,
 			format_version
 		from dictionary_pairs
-		where is_approved = 0
-		  and moderation_sent_at is null
+		where formatted_chosen is null
+		  and formatted_ai is not null
 		  and (original_clean = ? or translation_clean = ?)
 		limit ?;`,
 		cleanWord, cleanWord, limit,
@@ -181,7 +169,6 @@ func (r *Repository) ListPendingTranslationPairsByWord(ctx context.Context, clea
 	result := make([]TranslationPair, 0, limit)
 	for rows.Next() {
 		var pair TranslationPair
-		var isApproved int
 		if err := rows.Scan(
 			&pair.ID,
 			&pair.OriginalRaw,
@@ -193,69 +180,27 @@ func (r *Repository) ListPendingTranslationPairsByWord(ctx context.Context, clea
 			&pair.Source,
 			&pair.SourceEntryID,
 			&pair.SourceTranslationID,
-			&isApproved,
-			&pair.ModerationSentAt,
 			&pair.FormattedAI,
 			&pair.FormattedChosen,
 			&pair.FormatVersion,
 		); err != nil {
 			return nil, err
 		}
-		pair.IsApproved = isApproved == 1
 		result = append(result, pair)
 	}
 
 	return result, rows.Err()
 }
 
-func (r *Repository) MarkTranslationPairsSent(ctx context.Context, ids []int64) error {
-	if len(ids) == 0 {
-		return nil
-	}
+// MarkTranslationPairsSent and SetTranslationPairApproval removed - no longer needed with new moderation flow
 
-	query, args := buildInClause("update dictionary_pairs set moderation_sent_at = current_timestamp where id in (", ids)
-	query += ");"
-
-	_, err := r.db.ExecContext(ctx, query, args...)
-	return err
-}
-
-func (r *Repository) SetTranslationPairApproval(ctx context.Context, id int64, approved bool, approvedBy string) error {
-	// 0 = pending, 1 = approved, -1 = rejected
-	approvedInt := 1
-	if !approved {
-		approvedInt = -1
-	}
+func (r *Repository) SetTranslationPairFormattingChoice(ctx context.Context, id int64, choice string) error {
 	_, err := r.db.ExecContext(
 		ctx,
 		`update dictionary_pairs
-		set is_approved = ?,
-		    approved_at = current_timestamp,
-		    approved_by = ?
-		where id = ?;`,
-		approvedInt,
-		approvedBy,
-		id,
-	)
-	return err
-}
-
-func (r *Repository) SetTranslationPairFormattingChoice(ctx context.Context, id int64, choice string, approved bool, approvedBy string) error {
-	approvedInt := 1
-	if !approved {
-		approvedInt = -1
-	}
-	_, err := r.db.ExecContext(
-		ctx,
-		`update dictionary_pairs
-		set formatted_chosen = ?,
-		    is_approved = ?,
-		    approved_at = current_timestamp,
-		    approved_by = ?
+		set formatted_chosen = ?
 		where id = ?;`,
 		choice,
-		approvedInt,
-		approvedBy,
 		id,
 	)
 	return err
@@ -293,7 +238,71 @@ func (r *Repository) UpdateTranslationPairFormatting(ctx context.Context, id int
 	return err
 }
 
-func (r *Repository) FindApprovedTranslationPairs(ctx context.Context, cleanWord string, limit int) ([]models.TranslationPairs, error) {
+func (r *Repository) FindTranslationPairs(ctx context.Context, cleanWord string, limit int) ([]models.TranslationPairs, error) {
+	if limit <= 0 {
+		limit = 200
+	}
+
+	rows, err := r.db.QueryContext(
+		ctx,
+		`select
+			original_raw,
+			original_clean,
+			translation_raw,
+			translation_clean,
+			formatted_ai,
+			formatted_chosen
+		from dictionary_pairs
+		where formatted_chosen != 'deleted' and (original_clean = ? or translation_clean = ?)
+		limit ?;`,
+		cleanWord, cleanWord, limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	results := make([]models.TranslationPairs, 0, limit)
+	for rows.Next() {
+		var originalRaw, originalClean, translationRaw, translationClean string
+		var formattedAI, formattedChosen sql.NullString
+		if err := rows.Scan(&originalRaw, &originalClean, &translationRaw, &translationClean, &formattedAI, &formattedChosen); err != nil {
+			return nil, err
+		}
+
+		var aiText, chosenText string
+		if formattedAI.Valid {
+			aiText = formattedAI.String
+		}
+		if formattedChosen.Valid {
+			chosenText = formattedChosen.String
+		}
+
+		if originalClean == cleanWord {
+			results = append(results, models.TranslationPairs{
+				Original:        originalRaw,
+				Translate:       translationRaw,
+				FormattedAI:     aiText,
+				FormattedChosen: chosenText,
+			})
+			continue
+		}
+
+		if translationClean == cleanWord {
+			results = append(results, models.TranslationPairs{
+				Original:        translationRaw,
+				Translate:       originalRaw,
+				FormattedAI:     aiText,
+				FormattedChosen: chosenText,
+			})
+		}
+	}
+
+	return results, rows.Err()
+}
+
+// FindStrictlyApprovedPairs returns only pairs that have been explicitly moderated (formatted_chosen is not null and not 'deleted')
+func (r *Repository) FindStrictlyApprovedPairs(ctx context.Context, cleanWord string, limit int) ([]models.TranslationPairs, error) {
 	if limit <= 0 {
 		limit = 200
 	}
@@ -306,7 +315,7 @@ func (r *Repository) FindApprovedTranslationPairs(ctx context.Context, cleanWord
 			translation_raw,
 			translation_clean
 		from dictionary_pairs
-		where is_approved >= 0 and (original_clean = ? or translation_clean = ?)
+		where formatted_chosen is not null and formatted_chosen != 'deleted' and (original_clean = ? or translation_clean = ?)
 		limit ?;`,
 		cleanWord, cleanWord, limit,
 	)
@@ -341,51 +350,15 @@ func (r *Repository) FindApprovedTranslationPairs(ctx context.Context, cleanWord
 	return results, rows.Err()
 }
 
-// FindStrictlyApprovedPairs returns only explicitly approved pairs (is_approved = 1)
-func (r *Repository) FindStrictlyApprovedPairs(ctx context.Context, cleanWord string, limit int) ([]models.TranslationPairs, error) {
-	if limit <= 0 {
-		limit = 200
-	}
-
-	rows, err := r.db.QueryContext(
-		ctx,
-		`select
-			original_raw,
-			original_clean,
-			translation_raw,
-			translation_clean
-		from dictionary_pairs
-		where is_approved = 1 and (original_clean = ? or translation_clean = ?)
-		limit ?;`,
-		cleanWord, cleanWord, limit,
-	)
+// GetPairCleanWords returns clean words (original + translation) for a pair by ID.
+func (r *Repository) GetPairCleanWords(ctx context.Context, pairID int64) ([]string, error) {
+	var origClean, transClean string
+	err := r.db.QueryRowContext(ctx,
+		`SELECT original_clean, translation_clean FROM dictionary_pairs WHERE id = ?;`,
+		pairID,
+	).Scan(&origClean, &transClean)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-
-	results := make([]models.TranslationPairs, 0, limit)
-	for rows.Next() {
-		var originalRaw, originalClean, translationRaw, translationClean string
-		if err := rows.Scan(&originalRaw, &originalClean, &translationRaw, &translationClean); err != nil {
-			return nil, err
-		}
-
-		if originalClean == cleanWord {
-			results = append(results, models.TranslationPairs{
-				Original:  originalRaw,
-				Translate: translationRaw,
-			})
-			continue
-		}
-
-		if translationClean == cleanWord {
-			results = append(results, models.TranslationPairs{
-				Original:  translationRaw,
-				Translate: originalRaw,
-			})
-		}
-	}
-
-	return results, rows.Err()
+	return []string{origClean, transClean}, nil
 }
