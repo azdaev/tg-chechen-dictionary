@@ -224,6 +224,10 @@ func buildInClause(prefix string, ids []int64) (string, []interface{}) {
 }
 
 func (r *Repository) UpdateTranslationPairFormatting(ctx context.Context, id int64, formattedAI, formattedChosen string) error {
+	var chosenVal interface{}
+	if formattedChosen != "" {
+		chosenVal = formattedChosen
+	}
 	_, err := r.db.ExecContext(
 		ctx,
 		`update dictionary_pairs
@@ -232,7 +236,7 @@ func (r *Repository) UpdateTranslationPairFormatting(ctx context.Context, id int
 		    format_version = 'ai_v1'
 		where id = ?;`,
 		formattedAI,
-		formattedChosen,
+		chosenVal,
 		id,
 	)
 	return err
