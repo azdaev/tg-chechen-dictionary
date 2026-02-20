@@ -27,15 +27,6 @@ func (n *Net) HandleCheck(ctx context.Context, update *tgbotapi.Update) error {
 		return err
 	}
 
-	// Check usage limits
-	allowed, err := n.canUseSpellcheck(ctx, update.Message.From.ID)
-	if err != nil {
-		n.log.WithError(err).Error("canUseSpellcheck")
-	}
-	if !allowed {
-		return n.sendPaywall(update.Message.Chat.ID)
-	}
-
 	n.bot.Send(tgbotapi.NewChatAction(update.Message.Chat.ID, tgbotapi.ChatTyping))
 
 	result, err := n.ai.SpellCheck(ctx, text)
@@ -45,9 +36,6 @@ func (n *Net) HandleCheck(ctx context.Context, update *tgbotapi.Update) error {
 		_, sendErr := n.bot.Send(msg)
 		return sendErr
 	}
-
-	// Track usage after successful AI call
-	n.trackSpellcheckUsage(ctx, update.Message.From.ID)
 
 	if result.NoErrors {
 		msg := tgbotapi.NewMessage(update.Message.Chat.ID, "✅ Ошибок не найдено")
