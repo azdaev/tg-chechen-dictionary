@@ -175,6 +175,8 @@ func (n *Net) routeMessage(ctx context.Context, update *tgbotapi.Update) {
 		err = n.HandleModerate(ctx, update)
 	case "check":
 		err = n.HandleCheck(ctx, update)
+	case "subscribe":
+		err = n.HandleSubscribe(ctx, update)
 	case "broadcast":
 		err = n.HandleBroadcast(ctx, update)
 	case "broadcast_cancel":

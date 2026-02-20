@@ -39,17 +39,24 @@ func (n *Net) trackSpellcheckUsage(ctx context.Context, userID int64) {
 	}
 }
 
-// sendPaywall sends a message with a payment button.
+// sendPaywall sends a limit message and an invoice if payments are configured.
 func (n *Net) sendPaywall(chatID int64) error {
 	providerToken := os.Getenv("PAYMENT_PROVIDER_TOKEN")
 	if providerToken == "" {
 		msg := tgbotapi.NewMessage(chatID, fmt.Sprintf(
-			"✨ Бесплатный лимит исчерпан (%d проверок в месяц).\n\nПодписка на проверку орфографии — %s/мес.\n\n⚠️ Оплата временно недоступна, обратитесь к администратору.",
+			"🔒 Бесплатный лимит исчерпан (%d проверок в месяц).\n\nПодписка — %s/мес, но оплата пока не подключена.\nОбратитесь к @azdaev.",
 			FreeSpellcheckLimit, SubscriptionPriceFormatted,
 		))
 		_, err := n.bot.Send(msg)
 		return err
 	}
+
+	return n.sendInvoice(chatID)
+}
+
+// sendInvoice sends a Telegram Payments invoice for the spellcheck subscription.
+func (n *Net) sendInvoice(chatID int64) error {
+	providerToken := os.Getenv("PAYMENT_PROVIDER_TOKEN")
 
 	invoice := tgbotapi.InvoiceConfig{
 		BaseChat: tgbotapi.BaseChat{ChatID: chatID},
@@ -58,9 +65,9 @@ func (n *Net) sendPaywall(chatID int64) error {
 			"Безлимитная проверка орфографии чеченского языка на 30 дней. Бесплатно: %d проверок/мес.",
 			FreeSpellcheckLimit,
 		),
-		Payload:      "spellcheck_subscription",
+		Payload:       "spellcheck_subscription",
 		ProviderToken: providerToken,
-		Currency:     "RUB",
+		Currency:      "RUB",
 		Prices: []tgbotapi.LabeledPrice{
 			{Label: "Подписка (30 дней)", Amount: SubscriptionPriceKopecks},
 		},
@@ -68,6 +75,43 @@ func (n *Net) sendPaywall(chatID int64) error {
 
 	_, err := n.bot.Send(invoice)
 	return err
+}
+
+// HandleSubscribe shows subscription status or sends an invoice.
+func (n *Net) HandleSubscribe(ctx context.Context, update *tgbotapi.Update) error {
+	userID := update.Message.From.ID
+
+	hasSub, err := n.repo.HasActiveSubscription(ctx, userID)
+	if err != nil {
+		return fmt.Errorf("repo.HasActiveSubscription: %w", err)
+	}
+
+	if hasSub {
+		msg := tgbotapi.NewMessage(update.Message.Chat.ID, "✅ У вас уже есть активная подписка. Проверка орфографии без ограничений!")
+		_, err = n.bot.Send(msg)
+		return err
+	}
+
+	// Show remaining free uses
+	now := time.Now()
+	usage, _ := n.repo.GetSpellcheckUsage(ctx, userID, int(now.Month()), now.Year())
+	remaining := FreeSpellcheckLimit - usage
+	if remaining < 0 {
+		remaining = 0
+	}
+
+	infoMsg := tgbotapi.NewMessage(update.Message.Chat.ID, fmt.Sprintf(
+		"📝 Проверка орфографии чеченского языка\n\n"+
+			"Бесплатно: %d проверок/мес (осталось: %d)\n"+
+			"Подписка: %s/мес — безлимит\n\n"+
+			"Нажмите кнопку ниже для оплаты:",
+		FreeSpellcheckLimit, remaining, SubscriptionPriceFormatted,
+	))
+	if _, err = n.bot.Send(infoMsg); err != nil {
+		return err
+	}
+
+	return n.sendPaywall(update.Message.Chat.ID)
 }
 
 // HandlePreCheckout approves pre-checkout queries from Telegram Payments.
