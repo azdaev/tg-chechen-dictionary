@@ -71,6 +71,7 @@ func (n *Net) sendInvoice(chatID int64) error {
 		Prices: []tgbotapi.LabeledPrice{
 			{Label: "Подписка (30 дней)", Amount: SubscriptionPriceKopecks},
 		},
+		SuggestedTipAmounts: []int{},
 	}
 
 	_, err := n.bot.Send(invoice)
