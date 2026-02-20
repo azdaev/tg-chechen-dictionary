@@ -197,6 +197,19 @@ func (n *Net) Start(ctx context.Context) {
 				continue
 			}
 
+			// Spellcheck: message starts with "."
+			if strings.HasPrefix(update.Message.Text, ".") && len(update.Message.Text) > 1 && update.Message.Command() == "" {
+				update.Message.Text = strings.TrimPrefix(update.Message.Text, ".")
+				update.Message.Text = strings.TrimSpace(update.Message.Text)
+				if update.Message.Text != "" {
+					err := n.HandleCheck(ctx, &update)
+					if err != nil {
+						n.log.WithError(err).Error("service.HandleCheck (dot prefix)")
+					}
+					continue
+				}
+			}
+
 			if n.isAwaitingBroadcastContent(&update) {
 				err := n.HandleBroadcastContent(&update)
 				if err != nil {
@@ -633,9 +646,13 @@ func formatModerationMessage(pair repository.TranslationPair) string {
 }
 
 func (n *Net) HandleCheck(ctx context.Context, update *tgbotapi.Update) error {
+	// Try command arguments first, then raw message text (for dot-prefix mode)
 	text := strings.TrimSpace(update.Message.CommandArguments())
 	if text == "" {
-		msg := tgbotapi.NewMessage(update.Message.Chat.ID, "Использование: /check <текст на чеченском>\n\nПример: /check дала безам бу хьо")
+		text = strings.TrimSpace(update.Message.Text)
+	}
+	if text == "" {
+		msg := tgbotapi.NewMessage(update.Message.Chat.ID, "Использование: /check <текст на чеченском>\n\nПример: /check дала безам бу хьо\n\nИли просто начни сообщение с точки:\n.дала безам бу хьо")
 		_, err := n.bot.Send(msg)
 		return err
 	}
