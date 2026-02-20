@@ -100,20 +100,40 @@ func (n *Net) HandleSubscribe(ctx context.Context, update *tgbotapi.Update) erro
 		remaining = 0
 	}
 
-	infoMsg := tgbotapi.NewMessage(update.Message.Chat.ID, fmt.Sprintf(
-		"📝 Проверка орфографии чеченского языка\n\n"+
-			"В боте (/check, .текст) — бесплатно и без ограничений\n\n"+
-			"Инлайн-режим (@chetoru_bot . текст):\n"+
-			"• Бесплатно: %d проверок/мес (осталось: %d)\n"+
-			"• Подписка: %s/мес — безлимит\n\n"+
-			"Нажмите кнопку ниже для оплаты:",
-		FreeSpellcheckLimit, remaining, SubscriptionPriceFormatted,
-	))
+	providerToken := os.Getenv("PAYMENT_PROVIDER_TOKEN")
+
+	var text string
+	if providerToken != "" {
+		text = fmt.Sprintf(
+			"📝 Проверка орфографии чеченского языка\n\n"+
+				"В боте (/check, .текст) — бесплатно и без ограничений\n\n"+
+				"Инлайн-режим (@chetoru_bot . текст):\n"+
+				"• Бесплатно: %d проверок/мес (осталось: %d)\n"+
+				"• Подписка: %s/мес — безлимит\n\n"+
+				"Нажмите кнопку ниже для оплаты:",
+			FreeSpellcheckLimit, remaining, SubscriptionPriceFormatted,
+		)
+	} else {
+		text = fmt.Sprintf(
+			"📝 Проверка орфографии чеченского языка\n\n"+
+				"В боте (/check, .текст) — бесплатно и без ограничений\n\n"+
+				"Инлайн-режим (@chetoru_bot . текст):\n"+
+				"• Бесплатно: %d проверок/мес (осталось: %d)\n"+
+				"• Подписка: %s/мес — безлимит\n\n"+
+				"⚠️ Оплата пока не подключена. Обратитесь к @azdaev.",
+			FreeSpellcheckLimit, remaining, SubscriptionPriceFormatted,
+		)
+	}
+
+	infoMsg := tgbotapi.NewMessage(update.Message.Chat.ID, text)
 	if _, err = n.bot.Send(infoMsg); err != nil {
 		return err
 	}
 
-	return n.sendPaywall(update.Message.Chat.ID)
+	if providerToken != "" {
+		return n.sendInvoice(update.Message.Chat.ID)
+	}
+	return nil
 }
 
 // HandlePreCheckout approves pre-checkout queries from Telegram Payments.
