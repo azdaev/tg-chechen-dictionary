@@ -5,10 +5,8 @@ import (
 	"chetoru/internal/cache"
 	"chetoru/internal/models"
 	"chetoru/internal/repository"
-	"chetoru/pkg/tools"
 
 	"context"
-	"fmt"
 	"os"
 	"strconv"
 	"strings"
@@ -41,13 +39,6 @@ const (
 	BroadcastParseMode    = "html"
 	BroadcastSendDelay    = 100 * time.Millisecond
 )
-
-type broadcastPayload struct {
-	Text     string
-	PhotoID  string
-	Caption  string
-	HasPhoto bool
-}
 
 type AI interface {
 	SpellCheck(ctx context.Context, text string) (*ai.SpellCheckResult, error)
@@ -109,360 +100,111 @@ func (n *Net) Start(ctx context.Context) {
 	updates := n.bot.GetUpdatesChan(u)
 
 	for update := range updates {
-		// Обработка callback запросов
-		if update.CallbackQuery != nil && strings.HasPrefix(update.CallbackQuery.Data, "broadcast_") {
-			err := n.HandleBroadcastCallback(ctx, &update)
-			if err != nil {
-				n.log.WithError(err).Error("service.HandleBroadcastCallback")
-			}
-			continue
-		}
-		if update.CallbackQuery != nil && strings.HasPrefix(update.CallbackQuery.Data, "more_") {
-			err := n.HandleMoreTranslations(ctx, &update)
-			if err != nil {
-				n.log.WithError(err).Error("service.HandleMoreTranslations")
-			}
-			continue
-		}
-		if update.CallbackQuery != nil && strings.HasPrefix(update.CallbackQuery.Data, "spell_") {
-			err := n.HandleSpellcheckFeedback(ctx, &update)
-			if err != nil {
-				n.log.WithError(err).Error("service.HandleSpellcheckFeedback")
-			}
-			continue
-		}
-		if update.CallbackQuery != nil && strings.HasPrefix(update.CallbackQuery.Data, "mod_") {
-			err := n.HandleModerationCallback(ctx, &update)
-			if err != nil {
-				n.log.WithError(err).Error("service.HandleModerationCallback")
-			}
+		// Callbacks
+		if update.CallbackQuery != nil {
+			n.routeCallback(ctx, &update)
 			continue
 		}
 
-		// Обработка текстовых сообщений
+		// Messages
 		if update.Message != nil {
-			if update.Message.Command() == "start" {
-				err := n.HandleStart(&update)
-				if err != nil {
-					n.log.
-						WithError(err).
-						Error("service.HandleStart")
-				}
-				continue
-			}
-
-			if update.Message.Command() == "stats" {
-				err := n.HandleStats(ctx, &update)
-				if err != nil {
-					n.log.
-						WithError(err).
-						Error("service.HandleStats")
-				}
-				continue
-			}
-			if update.Message.Command() == "moderate" {
-				err := n.HandleModerate(ctx, &update)
-				if err != nil {
-					n.log.
-						WithError(err).
-						Error("service.HandleModerate")
-				}
-				continue
-			}
-			if update.Message.Command() == "check" {
-				err := n.HandleCheck(ctx, &update)
-				if err != nil {
-					n.log.
-						WithError(err).
-						Error("service.HandleCheck")
-				}
-				continue
-			}
-			if update.Message.Command() == "broadcast" {
-				err := n.HandleBroadcast(ctx, &update)
-				if err != nil {
-					n.log.
-						WithError(err).
-						Error("service.HandleBroadcast")
-				}
-				continue
-			}
-			if update.Message.Command() == "broadcast_cancel" {
-				err := n.HandleBroadcastCancel(&update)
-				if err != nil {
-					n.log.
-						WithError(err).
-						Error("service.HandleBroadcastCancel")
-				}
-				continue
-			}
-
-			// Spellcheck: message starts with "."
-			if strings.HasPrefix(update.Message.Text, ".") && len(update.Message.Text) > 1 && update.Message.Command() == "" {
-				update.Message.Text = strings.TrimPrefix(update.Message.Text, ".")
-				update.Message.Text = strings.TrimSpace(update.Message.Text)
-				if update.Message.Text != "" {
-					err := n.HandleCheck(ctx, &update)
-					if err != nil {
-						n.log.WithError(err).Error("service.HandleCheck (dot prefix)")
-					}
-					continue
-				}
-			}
-
-			if n.isAwaitingBroadcastContent(&update) {
-				err := n.HandleBroadcastContent(&update)
-				if err != nil {
-					n.log.
-						WithError(err).
-						Error("service.HandleBroadcastContent")
-				}
-				continue
-			}
-
-			err := n.HandleText(ctx, &update)
-			if err != nil {
-				n.log.
-					WithField("user_id", update.Message.From.ID).
-					WithField("username", update.Message.From.UserName).
-					WithField("message", update.Message.Text).
-					WithError(err).
-					Error("service.HandleText")
-			}
+			n.routeMessage(ctx, &update)
 			continue
 		}
 
-		// Обработка inline запросов
+		// Inline queries
 		if update.InlineQuery != nil && update.InlineQuery.Query != "" {
-			// Spellcheck mode: ". текст"
-			if strings.HasPrefix(update.InlineQuery.Query, ". ") && len(update.InlineQuery.Query) > 2 {
-				err := n.HandleInlineSpellcheck(ctx, &update)
-				if err != nil {
-					n.log.WithError(err).Error("service.HandleInlineSpellcheck")
-				}
-				continue
-			}
-			err := n.HandleInline(ctx, &update)
-			if err != nil {
-				n.log.
-					WithField("user_id", update.InlineQuery.From.ID).
-					WithField("username", update.InlineQuery.From.UserName).
-					WithField("message", update.InlineQuery.Query).
-					WithError(err).
-					Error("service.HandleInline")
-			}
+			n.routeInline(ctx, &update)
 			continue
 		}
 	}
 }
 
-func (n *Net) HandleBroadcast(ctx context.Context, update *tgbotapi.Update) error {
-	if !n.isAdmin(update.Message.From.ID) {
-		return nil
-	}
-
-	n.awaitingBroadcast = true
-	n.pendingBroadcast = nil
-	msg := tgbotapi.NewMessage(update.Message.Chat.ID, "Отправьте текст или фото с подписью. Я покажу превью перед рассылкой.")
-	_, err := n.bot.Send(msg)
-	return err
-}
-
-func (n *Net) HandleBroadcastCancel(update *tgbotapi.Update) error {
-	if !n.isAdmin(update.Message.From.ID) {
-		return nil
-	}
-
-	n.awaitingBroadcast = false
-	n.pendingBroadcast = nil
-	msg := tgbotapi.NewMessage(update.Message.Chat.ID, "Рассылка отменена.")
-	_, err := n.bot.Send(msg)
-	return err
-}
-
-func (n *Net) HandleBroadcastContent(update *tgbotapi.Update) error {
-	if !n.isAdmin(update.Message.From.ID) {
-		return nil
-	}
-
-	payload, err := buildBroadcastPayload(update.Message)
-	if err != nil {
-		msg := tgbotapi.NewMessage(update.Message.Chat.ID, err.Error())
-		_, sendErr := n.bot.Send(msg)
-		if sendErr != nil {
-			return sendErr
-		}
-		return nil
-	}
-
-	n.awaitingBroadcast = false
-	n.pendingBroadcast = payload
-	preview, err := n.sendBroadcastPreview(update.Message.Chat.ID, payload)
-	if err != nil {
-		return err
-	}
-	_, err = n.bot.Send(preview)
-	return err
-}
-
-func (n *Net) HandleBroadcastCallback(ctx context.Context, update *tgbotapi.Update) error {
-	if update.CallbackQuery == nil {
-		return nil
-	}
-
-	if !n.isAdmin(update.CallbackQuery.From.ID) {
-		return nil
-	}
-
+func (n *Net) routeCallback(ctx context.Context, update *tgbotapi.Update) {
 	data := update.CallbackQuery.Data
-	switch data {
-	case "broadcast_send":
-		callback := tgbotapi.NewCallback(update.CallbackQuery.ID, "Отправляю")
-		if _, err := n.bot.Request(callback); err != nil {
-			return fmt.Errorf("bot.Request: %w", err)
-		}
+	var err error
 
-		go func() {
-			if err := n.sendBroadcast(ctx, update); err != nil {
-				n.log.WithError(err).Error("service.sendBroadcast")
-			}
-		}()
-		return nil
-	case "broadcast_cancel":
-		n.pendingBroadcast = nil
-		callback := tgbotapi.NewCallback(update.CallbackQuery.ID, "Отменено")
-		_, err := n.bot.Request(callback)
-		if err != nil {
-			return fmt.Errorf("bot.Request: %w", err)
-		}
-		msg := tgbotapi.NewMessage(update.CallbackQuery.Message.Chat.ID, "Рассылка отменена.")
-		_, err = n.bot.Send(msg)
-		return err
-	default:
-		return nil
-	}
-}
-
-func (n *Net) sendBroadcast(ctx context.Context, update *tgbotapi.Update) error {
-	payload := n.pendingBroadcast
-	if payload == nil {
-		callback := tgbotapi.NewCallback(update.CallbackQuery.ID, "Нет данных для рассылки")
-		_, err := n.bot.Request(callback)
-		return err
+	switch {
+	case strings.HasPrefix(data, "broadcast_"):
+		err = n.HandleBroadcastCallback(ctx, update)
+	case strings.HasPrefix(data, "more_"):
+		err = n.HandleMoreTranslations(ctx, update)
+	case strings.HasPrefix(data, "spell_"):
+		err = n.HandleSpellcheckFeedback(ctx, update)
+	case strings.HasPrefix(data, "mod_"):
+		err = n.HandleModerationCallback(ctx, update)
 	}
 
-	userIDs, err := n.repo.ListUserIDs(ctx)
 	if err != nil {
-		return fmt.Errorf("repo.ListUserIDs: %w", err)
+		n.log.WithError(err).WithField("callback", data).Error("callback handler failed")
 	}
+}
 
-	sent := 0
-	failed := 0
-	blocked := 0
-	for _, userID := range userIDs {
-		sendErr := n.sendBroadcastPayload(userID, payload)
-		if sendErr != nil {
-			failed++
-			if n.isBlockedError(sendErr) {
-				if err := n.repo.MarkUserBlocked(ctx, userID, sendErr.Error()); err != nil {
-					n.log.WithError(err).WithField("user_id", userID).Warn("failed to mark user blocked")
-				} else {
-					blocked++
+func (n *Net) routeMessage(ctx context.Context, update *tgbotapi.Update) {
+	var err error
+
+	switch update.Message.Command() {
+	case "start":
+		err = n.HandleStart(update)
+	case "stats":
+		err = n.HandleStats(ctx, update)
+	case "moderate":
+		err = n.HandleModerate(ctx, update)
+	case "check":
+		err = n.HandleCheck(ctx, update)
+	case "broadcast":
+		err = n.HandleBroadcast(ctx, update)
+	case "broadcast_cancel":
+		err = n.HandleBroadcastCancel(update)
+	default:
+		// Spellcheck: message starts with "."
+		if strings.HasPrefix(update.Message.Text, ".") && len(update.Message.Text) > 1 {
+			update.Message.Text = strings.TrimSpace(strings.TrimPrefix(update.Message.Text, "."))
+			if update.Message.Text != "" {
+				err = n.HandleCheck(ctx, update)
+				if err != nil {
+					n.log.WithError(err).Error("service.HandleCheck (dot prefix)")
 				}
+				return
 			}
-			n.log.WithError(sendErr).WithField("user_id", userID).Warn("broadcast send failed")
-		} else {
-			sent++
 		}
-		time.Sleep(BroadcastSendDelay)
+
+		if n.isAwaitingBroadcastContent(update) {
+			err = n.HandleBroadcastContent(update)
+		} else {
+			err = n.HandleText(ctx, update)
+		}
 	}
 
-	n.pendingBroadcast = nil
-
-	summary := fmt.Sprintf("Рассылка завершена. Всего: %d, отправлено: %d, ошибки: %d, заблокировано: %d", len(userIDs), sent, failed, blocked)
-	msg := tgbotapi.NewMessage(update.CallbackQuery.Message.Chat.ID, summary)
-	_, err = n.bot.Send(msg)
-	return err
+	if err != nil {
+		n.log.
+			WithField("user_id", update.Message.From.ID).
+			WithField("command", update.Message.Command()).
+			WithError(err).
+			Error("message handler failed")
+	}
 }
 
-func (n *Net) sendBroadcastPreview(chatID int64, payload *broadcastPayload) (tgbotapi.Chattable, error) {
-	if payload.HasPhoto {
-		preview := tgbotapi.NewPhoto(chatID, tgbotapi.FileID(payload.PhotoID))
-		preview.Caption = payload.Caption
-		preview.ParseMode = BroadcastParseMode
-		preview.ReplyMarkup = broadcastPreviewKeyboard()
-		return preview, nil
+func (n *Net) routeInline(ctx context.Context, update *tgbotapi.Update) {
+	var err error
+
+	if strings.HasPrefix(update.InlineQuery.Query, ". ") && len(update.InlineQuery.Query) > 2 {
+		err = n.HandleInlineSpellcheck(ctx, update)
+	} else {
+		err = n.HandleInline(ctx, update)
 	}
 
-	preview := tgbotapi.NewMessage(chatID, payload.Text)
-	preview.ParseMode = BroadcastParseMode
-	preview.ReplyMarkup = broadcastPreviewKeyboard()
-	return preview, nil
-}
-
-func (n *Net) sendBroadcastPayload(chatID int64, payload *broadcastPayload) error {
-	if payload.HasPhoto {
-		msg := tgbotapi.NewPhoto(chatID, tgbotapi.FileID(payload.PhotoID))
-		msg.Caption = payload.Caption
-		msg.ParseMode = BroadcastParseMode
-		_, err := n.bot.Send(msg)
-		return err
+	if err != nil {
+		n.log.
+			WithField("user_id", update.InlineQuery.From.ID).
+			WithField("query", update.InlineQuery.Query).
+			WithError(err).
+			Error("inline handler failed")
 	}
-
-	msg := tgbotapi.NewMessage(chatID, payload.Text)
-	msg.ParseMode = BroadcastParseMode
-	_, err := n.bot.Send(msg)
-	return err
-}
-
-func (n *Net) isAwaitingBroadcastContent(update *tgbotapi.Update) bool {
-	if update.Message == nil {
-		return false
-	}
-
-	if !n.awaitingBroadcast {
-		return false
-	}
-
-	return n.isAdmin(update.Message.From.ID)
 }
 
 func (n *Net) isAdmin(userID int64) bool {
 	return strconv.Itoa(int(userID)) == os.Getenv("TG_ADMIN_ID")
-}
-
-func buildBroadcastPayload(message *tgbotapi.Message) (*broadcastPayload, error) {
-	if message == nil {
-		return nil, fmt.Errorf("Нет сообщения для рассылки")
-	}
-
-	if message.Photo != nil && len(message.Photo) > 0 {
-		photo := message.Photo[len(message.Photo)-1]
-		caption := message.Caption
-		return &broadcastPayload{
-			PhotoID:  photo.FileID,
-			Caption:  caption,
-			HasPhoto: true,
-		}, nil
-	}
-
-	text := strings.TrimSpace(message.Text)
-	if text == "" {
-		return nil, fmt.Errorf("Нужен текст или фото с подписью для рассылки")
-	}
-
-	return &broadcastPayload{
-		Text: text,
-	}, nil
-}
-
-func broadcastPreviewKeyboard() tgbotapi.InlineKeyboardMarkup {
-	return tgbotapi.NewInlineKeyboardMarkup(
-		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData("✅ Отправить", "broadcast_send"),
-			tgbotapi.NewInlineKeyboardButtonData("❌ Отмена", "broadcast_cancel"),
-		),
-	)
 }
 
 func (n *Net) isBlockedError(err error) bool {
@@ -473,694 +215,4 @@ func (n *Net) isBlockedError(err error) bool {
 	return strings.Contains(errStr, "bot was blocked") ||
 		strings.Contains(errStr, "user is deactivated") ||
 		strings.Contains(errStr, "chat not found")
-}
-
-func (n *Net) HandleModerate(ctx context.Context, update *tgbotapi.Update) error {
-	if strconv.Itoa(int(update.Message.From.ID)) != os.Getenv("TG_ADMIN_ID") {
-		return nil
-	}
-
-	limit := 20
-	args := strings.Fields(update.Message.CommandArguments())
-	if len(args) > 0 {
-		if parsed, err := strconv.Atoi(args[0]); err == nil && parsed > 0 {
-			limit = parsed
-		}
-	}
-
-	pairs, err := n.repo.ListPendingTranslationPairs(ctx, limit)
-	if err != nil {
-		return fmt.Errorf("repo.ListPendingTranslationPairs: %w", err)
-	}
-	if len(pairs) == 0 {
-		_, err = n.bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "Нет новых слов для модерации."))
-		return err
-	}
-
-	modChatID := moderationChatID()
-	for _, pair := range pairs {
-		text := formatModerationMessage(pair)
-		msg := tgbotapi.NewMessage(modChatID, text)
-		
-		// Show simplified buttons: only AI and Delete
-		if pair.FormattedAI.Valid && pair.FormattedAI.String != "" {
-			msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(
-				tgbotapi.NewInlineKeyboardRow(
-					tgbotapi.NewInlineKeyboardButtonData("✅ Принять AI", fmt.Sprintf("mod_ai_%d", pair.ID)),
-					tgbotapi.NewInlineKeyboardButtonData("🗑 Удалить", fmt.Sprintf("mod_delete_%d", pair.ID)),
-				),
-			)
-		} else {
-			// If AI formatting is not ready, show only delete option
-			msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(
-				tgbotapi.NewInlineKeyboardRow(
-					tgbotapi.NewInlineKeyboardButtonData("🗑 Удалить", fmt.Sprintf("mod_delete_%d", pair.ID)),
-				),
-			)
-		}
-		if _, err := n.bot.Send(msg); err != nil {
-			n.log.WithError(err).WithField("pair_id", pair.ID).Warn("failed to send moderation message")
-		}
-	}
-
-	_, err = n.bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, fmt.Sprintf("Отправлено на модерацию: %d", len(pairs))))
-	return err
-}
-
-func (n *Net) HandleModerationCallback(ctx context.Context, update *tgbotapi.Update) error {
-	data := update.CallbackQuery.Data
-	parts := strings.Split(data, "_")
-	if len(parts) != 3 {
-		return fmt.Errorf("invalid moderation callback format")
-	}
-
-	action := parts[1]
-	id, err := strconv.ParseInt(parts[2], 10, 64)
-	if err != nil {
-		return fmt.Errorf("invalid moderation id: %w", err)
-	}
-
-	var status string
-	var choice string
-
-	switch action {
-	case "ai":
-		// Accept AI formatting
-		status = "✅ Принято (AI)"
-		choice = "ai"
-		if err := n.repo.SetTranslationPairFormattingChoice(ctx, id, choice); err != nil {
-			return fmt.Errorf("repo.SetTranslationPairFormattingChoice: %w", err)
-		}
-	case "delete":
-		// Delete (mark as deleted)
-		status = "🗑 Удалено"
-		choice = "deleted"
-		if err := n.repo.SetTranslationPairFormattingChoice(ctx, id, choice); err != nil {
-			return fmt.Errorf("repo.SetTranslationPairFormattingChoice: %w", err)
-		}
-	default:
-		return fmt.Errorf("unknown moderation action: %s", action)
-	}
-
-	// Invalidate cache for this word
-	// We need to extract the clean word from the message or get it from database
-	// For simplicity, let's get pairs that contain this ID and invalidate their clean words
-	go func() {
-		// This is a background task to invalidate cache
-		// We could improve this by passing the cleanWord directly, but for now this works
-		n.invalidateCacheForPair(ctx, id)
-	}()
-
-	edited := tgbotapi.NewEditMessageText(update.CallbackQuery.Message.Chat.ID, update.CallbackQuery.Message.MessageID, status+"\n\n"+update.CallbackQuery.Message.Text)
-	if _, err := n.bot.Send(edited); err != nil {
-		n.log.WithError(err).Warn("failed to edit moderation message")
-	}
-
-	callback := tgbotapi.NewCallback(update.CallbackQuery.ID, status)
-	_, err = n.bot.Request(callback)
-	if err != nil {
-		return fmt.Errorf("bot.Request: %w", err)
-	}
-
-	return nil
-}
-
-// invalidateCacheForPair invalidates cache for a specific pair
-func (n *Net) invalidateCacheForPair(ctx context.Context, pairID int64) {
-	if n.cache == nil {
-		return
-	}
-
-	cleanWords, err := n.repo.GetPairCleanWords(ctx, pairID)
-	if err != nil {
-		n.log.WithError(err).Warn("failed to get clean words for cache invalidation")
-		return
-	}
-
-	for _, word := range cleanWords {
-		if word == "" {
-			continue
-		}
-		_ = n.cache.Delete(ctx, word)
-		_ = n.cache.Delete(ctx, "formatted_"+word)
-	}
-}
-
-func moderationChatID() int64 {
-	if val := os.Getenv("TG_MOD_CHAT_ID"); val != "" {
-		if id, err := strconv.ParseInt(val, 10, 64); err == nil {
-			return id
-		}
-	}
-	return DefaultModerationChat
-}
-
-func formatModerationMessage(pair repository.TranslationPair) string {
-	var sb strings.Builder
-	
-	sb.WriteString(fmt.Sprintf("ID: %d\n", pair.ID))
-	sb.WriteString(fmt.Sprintf("%s → %s\n", 
-		pair.OriginalClean+" ("+pair.OriginalLang+")",
-		pair.TranslationClean+" ("+pair.TranslationLang+")"))
-	sb.WriteString(fmt.Sprintf("raw: %s → %s\n", pair.OriginalRaw, pair.TranslationRaw))
-	sb.WriteString(fmt.Sprintf("source: %s\n\n", pair.Source))
-	
-	// Legacy formatting (always show)
-	legacyFormat := tools.FormatTranslationLite(
-		fmt.Sprintf("**%s** - %s", pair.OriginalRaw, pair.TranslationRaw),
-		pair.OriginalRaw,
-	)
-	sb.WriteString("📋 Legacy:\n")
-	sb.WriteString(legacyFormat)
-	sb.WriteString("\n\n")
-	
-	// AI formatting (if available)
-	if pair.FormattedAI.Valid && pair.FormattedAI.String != "" {
-		sb.WriteString("✨ AI:\n")
-		sb.WriteString(pair.FormattedAI.String)
-	} else {
-		sb.WriteString("✨ AI: (форматируется...)")
-	}
-	
-	return sb.String()
-}
-
-func (n *Net) HandleCheck(ctx context.Context, update *tgbotapi.Update) error {
-	// Try command arguments first, then raw message text (for dot-prefix mode)
-	text := strings.TrimSpace(update.Message.CommandArguments())
-	if text == "" {
-		text = strings.TrimSpace(update.Message.Text)
-	}
-	if text == "" {
-		msg := tgbotapi.NewMessage(update.Message.Chat.ID, "Использование: /check <текст на чеченском>\n\nПример: /check дала безам бу хьо\n\nИли просто начни сообщение с точки:\n.дала безам бу хьо")
-		_, err := n.bot.Send(msg)
-		return err
-	}
-
-	if n.ai == nil {
-		msg := tgbotapi.NewMessage(update.Message.Chat.ID, "⚠️ Проверка орфографии временно недоступна")
-		_, err := n.bot.Send(msg)
-		return err
-	}
-
-	n.bot.Send(tgbotapi.NewChatAction(update.Message.Chat.ID, tgbotapi.ChatTyping))
-
-	result, err := n.ai.SpellCheck(ctx, text)
-	if err != nil {
-		n.log.WithError(err).Error("ai.SpellCheck")
-		msg := tgbotapi.NewMessage(update.Message.Chat.ID, "⚠️ Не удалось проверить текст, попробуйте позже")
-		_, sendErr := n.bot.Send(msg)
-		return sendErr
-	}
-
-	if result.NoErrors {
-		msg := tgbotapi.NewMessage(update.Message.Chat.ID, "✅ Ошибок не найдено")
-		msg.ReplyToMessageID = update.Message.MessageID
-		_, err = n.bot.Send(msg)
-		return err
-	}
-
-	// Format nice response
-	var responseText string
-	if result.Corrected != "" {
-		responseText = "✏️ " + result.Corrected
-	}
-	// Append changes if present
-	if idx := strings.Index(result.Explanation, "CHANGES:"); idx != -1 {
-		changes := strings.TrimSpace(result.Explanation[idx+len("CHANGES:"):])
-		if changes != "" {
-			responseText += "\n\n📝 Изменения:\n" + changes
-		}
-	}
-	if responseText == "" {
-		responseText = result.Explanation
-	}
-
-	msg := tgbotapi.NewMessage(update.Message.Chat.ID, responseText)
-	msg.ReplyToMessageID = update.Message.MessageID
-
-	// Add feedback buttons
-	if result.Corrected != "" {
-		msg.ReplyMarkup = spellcheckFeedbackKeyboard(text, result.Corrected)
-	}
-
-	_, err = n.bot.Send(msg)
-	return err
-}
-
-func (n *Net) HandleSpellcheckFeedback(ctx context.Context, update *tgbotapi.Update) error {
-	data := update.CallbackQuery.Data
-	// Format: spell_like_<hash> or spell_dislike_<hash>
-	parts := strings.SplitN(data, "_", 3)
-	if len(parts) != 3 {
-		return fmt.Errorf("invalid spellcheck feedback format")
-	}
-
-	feedback := parts[1] // "like" or "dislike"
-
-	msgText := update.CallbackQuery.Message.Text
-
-	// Extract corrected text from the message (starts with "✏️ ")
-	var corrected string
-	for _, line := range strings.Split(msgText, "\n") {
-		line = strings.TrimSpace(line)
-		if strings.HasPrefix(line, "✏️ ") {
-			corrected = strings.TrimPrefix(line, "✏️ ")
-			break
-		}
-	}
-
-	if err := n.repo.StoreSpellcheckFeedback(ctx, update.CallbackQuery.From.ID, msgText, corrected, feedback); err != nil {
-		n.log.WithError(err).Error("repo.StoreSpellcheckFeedback")
-	}
-
-	var status string
-	if feedback == "like" {
-		status = "👍 Спасибо за отзыв!"
-	} else {
-		status = "👎 Спасибо, учтём!"
-	}
-
-	callback := tgbotapi.NewCallback(update.CallbackQuery.ID, status)
-	if _, err := n.bot.Request(callback); err != nil {
-		return fmt.Errorf("bot.Request: %w", err)
-	}
-
-	// Remove buttons after feedback
-	edited := tgbotapi.NewEditMessageReplyMarkup(
-		update.CallbackQuery.Message.Chat.ID,
-		update.CallbackQuery.Message.MessageID,
-		tgbotapi.InlineKeyboardMarkup{InlineKeyboard: [][]tgbotapi.InlineKeyboardButton{}},
-	)
-	n.bot.Send(edited)
-
-	return nil
-}
-
-func spellcheckFeedbackKeyboard(original, corrected string) tgbotapi.InlineKeyboardMarkup {
-	// Use a simple hash to keep callback data short (max 64 bytes)
-	hash := fmt.Sprintf("%d", len(original)+len(corrected))
-	return tgbotapi.NewInlineKeyboardMarkup(
-		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData("👍", "spell_like_"+hash),
-			tgbotapi.NewInlineKeyboardButtonData("👎", "spell_dislike_"+hash),
-		),
-	)
-}
-
-func (n *Net) HandleText(ctx context.Context, update *tgbotapi.Update) error {
-	loaderMessage, err := n.bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "⌛️"))
-	if err != nil {
-		return fmt.Errorf("bot.Send: %w", err)
-	}
-
-	defer func() {
-		n.bot.Send(
-			tgbotapi.NewDeleteMessage(update.Message.Chat.ID, loaderMessage.MessageID),
-		)
-	}()
-
-	n.bot.Send(tgbotapi.NewChatAction(update.Message.Chat.ID, tgbotapi.ChatTyping))
-
-	err = n.repo.StoreUser(ctx, int(update.Message.From.ID), update.Message.From.UserName)
-	if err != nil {
-		return fmt.Errorf("repo.StoreUser: %w", err)
-	}
-
-	if err := n.repo.MarkUserUnblocked(ctx, update.Message.From.ID); err != nil {
-		n.log.WithError(err).WithField("user_id", update.Message.From.ID).Warn("failed to unblock user")
-	}
-
-	err = n.repo.StoreActivity(ctx, int(update.Message.From.ID), models.ActivityTypeText)
-	if err != nil {
-		return fmt.Errorf("repo.StoreActivity: %w", err)
-	}
-
-	m := update.Message
-	result := n.business.TranslateFormatted(m.Text)
-	if len(result.Pairs) == 0 {
-		_, err = n.bot.Send(tgbotapi.NewMessage(m.Chat.ID, NoTranslationText))
-		if err != nil {
-			return fmt.Errorf("bot.Send: %w", err)
-		}
-		return nil
-	}
-
-	// Показываем только первые 4 перевода для кнопки "Еще"
-	firstTranslations := result.Pairs
-	if len(result.Pairs) > MaxTranslations {
-		firstTranslations = result.Pairs[:MaxTranslations]
-	}
-
-	// Используем кэшированный отформатированный текст для первых переводов
-	var messageText string
-	if len(result.Pairs) <= MaxTranslations {
-		// Все переводы помещаются - используем полный отформатированный текст
-		messageText = result.Formatted
-	} else {
-		// Нужно показать только первые 4 - форматируем их отдельно
-		messageText = formatTranslations(firstTranslations)
-	}
-
-	msg := tgbotapi.NewMessage(m.Chat.ID, messageText)
-	msg.ParseMode = "html"
-
-	if len(result.Pairs) > MaxTranslations {
-		remainingCount := len(result.Pairs) - MaxTranslations
-		keyboard := tgbotapi.NewInlineKeyboardMarkup(
-			tgbotapi.NewInlineKeyboardRow(
-				tgbotapi.NewInlineKeyboardButtonData(
-					fmt.Sprintf(MoreButtonText, remainingCount),
-					fmt.Sprintf("more_%s_4", m.Text),
-				),
-			),
-		)
-		msg.ReplyMarkup = keyboard
-
-		msg.Text += "\n\n" + MoreTranslationsHelpText
-	}
-
-	_, err = n.bot.Send(msg)
-	if err != nil {
-		return fmt.Errorf("bot.Send: %w", err)
-	}
-
-	// Auto-moderation is now triggered via Business.onPairReady callback
-	// after AI formatting completes (see main.go)
-
-	// Check if we should send a donation message
-	shouldSend, err := n.repo.ShouldSendDonationMessage(ctx, int(update.Message.From.ID))
-	if err != nil {
-		return fmt.Errorf("failed to check donation message status: %w", err)
-	}
-
-	if shouldSend {
-		donationMsg := tgbotapi.NewMessage(m.Chat.ID, DonationMessageFormat)
-		donationMsg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(
-			tgbotapi.NewInlineKeyboardRow(
-				tgbotapi.NewInlineKeyboardButtonURL("🚀 Поддержать нас", os.Getenv("DONATION_LINK")),
-			),
-		)
-		_, err = n.bot.Send(donationMsg)
-		if err != nil {
-			return fmt.Errorf("failed to send donation message: %w", err)
-		}
-
-		err = n.repo.StoreDonationMessage(ctx, int(update.Message.From.ID))
-		if err != nil {
-			return fmt.Errorf("failed to store donation message: %w", err)
-		}
-	}
-
-	return nil
-}
-
-// SendAutoModeration sends pending pairs for a word to moderation chat.
-// Called from Business.onPairReady callback after AI formatting completes.
-func (n *Net) SendAutoModeration(ctx context.Context, word string) {
-	cleanWord := tools.NormalizeSearch(word)
-	if cleanWord == "" {
-		return
-	}
-
-	approved, err := n.repo.FindStrictlyApprovedPairs(ctx, cleanWord, 1)
-	if err != nil || len(approved) > 0 {
-		return
-	}
-
-	pairs, err := n.repo.ListPendingTranslationPairsByWord(ctx, cleanWord, 20)
-	if err != nil || len(pairs) == 0 {
-		return
-	}
-
-	modChatID := moderationChatID()
-	for _, pair := range pairs {
-		text := formatModerationMessage(pair)
-		msg := tgbotapi.NewMessage(modChatID, text)
-		
-		// Show simplified buttons: only AI and Delete
-		if pair.FormattedAI.Valid && pair.FormattedAI.String != "" {
-			msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(
-				tgbotapi.NewInlineKeyboardRow(
-					tgbotapi.NewInlineKeyboardButtonData("✅ Принять AI", fmt.Sprintf("mod_ai_%d", pair.ID)),
-					tgbotapi.NewInlineKeyboardButtonData("🗑 Удалить", fmt.Sprintf("mod_delete_%d", pair.ID)),
-				),
-			)
-		} else {
-			// If AI formatting is not ready, show only delete option
-			msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(
-				tgbotapi.NewInlineKeyboardRow(
-					tgbotapi.NewInlineKeyboardButtonData("🗑 Удалить", fmt.Sprintf("mod_delete_%d", pair.ID)),
-				),
-			)
-		}
-		if _, err := n.bot.Send(msg); err != nil {
-			n.log.WithError(err).WithField("pair_id", pair.ID).Warn("failed to send moderation message")
-		}
-	}
-}
-
-func (n *Net) HandleInlineSpellcheck(ctx context.Context, update *tgbotapi.Update) error {
-	text := strings.TrimPrefix(update.InlineQuery.Query, ". ")
-
-	if n.ai == nil {
-		return nil
-	}
-
-	result, err := n.ai.SpellCheck(ctx, text)
-	if err != nil {
-		n.log.WithError(err).Error("ai.SpellCheck inline")
-		return nil
-	}
-
-	var articles []interface{}
-
-	if result.NoErrors {
-		article := tgbotapi.NewInlineQueryResultArticle(update.InlineQuery.ID+"_sp0", "✅ Ошибок не найдено", text)
-		article.Description = text
-		article.InputMessageContent = tgbotapi.InputTextMessageContent{Text: text}
-		articles = append(articles, article)
-	} else if result.Corrected != "" {
-		article := tgbotapi.NewInlineQueryResultArticle(update.InlineQuery.ID+"_sp0", "✏️ "+result.Corrected, result.Corrected)
-		article.Description = "Нажмите, чтобы отправить исправленный текст"
-		article.InputMessageContent = tgbotapi.InputTextMessageContent{Text: result.Corrected}
-		articles = append(articles, article)
-	}
-
-	inlineConf := tgbotapi.InlineConfig{
-		InlineQueryID: update.InlineQuery.ID,
-		IsPersonal:    true,
-		CacheTime:     0,
-		Results:       articles,
-	}
-
-	resp, err := n.bot.Request(inlineConf)
-	if err != nil {
-		return fmt.Errorf("bot.Request: %w", err)
-	}
-	if !resp.Ok {
-		return fmt.Errorf("bot.Request: %s", resp.Description)
-	}
-
-	return nil
-}
-
-func (n *Net) HandleInline(ctx context.Context, update *tgbotapi.Update) error {
-	translations := n.business.Translate(update.InlineQuery.Query)
-
-	articles := make([]interface{}, len(translations))
-
-	for i := range articles {
-		article := tgbotapi.NewInlineQueryResultArticle(update.InlineQuery.ID+strconv.Itoa(i), tools.Clean(translations[i].Original), "")
-		article.Description = tools.Clean(translations[i].Translate)
-		article.InputMessageContent = tgbotapi.InputTextMessageContent{
-			Text:      fmt.Sprintf("<b>%s</b> - %s", translations[i].Original, translations[i].Translate),
-			ParseMode: "html",
-		}
-
-		articles[i] = article
-	}
-
-	inlineConf := tgbotapi.InlineConfig{
-		InlineQueryID: update.InlineQuery.ID,
-		IsPersonal:    true,
-		CacheTime:     0,
-		Results:       articles,
-	}
-
-	resp, err := n.bot.Request(inlineConf)
-	if err != nil {
-		return fmt.Errorf("bot.Request: %w", err)
-	}
-	if !resp.Ok {
-		return fmt.Errorf("bot.Request: %s", resp.Description)
-	}
-
-	err = n.repo.StoreUser(ctx, int(update.InlineQuery.From.ID), update.InlineQuery.From.UserName)
-	if err != nil {
-		return fmt.Errorf("repo.StoreUser: %w", err)
-	}
-
-	if err := n.repo.MarkUserUnblocked(ctx, update.InlineQuery.From.ID); err != nil {
-		n.log.WithError(err).WithField("user_id", update.InlineQuery.From.ID).Warn("failed to unblock user")
-	}
-
-	err = n.repo.StoreActivity(ctx, int(update.InlineQuery.From.ID), models.ActivityTypeInline)
-	if err != nil {
-		return fmt.Errorf("repo.StoreActivity: %w", err)
-	}
-
-	return nil
-}
-
-func (n *Net) HandleStart(update *tgbotapi.Update) error {
-	video := tgbotapi.NewVideo(update.Message.Chat.ID, tgbotapi.FilePath(PathInlineVideo))
-	video.Caption = StartMessageText
-
-	_, err := n.bot.Send(video)
-	if err != nil {
-		return fmt.Errorf("bot.Send: %w", err)
-	}
-
-	return nil
-}
-
-func (n *Net) HandleStats(ctx context.Context, update *tgbotapi.Update) error {
-	if strconv.Itoa(int(update.Message.From.ID)) != os.Getenv("TG_ADMIN_ID") {
-		return nil
-	}
-
-	day := time.Now().Day()
-	month := int(time.Now().Month())
-	year := time.Now().Year()
-	newMonthlyUsers, err := n.repo.CountNewMonthlyUsers(ctx, month, year)
-	if err != nil {
-		return fmt.Errorf("repo.CountNewMonthlyUsers: %w", err)
-	}
-
-	dailyActiveUsersLastMonth, err := n.repo.DailyActiveUsersInMonth(ctx, month, year, day)
-	if err != nil {
-		return fmt.Errorf("repo.DailyActiveUsersInMonth: %w", err)
-	}
-
-	monthlyActiveUsers, err := n.repo.MonthlyActiveUsers(ctx, month, year)
-	if err != nil {
-		return fmt.Errorf("repo.MonthlyActiveUsers: %w", err)
-	}
-
-	msg := tgbotapi.NewMessage(
-		update.Message.Chat.ID,
-		statsMessageText(newMonthlyUsers, monthlyActiveUsers, dailyActiveUsersLastMonth),
-	)
-	msg.ParseMode = "html"
-
-	_, err = n.bot.Send(msg)
-	if err != nil {
-		return fmt.Errorf("bot.Send: %w", err)
-	}
-
-	return nil
-}
-
-func statsMessageText(newMonthlyUsers int, monthlyActiveUsers int, dailyActivityInMonth []models.DailyActivity) string {
-	messageText := fmt.Sprintf(StatsHeaderText, newMonthlyUsers, monthlyActiveUsers)
-
-	for i, activity := range dailyActivityInMonth {
-		day := i + 1
-		messageText += fmt.Sprintf(DailyStatsFormat, day, activity.ActiveUsers, activity.Calls)
-	}
-
-	return messageText
-}
-
-func (n *Net) HandleMoreTranslations(ctx context.Context, update *tgbotapi.Update) error {
-	parts := strings.Split(update.CallbackQuery.Data, "_")
-	if len(parts) != 3 {
-		return fmt.Errorf("invalid callback data format")
-	}
-
-	word := parts[1]                    // слово, которое нужно перевести
-	offset, _ := strconv.Atoi(parts[2]) // номер первого перевода, который нужно показать
-
-	translations := n.business.Translate(word)
-	if len(translations) == 0 {
-		_, err := n.bot.Send(tgbotapi.NewMessage(update.CallbackQuery.Message.Chat.ID, NoTranslationText))
-		if err != nil {
-			return fmt.Errorf("bot.Send: %w", err)
-		}
-		return nil
-	}
-
-	// Получаем следующие 4 перевода
-	end := min(offset+4, len(translations))
-	nextTranslations := translations[offset:end]
-
-	msg := tgbotapi.NewMessage(update.CallbackQuery.Message.Chat.ID, formatTranslations(nextTranslations))
-	msg.ParseMode = "html"
-
-	// Если есть еще переводы, добавляем новую кнопку "еще"
-	if end < len(translations) {
-		keyboard := tgbotapi.NewInlineKeyboardMarkup(
-			tgbotapi.NewInlineKeyboardRow(
-				tgbotapi.NewInlineKeyboardButtonData(
-					fmt.Sprintf(MoreButtonText, len(translations)-end),
-					fmt.Sprintf("more_%s_%d", word, end),
-				),
-			),
-		)
-		msg.ReplyMarkup = keyboard
-	}
-
-	_, err := n.bot.Send(msg)
-	if err != nil {
-		return fmt.Errorf("bot.Send: %w", err)
-	}
-
-	// Отвечаем на callback query, чтобы убрать "часики" с кнопки
-	callback := tgbotapi.NewCallback(update.CallbackQuery.ID, "")
-	_, err = n.bot.Request(callback)
-	if err != nil {
-		return fmt.Errorf("bot.Request: %w", err)
-	}
-
-	return nil
-}
-
-// Вспомогательная функция для форматирования переводов
-func formatTranslations(translations []models.TranslationPairs) string {
-	var result string
-	for _, t := range translations {
-		// Проверяем, должны ли мы использовать AI форматирование
-		if t.FormattedChosen == "ai" && t.FormattedAI != "" {
-			result += t.FormattedAI + "\n\n"
-			continue
-		}
-
-		// Используем legacy форматирование
-		// Определяем сложность перевода: нумерация (1), 2)) или тильды (~)
-		isComplexTranslation := strings.Contains(t.Translate, "1)") ||
-			strings.Contains(t.Translate, "2)") ||
-			strings.Contains(t.Translate, "~") ||
-			strings.Contains(t.Original, "1)") ||
-			strings.Contains(t.Original, "2)") ||
-			strings.Contains(t.Original, "~")
-
-		if isComplexTranslation {
-			// Определяем, какое поле содержит сложный перевод
-			if strings.Contains(t.Translate, "1)") || strings.Contains(t.Translate, "2)") || strings.Contains(t.Translate, "~") {
-				// Создаем словарную статью в нужном формате
-				dictionaryEntry := fmt.Sprintf("**%s** - %s", t.Original, t.Translate)
-				formatted := tools.FormatTranslationLite(dictionaryEntry, t.Original)
-				result += formatted + "\n\n"
-			} else if strings.Contains(t.Original, "1)") || strings.Contains(t.Original, "2)") || strings.Contains(t.Original, "~") {
-				dictionaryEntry := fmt.Sprintf("**%s** - %s", t.Translate, t.Original)
-				formatted := tools.FormatTranslationLite(dictionaryEntry, t.Translate)
-				result += formatted + "\n\n"
-			}
-		} else {
-			// Обычное форматирование для простых переводов
-			result += fmt.Sprintf("%s — %s\n\n", t.Original, tools.Clean(t.Translate))
-		}
-	}
-	return result
 }
