@@ -36,8 +36,12 @@ const (
 	DailyStatsFormat      = "%d - %d - %d\n"
 	DonationMessageFormat = "🌱 Чтобы наш проект мог продолжить работать, вы можете помочь нам"
 	DefaultModerationChat = int64(-5204234916)
-	BroadcastParseMode    = "html"
-	BroadcastSendDelay    = 100 * time.Millisecond
+	BroadcastParseMode         = "html"
+	BroadcastSendDelay         = 100 * time.Millisecond
+	FreeSpellcheckLimit        = 5
+	SubscriptionPriceKopecks   = 10000 // 100 RUB
+	SubscriptionPriceFormatted = "100 ₽"
+	SubscriptionDuration       = 30 * 24 * time.Hour // 30 days
 )
 
 type AI interface {
@@ -67,6 +71,10 @@ type Repository interface {
 	FindStrictlyApprovedPairs(ctx context.Context, cleanWord string, limit int) ([]models.TranslationPairs, error)
 	GetPairCleanWords(ctx context.Context, pairID int64) ([]string, error)
 	StoreSpellcheckFeedback(ctx context.Context, userID int64, originalText, correctedText, feedback string) error
+	GetSpellcheckUsage(ctx context.Context, userID int64, month, year int) (int, error)
+	IncrementSpellcheckUsage(ctx context.Context, userID int64, month, year int) error
+	HasActiveSubscription(ctx context.Context, userID int64) (bool, error)
+	CreateSubscription(ctx context.Context, userID int64, expiresAt time.Time, telegramPaymentID string) error
 }
 
 type Net struct {
@@ -106,8 +114,23 @@ func (n *Net) Start(ctx context.Context) {
 			continue
 		}
 
+		// Pre-checkout query (Telegram Payments)
+		if update.PreCheckoutQuery != nil {
+			if err := n.HandlePreCheckout(&update); err != nil {
+				n.log.WithError(err).Error("service.HandlePreCheckout")
+			}
+			continue
+		}
+
 		// Messages
 		if update.Message != nil {
+			// Successful payment
+			if update.Message.SuccessfulPayment != nil {
+				if err := n.HandleSuccessfulPayment(ctx, &update); err != nil {
+					n.log.WithError(err).Error("service.HandleSuccessfulPayment")
+				}
+				continue
+			}
 			n.routeMessage(ctx, &update)
 			continue
 		}

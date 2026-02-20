@@ -27,6 +27,15 @@ func (n *Net) HandleCheck(ctx context.Context, update *tgbotapi.Update) error {
 		return err
 	}
 
+	// Check usage limits
+	allowed, err := n.canUseSpellcheck(ctx, update.Message.From.ID)
+	if err != nil {
+		n.log.WithError(err).Error("canUseSpellcheck")
+	}
+	if !allowed {
+		return n.sendPaywall(update.Message.Chat.ID)
+	}
+
 	n.bot.Send(tgbotapi.NewChatAction(update.Message.Chat.ID, tgbotapi.ChatTyping))
 
 	result, err := n.ai.SpellCheck(ctx, text)
@@ -36,6 +45,9 @@ func (n *Net) HandleCheck(ctx context.Context, update *tgbotapi.Update) error {
 		_, sendErr := n.bot.Send(msg)
 		return sendErr
 	}
+
+	// Track usage after successful AI call
+	n.trackSpellcheckUsage(ctx, update.Message.From.ID)
 
 	if result.NoErrors {
 		msg := tgbotapi.NewMessage(update.Message.Chat.ID, "✅ Ошибок не найдено")
@@ -77,11 +89,39 @@ func (n *Net) HandleInlineSpellcheck(ctx context.Context, update *tgbotapi.Updat
 		return nil
 	}
 
+	// Check usage limits
+	allowed, err := n.canUseSpellcheck(ctx, update.InlineQuery.From.ID)
+	if err != nil {
+		n.log.WithError(err).Error("canUseSpellcheck inline")
+	}
+	if !allowed {
+		article := tgbotapi.NewInlineQueryResultArticle(
+			update.InlineQuery.ID+"_limit",
+			fmt.Sprintf("🔒 Лимит исчерпан (%d/мес)", FreeSpellcheckLimit),
+			"",
+		)
+		article.Description = fmt.Sprintf("Подписка %s/мес — напишите боту /start", SubscriptionPriceFormatted)
+		article.InputMessageContent = tgbotapi.InputTextMessageContent{
+			Text: fmt.Sprintf("Бесплатный лимит проверки орфографии исчерпан. Подписка: %s/мес.", SubscriptionPriceFormatted),
+		}
+		inlineConf := tgbotapi.InlineConfig{
+			InlineQueryID: update.InlineQuery.ID,
+			IsPersonal:    true,
+			CacheTime:     0,
+			Results:       []interface{}{article},
+		}
+		_, _ = n.bot.Request(inlineConf)
+		return nil
+	}
+
 	result, err := n.ai.SpellCheck(ctx, text)
 	if err != nil {
 		n.log.WithError(err).Error("ai.SpellCheck inline")
 		return nil
 	}
+
+	// Track usage
+	n.trackSpellcheckUsage(ctx, update.InlineQuery.From.ID)
 
 	var articles []interface{}
 
