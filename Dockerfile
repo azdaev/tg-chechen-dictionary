@@ -4,10 +4,13 @@ FROM golang:1.25-alpine3.22 AS builder
 WORKDIR /app
 
 # Install goose (sqlite only, smaller binary)
-RUN go install -ldflags="-s -w" -tags='no_clickhouse no_mssql no_mysql no_postgres no_vertica no_ydb no_libsql no_turso' github.com/pressly/goose/v3/cmd/goose@latest
+RUN --mount=type=cache,target=/root/.cache/go-build \
+    --mount=type=cache,target=/go/pkg/mod \
+    go install -ldflags="-s -w" -tags='no_clickhouse no_mssql no_mysql no_postgres no_vertica no_ydb no_libsql no_turso' github.com/pressly/goose/v3/cmd/goose@latest
 
 COPY go.mod go.sum ./
-RUN go mod download
+RUN --mount=type=cache,target=/go/pkg/mod \
+    go mod download
 
 COPY . .
 
