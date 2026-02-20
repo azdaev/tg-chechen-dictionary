@@ -64,9 +64,15 @@ func (c *Client) FormatDictionaryEntry(ctx context.Context, rawEntry string) (st
 	return formatted, nil
 }
 
+// SpellCheckResult contains the structured result of a spellcheck.
+type SpellCheckResult struct {
+	Corrected   string // corrected text only (empty if no corrections)
+	Explanation string // full response with explanations
+	NoErrors    bool   // true if no errors were found
+}
+
 // SpellCheck checks and corrects Chechen text using AI.
-// Returns the corrected text and explanation of changes.
-func (c *Client) SpellCheck(ctx context.Context, text string) (string, error) {
+func (c *Client) SpellCheck(ctx context.Context, text string) (*SpellCheckResult, error) {
 	prompt := `Ты — корректор чеченского языка. Проверь текст на чеченском и исправь ошибки.
 
 ТЕКСТ:
@@ -76,17 +82,12 @@ func (c *Client) SpellCheck(ctx context.Context, text string) (string, error) {
 1. Исправь орфографические ошибки
 2. Исправь использование специальных букв (ӏ, аь, оь, уь, юь, яь, хь, кх, гӏ, etc.)
 3. Если текст на русском или другом языке — напиши "Это не чеченский текст"
-4. Если ошибок нет — напиши "✅ Ошибок не найдено"
+4. Если ошибок нет — верни ТОЛЬКО: NO_ERRORS
 
-ФОРМАТ ОТВЕТА:
-Если есть исправления:
-✏️ <исправленный текст>
-
-📝 Изменения:
-• <что было> → <что стало> — <почему>
-
-Если ошибок нет:
-✅ Ошибок не найдено
+ФОРМАТ ОТВЕТА (если есть исправления):
+CORRECTED: <исправленный текст>
+CHANGES:
+• <что было> → <что стало>
 
 Верни ТОЛЬКО ответ в указанном формате.`
 
@@ -94,8 +95,25 @@ func (c *Client) SpellCheck(ctx context.Context, text string) (string, error) {
 		{Role: "user", Content: prompt},
 	})
 	if err != nil {
-		return "", fmt.Errorf("ai spellcheck failed: %w", err)
+		return nil, fmt.Errorf("ai spellcheck failed: %w", err)
 	}
 
-	return strings.TrimSpace(content), nil
+	raw := strings.TrimSpace(content)
+
+	if strings.Contains(raw, "NO_ERRORS") {
+		return &SpellCheckResult{NoErrors: true}, nil
+	}
+
+	result := &SpellCheckResult{Explanation: raw}
+
+	// Extract corrected text
+	for _, line := range strings.Split(raw, "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "CORRECTED:") {
+			result.Corrected = strings.TrimSpace(strings.TrimPrefix(line, "CORRECTED:"))
+			break
+		}
+	}
+
+	return result, nil
 }

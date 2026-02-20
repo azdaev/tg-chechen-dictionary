@@ -1,6 +1,7 @@
 package net
 
 import (
+	"chetoru/internal/ai"
 	"chetoru/internal/cache"
 	"chetoru/internal/models"
 	"chetoru/internal/repository"
@@ -49,7 +50,7 @@ type broadcastPayload struct {
 }
 
 type AI interface {
-	SpellCheck(ctx context.Context, text string) (string, error)
+	SpellCheck(ctx context.Context, text string) (*ai.SpellCheckResult, error)
 }
 
 type Business interface {
@@ -74,6 +75,7 @@ type Repository interface {
 	FindTranslationPairs(ctx context.Context, cleanWord string, limit int) ([]models.TranslationPairs, error)
 	FindStrictlyApprovedPairs(ctx context.Context, cleanWord string, limit int) ([]models.TranslationPairs, error)
 	GetPairCleanWords(ctx context.Context, pairID int64) ([]string, error)
+	StoreSpellcheckFeedback(ctx context.Context, userID int64, originalText, correctedText, feedback string) error
 }
 
 type Net struct {
@@ -119,6 +121,13 @@ func (n *Net) Start(ctx context.Context) {
 			err := n.HandleMoreTranslations(ctx, &update)
 			if err != nil {
 				n.log.WithError(err).Error("service.HandleMoreTranslations")
+			}
+			continue
+		}
+		if update.CallbackQuery != nil && strings.HasPrefix(update.CallbackQuery.Data, "spell_") {
+			err := n.HandleSpellcheckFeedback(ctx, &update)
+			if err != nil {
+				n.log.WithError(err).Error("service.HandleSpellcheckFeedback")
 			}
 			continue
 		}
@@ -212,6 +221,14 @@ func (n *Net) Start(ctx context.Context) {
 
 		// Обработка inline запросов
 		if update.InlineQuery != nil && update.InlineQuery.Query != "" {
+			// Spellcheck mode: ". текст"
+			if strings.HasPrefix(update.InlineQuery.Query, ". ") && len(update.InlineQuery.Query) > 2 {
+				err := n.HandleInlineSpellcheck(ctx, &update)
+				if err != nil {
+					n.log.WithError(err).Error("service.HandleInlineSpellcheck")
+				}
+				continue
+			}
 			err := n.HandleInline(ctx, &update)
 			if err != nil {
 				n.log.
@@ -639,10 +656,99 @@ func (n *Net) HandleCheck(ctx context.Context, update *tgbotapi.Update) error {
 		return sendErr
 	}
 
-	msg := tgbotapi.NewMessage(update.Message.Chat.ID, result)
+	if result.NoErrors {
+		msg := tgbotapi.NewMessage(update.Message.Chat.ID, "✅ Ошибок не найдено")
+		msg.ReplyToMessageID = update.Message.MessageID
+		_, err = n.bot.Send(msg)
+		return err
+	}
+
+	// Format nice response
+	var responseText string
+	if result.Corrected != "" {
+		responseText = "✏️ " + result.Corrected
+	}
+	// Append changes if present
+	if idx := strings.Index(result.Explanation, "CHANGES:"); idx != -1 {
+		changes := strings.TrimSpace(result.Explanation[idx+len("CHANGES:"):])
+		if changes != "" {
+			responseText += "\n\n📝 Изменения:\n" + changes
+		}
+	}
+	if responseText == "" {
+		responseText = result.Explanation
+	}
+
+	msg := tgbotapi.NewMessage(update.Message.Chat.ID, responseText)
 	msg.ReplyToMessageID = update.Message.MessageID
+
+	// Add feedback buttons
+	if result.Corrected != "" {
+		msg.ReplyMarkup = spellcheckFeedbackKeyboard(text, result.Corrected)
+	}
+
 	_, err = n.bot.Send(msg)
 	return err
+}
+
+func (n *Net) HandleSpellcheckFeedback(ctx context.Context, update *tgbotapi.Update) error {
+	data := update.CallbackQuery.Data
+	// Format: spell_like_<hash> or spell_dislike_<hash>
+	parts := strings.SplitN(data, "_", 3)
+	if len(parts) != 3 {
+		return fmt.Errorf("invalid spellcheck feedback format")
+	}
+
+	feedback := parts[1] // "like" or "dislike"
+
+	msgText := update.CallbackQuery.Message.Text
+
+	// Extract corrected text from the message (starts with "✏️ ")
+	var corrected string
+	for _, line := range strings.Split(msgText, "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "✏️ ") {
+			corrected = strings.TrimPrefix(line, "✏️ ")
+			break
+		}
+	}
+
+	if err := n.repo.StoreSpellcheckFeedback(ctx, update.CallbackQuery.From.ID, msgText, corrected, feedback); err != nil {
+		n.log.WithError(err).Error("repo.StoreSpellcheckFeedback")
+	}
+
+	var status string
+	if feedback == "like" {
+		status = "👍 Спасибо за отзыв!"
+	} else {
+		status = "👎 Спасибо, учтём!"
+	}
+
+	callback := tgbotapi.NewCallback(update.CallbackQuery.ID, status)
+	if _, err := n.bot.Request(callback); err != nil {
+		return fmt.Errorf("bot.Request: %w", err)
+	}
+
+	// Remove buttons after feedback
+	edited := tgbotapi.NewEditMessageReplyMarkup(
+		update.CallbackQuery.Message.Chat.ID,
+		update.CallbackQuery.Message.MessageID,
+		tgbotapi.InlineKeyboardMarkup{InlineKeyboard: [][]tgbotapi.InlineKeyboardButton{}},
+	)
+	n.bot.Send(edited)
+
+	return nil
+}
+
+func spellcheckFeedbackKeyboard(original, corrected string) tgbotapi.InlineKeyboardMarkup {
+	// Use a simple hash to keep callback data short (max 64 bytes)
+	hash := fmt.Sprintf("%d", len(original)+len(corrected))
+	return tgbotapi.NewInlineKeyboardMarkup(
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("👍", "spell_like_"+hash),
+			tgbotapi.NewInlineKeyboardButtonData("👎", "spell_dislike_"+hash),
+		),
+	)
 }
 
 func (n *Net) HandleText(ctx context.Context, update *tgbotapi.Update) error {
@@ -795,6 +901,51 @@ func (n *Net) SendAutoModeration(ctx context.Context, word string) {
 			n.log.WithError(err).WithField("pair_id", pair.ID).Warn("failed to send moderation message")
 		}
 	}
+}
+
+func (n *Net) HandleInlineSpellcheck(ctx context.Context, update *tgbotapi.Update) error {
+	text := strings.TrimPrefix(update.InlineQuery.Query, ". ")
+
+	if n.ai == nil {
+		return nil
+	}
+
+	result, err := n.ai.SpellCheck(ctx, text)
+	if err != nil {
+		n.log.WithError(err).Error("ai.SpellCheck inline")
+		return nil
+	}
+
+	var articles []interface{}
+
+	if result.NoErrors {
+		article := tgbotapi.NewInlineQueryResultArticle(update.InlineQuery.ID+"_sp0", "✅ Ошибок не найдено", text)
+		article.Description = text
+		article.InputMessageContent = tgbotapi.InputTextMessageContent{Text: text}
+		articles = append(articles, article)
+	} else if result.Corrected != "" {
+		article := tgbotapi.NewInlineQueryResultArticle(update.InlineQuery.ID+"_sp0", "✏️ "+result.Corrected, result.Corrected)
+		article.Description = "Нажмите, чтобы отправить исправленный текст"
+		article.InputMessageContent = tgbotapi.InputTextMessageContent{Text: result.Corrected}
+		articles = append(articles, article)
+	}
+
+	inlineConf := tgbotapi.InlineConfig{
+		InlineQueryID: update.InlineQuery.ID,
+		IsPersonal:    true,
+		CacheTime:     0,
+		Results:       articles,
+	}
+
+	resp, err := n.bot.Request(inlineConf)
+	if err != nil {
+		return fmt.Errorf("bot.Request: %w", err)
+	}
+	if !resp.Ok {
+		return fmt.Errorf("bot.Request: %s", resp.Description)
+	}
+
+	return nil
 }
 
 func (n *Net) HandleInline(ctx context.Context, update *tgbotapi.Update) error {

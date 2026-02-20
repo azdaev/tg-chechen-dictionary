@@ -366,3 +366,11 @@ func (r *Repository) GetPairCleanWords(ctx context.Context, pairID int64) ([]str
 	}
 	return []string{origClean, transClean}, nil
 }
+
+func (r *Repository) StoreSpellcheckFeedback(ctx context.Context, userID int64, originalText, correctedText, feedback string) error {
+	_, err := r.db.ExecContext(ctx,
+		`INSERT INTO spellcheck_feedback (user_id, original_text, corrected_text, feedback) VALUES (?, ?, ?, ?)`,
+		userID, originalText, correctedText, feedback,
+	)
+	return err
+}
