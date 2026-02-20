@@ -48,6 +48,10 @@ type broadcastPayload struct {
 	HasPhoto bool
 }
 
+type AI interface {
+	SpellCheck(ctx context.Context, text string) (string, error)
+}
+
 type Business interface {
 	Translate(word string) []models.TranslationPairs
 	TranslateFormatted(word string) *models.TranslationResult
@@ -76,18 +80,20 @@ type Net struct {
 	log               *logrus.Logger
 	repo              Repository
 	business          Business
+	ai                AI
 	bot               *tgbotapi.BotAPI
 	cache             *cache.Cache
 	awaitingBroadcast bool
 	pendingBroadcast  *broadcastPayload
 }
 
-func NewNet(log *logrus.Logger, repo Repository, bot *tgbotapi.BotAPI, business Business, cache *cache.Cache) *Net {
+func NewNet(log *logrus.Logger, repo Repository, bot *tgbotapi.BotAPI, business Business, cache *cache.Cache, aiClient AI) *Net {
 	return &Net{
 		log:      log,
 		repo:     repo,
 		bot:      bot,
 		business: business,
+		ai:       aiClient,
 		cache:    cache,
 	}
 }
@@ -151,6 +157,15 @@ func (n *Net) Start(ctx context.Context) {
 					n.log.
 						WithError(err).
 						Error("service.HandleModerate")
+				}
+				continue
+			}
+			if update.Message.Command() == "check" {
+				err := n.HandleCheck(ctx, &update)
+				if err != nil {
+					n.log.
+						WithError(err).
+						Error("service.HandleCheck")
 				}
 				continue
 			}
@@ -598,6 +613,36 @@ func formatModerationMessage(pair repository.TranslationPair) string {
 	}
 	
 	return sb.String()
+}
+
+func (n *Net) HandleCheck(ctx context.Context, update *tgbotapi.Update) error {
+	text := strings.TrimSpace(update.Message.CommandArguments())
+	if text == "" {
+		msg := tgbotapi.NewMessage(update.Message.Chat.ID, "Использование: /check <текст на чеченском>\n\nПример: /check дала безам бу хьо")
+		_, err := n.bot.Send(msg)
+		return err
+	}
+
+	if n.ai == nil {
+		msg := tgbotapi.NewMessage(update.Message.Chat.ID, "⚠️ Проверка орфографии временно недоступна")
+		_, err := n.bot.Send(msg)
+		return err
+	}
+
+	n.bot.Send(tgbotapi.NewChatAction(update.Message.Chat.ID, tgbotapi.ChatTyping))
+
+	result, err := n.ai.SpellCheck(ctx, text)
+	if err != nil {
+		n.log.WithError(err).Error("ai.SpellCheck")
+		msg := tgbotapi.NewMessage(update.Message.Chat.ID, "⚠️ Не удалось проверить текст, попробуйте позже")
+		_, sendErr := n.bot.Send(msg)
+		return sendErr
+	}
+
+	msg := tgbotapi.NewMessage(update.Message.Chat.ID, result)
+	msg.ReplyToMessageID = update.Message.MessageID
+	_, err = n.bot.Send(msg)
+	return err
 }
 
 func (n *Net) HandleText(ctx context.Context, update *tgbotapi.Update) error {
