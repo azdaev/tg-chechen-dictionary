@@ -26,11 +26,12 @@ import (
 type OnPairReady func(pairID int64, cleanWord string)
 
 type Business struct {
-	cache       *cache.Cache
-	dictRepo    DictionaryRepository
-	aiClient    *ai.Client // optional, can be nil
-	log         *logrus.Logger
-	onPairReady OnPairReady
+	cache               *cache.Cache
+	dictRepo            DictionaryRepository
+	aiClient            *ai.Client // optional, can be nil
+	aiFormattingEnabled bool
+	log                 *logrus.Logger
+	onPairReady         OnPairReady
 }
 
 type DictionaryRepository interface {
@@ -42,16 +43,25 @@ type DictionaryRepository interface {
 
 func NewBusiness(cache *cache.Cache, dictRepo DictionaryRepository, aiClient *ai.Client, log *logrus.Logger) *Business {
 	return &Business{
-		cache:    cache,
-		dictRepo: dictRepo,
-		aiClient: aiClient,
-		log:      log,
+		cache:               cache,
+		dictRepo:            dictRepo,
+		aiClient:            aiClient,
+		aiFormattingEnabled: aiClient != nil,
+		log:                 log,
 	}
 }
 
 // SetOnPairReady sets a callback that fires after a pair is saved and AI-formatted.
 func (b *Business) SetOnPairReady(fn OnPairReady) {
 	b.onPairReady = fn
+}
+
+func (b *Business) SetAIFormatting(enabled bool) {
+	b.aiFormattingEnabled = enabled
+}
+
+func (b *Business) AIFormattingEnabled() bool {
+	return b.aiFormattingEnabled
 }
 
 func (b *Business) Translate(word string) []models.TranslationPairs {
@@ -369,7 +379,7 @@ func (b *Business) storeTranslationPair(entry models.Entry, translation models.T
 		return
 	}
 
-	if b.aiClient != nil && pairID > 0 {
+	if b.aiFormattingEnabled && b.aiClient != nil && pairID > 0 {
 		go b.formatPairWithAI(pairID, pair.OriginalClean, pair.OriginalRaw, pair.TranslationRaw)
 	} else if b.onPairReady != nil && pairID > 0 {
 		// No AI client — trigger moderation immediately

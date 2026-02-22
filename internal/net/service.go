@@ -51,6 +51,8 @@ type AI interface {
 type Business interface {
 	Translate(word string) []models.TranslationPairs
 	TranslateFormatted(word string) *models.TranslationResult
+	SetAIFormatting(enabled bool)
+	AIFormattingEnabled() bool
 }
 
 type Repository interface {
@@ -177,6 +179,9 @@ func (n *Net) routeMessage(ctx context.Context, update *tgbotapi.Update) {
 		err = n.HandleCheck(ctx, update)
 	case "subscribe":
 		err = n.HandleSubscribe(ctx, update)
+	case "ai":
+		n.HandleAIToggle(update.Message)
+		return
 	case "broadcast":
 		err = n.HandleBroadcast(ctx, update)
 	case "broadcast_cancel":
@@ -230,6 +235,26 @@ func (n *Net) routeInline(ctx context.Context, update *tgbotapi.Update) {
 
 func (n *Net) isAdmin(userID int64) bool {
 	return strconv.Itoa(int(userID)) == os.Getenv("TG_ADMIN_ID")
+}
+
+func (n *Net) HandleAIToggle(msg *tgbotapi.Message) {
+	if !n.isAdmin(msg.From.ID) {
+		return
+	}
+	switch strings.TrimSpace(msg.CommandArguments()) {
+	case "on":
+		n.business.SetAIFormatting(true)
+		n.bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "AI formatting: ON"))
+	case "off":
+		n.business.SetAIFormatting(false)
+		n.bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "AI formatting: OFF"))
+	default:
+		status := "OFF"
+		if n.business.AIFormattingEnabled() {
+			status = "ON"
+		}
+		n.bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "AI formatting: "+status+"\n/ai on | /ai off"))
+	}
 }
 
 func (n *Net) isBlockedError(err error) bool {
