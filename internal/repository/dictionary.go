@@ -354,6 +354,20 @@ func (r *Repository) FindStrictlyApprovedPairs(ctx context.Context, cleanWord st
 	return results, rows.Err()
 }
 
+// CountDictionaryPairs returns the total number of stored pairs and how many of
+// them have been confirmed through moderation. Tracks dictionary growth — the
+// core metric for the mission of expanding Chechen coverage.
+func (r *Repository) CountDictionaryPairs(ctx context.Context) (total int, approved int, err error) {
+	err = r.db.QueryRowContext(
+		ctx,
+		`SELECT
+			COUNT(*),
+			COUNT(CASE WHEN formatted_chosen IS NOT NULL AND formatted_chosen != 'deleted' THEN 1 END)
+		 FROM dictionary_pairs;`,
+	).Scan(&total, &approved)
+	return total, approved, err
+}
+
 // GetPairCleanWords returns clean words (original + translation) for a pair by ID.
 func (r *Repository) GetPairCleanWords(ctx context.Context, pairID int64) ([]string, error) {
 	var origClean, transClean string

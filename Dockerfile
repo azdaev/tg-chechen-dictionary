@@ -6,7 +6,7 @@ WORKDIR /app
 # Install goose (sqlite only, smaller binary)
 RUN --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=cache,target=/go/pkg/mod \
-    go install -ldflags="-s -w" -tags='no_clickhouse no_mssql no_mysql no_postgres no_vertica no_ydb no_libsql no_turso' github.com/pressly/goose/v3/cmd/goose@latest
+    go install -ldflags="-s -w" -tags='no_clickhouse no_mssql no_mysql no_postgres no_vertica no_ydb no_libsql no_turso' github.com/pressly/goose/v3/cmd/goose@v3.24.1
 
 COPY go.mod go.sum ./
 RUN --mount=type=cache,target=/go/pkg/mod \

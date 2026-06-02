@@ -41,12 +41,56 @@ func (n *Net) HandleStats(ctx context.Context, update *tgbotapi.Update) error {
 		return fmt.Errorf("repo.MonthlyActiveUsers: %w", err)
 	}
 
+	totalPairs, approvedPairs, err := n.repo.CountDictionaryPairs(ctx)
+	if err != nil {
+		return fmt.Errorf("repo.CountDictionaryPairs: %w", err)
+	}
+
+	missingCount, err := n.repo.CountMissingWords(ctx)
+	if err != nil {
+		return fmt.Errorf("repo.CountMissingWords: %w", err)
+	}
+
+	dictText := fmt.Sprintf(DictionaryStatsFormat, totalPairs, approvedPairs, missingCount)
+
 	msg := tgbotapi.NewMessage(
 		update.Message.Chat.ID,
-		statsMessageText(newMonthlyUsers, monthlyActiveUsers, dailyActiveUsersLastMonth),
+		dictText+statsMessageText(newMonthlyUsers, monthlyActiveUsers, dailyActiveUsersLastMonth),
 	)
 	msg.ParseMode = "html"
 
+	_, err = n.bot.Send(msg)
+	return err
+}
+
+// HandleMissingWords lists the most-searched words that have no translation,
+// helping maintainers prioritize which Chechen words to add to the dictionary.
+func (n *Net) HandleMissingWords(ctx context.Context, update *tgbotapi.Update) error {
+	if !n.isAdmin(update.Message.From.ID) {
+		return nil
+	}
+
+	words, err := n.repo.TopMissingWords(ctx, MissingWordsLimit)
+	if err != nil {
+		return fmt.Errorf("repo.TopMissingWords: %w", err)
+	}
+
+	if len(words) == 0 {
+		_, err = n.bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, MissingWordsEmpty))
+		return err
+	}
+
+	text := MissingWordsHeader
+	for i, w := range words {
+		display := w.RawWord
+		if display == "" {
+			display = w.CleanWord
+		}
+		text += fmt.Sprintf(MissingWordRowFormat, i+1, tgbotapi.EscapeText(tgbotapi.ModeHTML, display), w.SearchCount)
+	}
+
+	msg := tgbotapi.NewMessage(update.Message.Chat.ID, text)
+	msg.ParseMode = "html"
 	_, err = n.bot.Send(msg)
 	return err
 }

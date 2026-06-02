@@ -20,7 +20,7 @@ const (
 	PathInlineVideo          = "internal/net/inline.mp4"
 	MaxTranslations          = 4
 	MoreTranslationsHelpText = `<i>Чтобы просмотреть все доступные переводы, нажмите на кнопку «Еще» или воспользуйтесь инлайн-режимом: введите @chetoru_bot и слово, которое хотите перевести. Это позволит вам увидеть все варианты.</i>`
-	StartMessageText         = "Отправь мне слово на русском или чеченском, а я скину перевод. Ещё ты можешь пользоваться ботом в других переписках, как на видео"
+	StartMessageText         = "Отправь мне слово на русском или чеченском, а я скину перевод. Ещё ты можешь пользоваться ботом в других переписках, как на видео.\n\n🎲 Команда /random покажет случайное чеченское слово — отличный способ узнавать новые слова каждый день.\n\nСловарные данные предоставлены проектом dosham.app"
 	NoTranslationText        = "К сожалению, нет перевода"
 	MoreButtonText           = "Еще (%d)"
 	StatsHeaderText          = `
@@ -34,6 +34,14 @@ const (
 <i>число месяца - кол-во уникальных пользователей - кол-во вызовов бота (включая инлайн)</i>
 `
 	DailyStatsFormat      = "%d - %d - %d\n"
+	DictionaryStatsFormat = "📚 <b>Словарь</b>\n\nВсего пар: %d\nПроверено модерацией: %d\nСлов без перевода (запросов): %d\n\n"
+	MissingWordsLimit     = 30
+	MissingWordsHeader    = "<b>🔍 Слова без перевода</b>\n\n<i>Слова, которые искали пользователи, но в словаре не нашлось перевода. Это подсказывает, какие слова стоит добавить.</i>\n\n"
+	MissingWordsEmpty     = "Пока нет слов без перевода 🎉"
+	MissingWordRowFormat  = "%d. <b>%s</b> — %d раз\n"
+	RandomWordFormat      = "🎲 <b>Случайное слово</b>\n\n<b>%s</b> — %s"
+	RandomMoreButtonText  = "🎲 Ещё одно"
+	RandomEmptyText       = "Словарь пока пуст. Попробуйте перевести несколько слов, и они появятся здесь!"
 	DonationMessageFormat = "🌱 Чтобы наш проект мог продолжить работать, вы можете помочь нам"
 	DefaultModerationChat = int64(-5204234916)
 	BroadcastParseMode         = "html"
@@ -53,6 +61,7 @@ type Business interface {
 	TranslateFormatted(word string) *models.TranslationResult
 	SetAIFormatting(enabled bool)
 	AIFormattingEnabled() bool
+	RandomWordFromAPI(ctx context.Context) (*models.RandomWord, error)
 }
 
 type Repository interface {
@@ -77,6 +86,11 @@ type Repository interface {
 	IncrementSpellcheckUsage(ctx context.Context, userID int64, month, year int) error
 	HasActiveSubscription(ctx context.Context, userID int64) (bool, error)
 	CreateSubscription(ctx context.Context, userID int64, expiresAt time.Time, telegramPaymentID string) error
+	RecordMissingWord(ctx context.Context, cleanWord, rawWord string) error
+	TopMissingWords(ctx context.Context, limit int) ([]models.MissingWord, error)
+	RandomApprovedPair(ctx context.Context) (*models.RandomWord, error)
+	CountDictionaryPairs(ctx context.Context) (total int, approved int, err error)
+	CountMissingWords(ctx context.Context) (int, error)
 }
 
 type Net struct {
@@ -154,6 +168,8 @@ func (n *Net) routeCallback(ctx context.Context, update *tgbotapi.Update) {
 		err = n.HandleBroadcastCallback(ctx, update)
 	case strings.HasPrefix(data, "more_"):
 		err = n.HandleMoreTranslations(ctx, update)
+	case strings.HasPrefix(data, "random_"):
+		err = n.HandleRandomCallback(ctx, update)
 	case strings.HasPrefix(data, "spell_"):
 		err = n.HandleSpellcheckFeedback(ctx, update)
 	case strings.HasPrefix(data, "mod_"):
@@ -173,6 +189,10 @@ func (n *Net) routeMessage(ctx context.Context, update *tgbotapi.Update) {
 		err = n.HandleStart(update)
 	case "stats":
 		err = n.HandleStats(ctx, update)
+	case "missing":
+		err = n.HandleMissingWords(ctx, update)
+	case "random":
+		err = n.HandleRandom(ctx, update.Message.Chat.ID)
 	case "moderate":
 		err = n.HandleModerate(ctx, update)
 	case "check":

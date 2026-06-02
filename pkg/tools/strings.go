@@ -3,6 +3,7 @@ package tools
 import (
 	"fmt"
 	"regexp"
+	"sort"
 	"strings"
 )
 
@@ -352,8 +353,10 @@ func replaceTildeWithWord(text, word string) string {
 		return wordBase + ending
 	})
 
-	// Замена одиночной тильды на основу слова
-	result = strings.ReplaceAll(result, "~", wordBase)
+	// Замена одиночной тильды (~) на само слово в именительном падеже.
+	// Одиночная тильда обозначает заглавное слово без изменений, поэтому
+	// подставляем полную форму, а не основу.
+	result = strings.ReplaceAll(result, "~", lowerWord)
 
 	return result
 }
@@ -435,10 +438,20 @@ func expandAbbreviations(text string) string {
 
 	result := text
 
-	// Заменяем сокращения с учетом границ слов
-	for abbrev, expansion := range abbreviations {
-		// Простая замена всех вхождений
-		result = strings.ReplaceAll(result, abbrev, expansion)
+	// Заменяем сокращения, начиная с самых длинных. Порядок обхода map в Go
+	// случаен, а короткие сокращения могут быть подстрокой длинных
+	// (например "им." внутри "хим."), поэтому обрабатываем длинные первыми и
+	// детерминированно, чтобы избежать ошибочных частичных замен.
+	keys := make([]string, 0, len(abbreviations))
+	for abbrev := range abbreviations {
+		keys = append(keys, abbrev)
+	}
+	sort.Slice(keys, func(i, j int) bool {
+		return len(keys[i]) > len(keys[j])
+	})
+
+	for _, abbrev := range keys {
+		result = strings.ReplaceAll(result, abbrev, abbreviations[abbrev])
 	}
 
 	return result

@@ -1,12 +1,10 @@
 package models
 
+// TranslationResponse models the dosham.app GraphQL API (https://api.dosham.app/gql).
+// The `find` query returns a flat list of entries directly.
 type TranslationResponse struct {
 	Data struct {
-		Find struct {
-			Success        bool   `json:"success"`
-			SerializedData string `json:"serializedData"`
-			ErrorMessage   string `json:"errorMessage"`
-		} `json:"find"`
+		Find []Entry `json:"find"`
 	} `json:"data"`
 }
 
@@ -35,18 +33,33 @@ type DailyActivity struct {
 	Calls       int
 }
 
-// GraphQL specific types
+// MissingWord is a word users searched for that had no translation.
+type MissingWord struct {
+	CleanWord      string
+	RawWord        string
+	SearchCount    int
+	LastSearchedAt string
+}
+
+// RandomWord is a randomly picked dictionary pair oriented as Chechen → Russian,
+// used by the /random discovery feature.
+type RandomWord struct {
+	Chechen string
+	Russian string
+}
+
+// GraphQL specific types (dosham.app /gql schema)
 type Entry struct {
-	EntryID      string        `json:"EntryId"`
-	Content      string        `json:"Content"`
-	Translations []Translation `json:"Translations"`
-	SubEntries   []Entry       `json:"SubEntries"`
-	Header       string        `json:"Header"`
+	EntryID      string        `json:"entryId"`
+	Content      string        `json:"content"`
+	Type         string        `json:"type"`
+	Details      string        `json:"details"` // JSON grammar metadata (part of speech, case, etc.)
+	Translations []Translation `json:"translations"`
 }
 
 type Translation struct {
-	TranslationID string `json:"TranslationId"`
-	Content       string `json:"Content"`
-	LanguageCode  string `json:"LanguageCode"`
-	Notes         string `json:"Notes"`
+	TranslationID string `json:"translationId"`
+	Content       string `json:"content"`
+	LanguageCode  string `json:"languageCode"` // ISO codes: "ce" (Chechen), "ru" (Russian)
+	Notes         string `json:"notes"`
 }

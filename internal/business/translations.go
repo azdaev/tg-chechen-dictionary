@@ -15,6 +15,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -97,6 +98,30 @@ func inferOriginalLang(translationLang string) string {
 	default:
 		return ""
 	}
+}
+
+// normalizeLang maps the dosham API's ISO language codes ("ce"/"ru") to the
+// internal representation ("CHE"/"RUS") used throughout storage and display.
+// Returns "" for any other language so non-RUS/CHE translations are skipped.
+// Both the new ("ce"/"ru") and legacy ("CHE"/"RUS") codes are accepted.
+func normalizeLang(code string) string {
+	switch strings.ToLower(strings.TrimSpace(code)) {
+	case "ce", "che": // Chechen
+		return "CHE"
+	case "ru", "rus": // Russian
+		return "RUS"
+	default:
+		return ""
+	}
+}
+
+// doshamAPIURL returns the dosham.app GraphQL endpoint, overridable via the
+// DOSHAM_API_URL env var. Defaults to the current production endpoint.
+func doshamAPIURL() string {
+	if url := strings.TrimSpace(os.Getenv("DOSHAM_API_URL")); url != "" {
+		return url
+	}
+	return "https://api.dosham.app/gql"
 }
 
 func toNullString(v string) sql.NullString {
@@ -191,9 +216,16 @@ func (b *Business) fetchTranslationsFromAPI(word string) []models.TranslationPai
 	query := `
 		query Find($inputText: String!) {
 			find(inputText: $inputText) {
-				success
-				serializedData
-				errorMessage
+				entryId
+				content
+				type
+				details
+				translations {
+					translationId
+					content
+					languageCode
+					notes
+				}
 			}
 		}
 	`
@@ -213,7 +245,7 @@ func (b *Business) fetchTranslationsFromAPI(word string) []models.TranslationPai
 		return nil
 	}
 
-	req, err := http.NewRequest("POST", "https://api.dosham.app/v2/graphql/", bytes.NewBuffer(jsonData))
+	req, err := http.NewRequest("POST", doshamAPIURL(), bytes.NewBuffer(jsonData))
 	if err != nil {
 		b.log.Printf("failed to create request: %v\n", err)
 		return nil
@@ -234,48 +266,27 @@ func (b *Business) fetchTranslationsFromAPI(word string) []models.TranslationPai
 		return nil
 	}
 
-	if !response.Data.Find.Success {
-		b.log.Printf("API request failed: %s\n", response.Data.Find.ErrorMessage)
-		return nil
-	}
-
-	// Parse the serialized data which contains the entries
-	var entries []models.Entry
-	if err := json.Unmarshal([]byte(response.Data.Find.SerializedData), &entries); err != nil {
-		b.log.Printf("failed to unmarshal serialized data: %v\n", err)
-		return nil
-	}
-
 	translations := make([]models.TranslationPairs, 0)
 
-	// Process entries and their subentries
-	var processEntry func(entry models.Entry)
-	processEntry = func(entry models.Entry) {
-		// Process translations for the current entry
+	// The new API returns a flat list of entries. Each entry carries its
+	// translations; we keep only Russian/Chechen ones, normalizing the language
+	// code to the internal CHE/RUS representation.
+	for _, entry := range response.Data.Find {
 		for _, translation := range entry.Translations {
-			// We're looking for translations in Russian (RUS) and Chechen (CHE)
-			if translation.LanguageCode == "RUS" || translation.LanguageCode == "CHE" {
-				translationPair := models.TranslationPairs{
-					Original:  entry.Content,
-					Translate: translation.Content,
-				}
-				translationPair.Original = tools.EscapeUnclosedTags(translationPair.Original)
-				translationPair.Translate = tools.EscapeUnclosedTags(translationPair.Translate)
-				translations = append(translations, translationPair)
-
-				b.storeTranslationPair(entry, translation)
+			normLang := normalizeLang(translation.LanguageCode)
+			if normLang == "" {
+				continue
 			}
-		}
+			translation.LanguageCode = normLang
 
-		// Process subentries recursively
-		for _, subentry := range entry.SubEntries {
-			processEntry(subentry)
-		}
-	}
+			translationPair := models.TranslationPairs{
+				Original:  tools.EscapeUnclosedTags(entry.Content),
+				Translate: tools.EscapeUnclosedTags(translation.Content),
+			}
+			translations = append(translations, translationPair)
 
-	// Process all entries
-	for _, entry := range entries {
-		processEntry(entry)
+			b.storeTranslationPair(entry, translation)
+		}
 	}
 
 	if utf8.RuneCountInString(word) <= 3 && len(translations) >= 10 {

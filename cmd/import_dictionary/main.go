@@ -17,15 +17,11 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-const apiURL = "https://v2.api.chldr.movsar.dev/v2/graphql/"
+const apiURL = "https://api.dosham.app/gql"
 
 type apiResponse struct {
 	Data struct {
-		Find struct {
-			Success        bool   `json:"success"`
-			SerializedData string `json:"serializedData"`
-			ErrorMessage   string `json:"errorMessage"`
-		} `json:"find"`
+		Find []models.Entry `json:"find"`
 	} `json:"data"`
 }
 
@@ -69,14 +65,14 @@ func main() {
 			continue
 		}
 
-		var processEntry func(entry models.Entry)
-		processEntry = func(entry models.Entry) {
+		for _, entry := range entries {
 			for _, translation := range entry.Translations {
-				if translation.LanguageCode != "RUS" && translation.LanguageCode != "CHE" {
+				translationLang := normalizeLang(translation.LanguageCode)
+				if translationLang == "" {
 					continue
 				}
 
-				originalLang := inferOriginalLang(translation.LanguageCode)
+				originalLang := inferOriginalLang(translationLang)
 				if originalLang == "" {
 					continue
 				}
@@ -93,25 +89,16 @@ func main() {
 					OriginalLang:        originalLang,
 					TranslationRaw:      translationRaw,
 					TranslationClean:    normalizeText(translationRaw),
-					TranslationLang:     translation.LanguageCode,
+					TranslationLang:     translationLang,
 					Source:              source,
 					SourceEntryID:       toNullString(entry.EntryID),
 					SourceTranslationID: toNullString(translation.TranslationID),
-					IsApproved:          false,
 				}
 
 				if _, err := repo.InsertTranslationPair(ctx, pair); err != nil {
 					fmt.Fprintf(os.Stderr, "insert failed for %q: %v\n", word, err)
 				}
 			}
-
-			for _, sub := range entry.SubEntries {
-				processEntry(sub)
-			}
-		}
-
-		for _, entry := range entries {
-			processEntry(entry)
 		}
 	}
 }
@@ -138,9 +125,16 @@ func fetchEntries(client *http.Client, word string) ([]models.Entry, error) {
 	query := `
 		query Find($inputText: String!) {
 			find(inputText: $inputText) {
-				success
-				serializedData
-				errorMessage
+				entryId
+				content
+				type
+				details
+				translations {
+					translationId
+					content
+					languageCode
+					notes
+				}
 			}
 		}
 	`
@@ -174,16 +168,7 @@ func fetchEntries(client *http.Client, word string) ([]models.Entry, error) {
 		return nil, err
 	}
 
-	if !response.Data.Find.Success {
-		return nil, fmt.Errorf("api error: %s", response.Data.Find.ErrorMessage)
-	}
-
-	var entries []models.Entry
-	if err := json.Unmarshal([]byte(response.Data.Find.SerializedData), &entries); err != nil {
-		return nil, err
-	}
-
-	return entries, nil
+	return response.Data.Find, nil
 }
 
 func normalizeText(text string) string {
@@ -198,6 +183,18 @@ func inferOriginalLang(translationLang string) string {
 	case "RUS":
 		return "CHE"
 	case "CHE":
+		return "RUS"
+	default:
+		return ""
+	}
+}
+
+// normalizeLang maps the dosham API ISO codes ("ce"/"ru") to internal "CHE"/"RUS".
+func normalizeLang(code string) string {
+	switch strings.ToLower(strings.TrimSpace(code)) {
+	case "ce", "che":
+		return "CHE"
+	case "ru", "rus":
 		return "RUS"
 	default:
 		return ""

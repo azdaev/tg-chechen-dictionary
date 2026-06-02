@@ -39,6 +39,11 @@ func (n *Net) HandleText(ctx context.Context, update *tgbotapi.Update) error {
 	m := update.Message
 	result := n.business.TranslateFormatted(m.Text)
 	if len(result.Pairs) == 0 {
+		// Record the vocabulary gap so maintainers know what to add next.
+		cleanWord := tools.NormalizeSearch(m.Text)
+		if err := n.repo.RecordMissingWord(ctx, cleanWord, strings.TrimSpace(m.Text)); err != nil {
+			n.log.WithError(err).WithField("word", cleanWord).Warn("failed to record missing word")
+		}
 		_, err = n.bot.Send(tgbotapi.NewMessage(m.Chat.ID, NoTranslationText))
 		return err
 	}
