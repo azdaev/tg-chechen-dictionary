@@ -4,11 +4,8 @@ import (
 	"chetoru/internal/models"
 	"chetoru/pkg/tools"
 
-	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
-	"net/http"
 	"strings"
 )
 
@@ -81,6 +78,9 @@ func orientEntry(entry models.Entry) *models.RandomWord {
 // suitable for a discovery card — not a multi-clause dictionary gloss with
 // examples, grammatical markers, or numbered senses.
 func isLearnableWord(chechen string) bool {
+	if strings.TrimSpace(chechen) == "" {
+		return false
+	}
 	if strings.ContainsAny(chechen, ";~()1234567890") {
 		return false
 	}
@@ -102,33 +102,14 @@ func makeRandomWord(chechen, russian string) *models.RandomWord {
 // fetchRandomEntries asks the dosham API for a batch of random dictionary
 // entries. Shared by the /random and /quiz features.
 func (b *Business) fetchRandomEntries(ctx context.Context, count int) ([]models.Entry, error) {
-	requestBody := map[string]interface{}{
-		"query": fmt.Sprintf(`{ randomEntries(count: %d) { content type translations { content languageCode } } }`, count),
-	}
-
-	jsonData, err := json.Marshal(requestBody)
-	if err != nil {
-		return nil, err
-	}
-
-	req, err := http.NewRequestWithContext(ctx, "POST", doshamAPIURL(), bytes.NewBuffer(jsonData))
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := (&http.Client{}).Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
+	query := fmt.Sprintf(`{ randomEntries(count: %d) { content type translations { content languageCode } } }`, count)
 
 	var response struct {
 		Data struct {
 			RandomEntries []models.Entry `json:"randomEntries"`
 		} `json:"data"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
+	if err := doDoshamQuery(ctx, query, nil, &response); err != nil {
 		return nil, err
 	}
 

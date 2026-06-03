@@ -9,12 +9,9 @@ import (
 	"sort"
 	"unicode/utf8"
 
-	"bytes"
 	"context"
 	"database/sql"
-	"encoding/json"
 	"fmt"
-	"net/http"
 	"os"
 	"strings"
 	"time"
@@ -230,39 +227,9 @@ func (b *Business) fetchTranslationsFromAPI(word string) []models.TranslationPai
 		}
 	`
 
-	variables := map[string]interface{}{
-		"inputText": word,
-	}
-
-	requestBody := map[string]interface{}{
-		"query":     query,
-		"variables": variables,
-	}
-
-	jsonData, err := json.Marshal(requestBody)
-	if err != nil {
-		b.log.Printf("failed to marshal request: %v\n", err)
-		return nil
-	}
-
-	req, err := http.NewRequest("POST", doshamAPIURL(), bytes.NewBuffer(jsonData))
-	if err != nil {
-		b.log.Printf("failed to create request: %v\n", err)
-		return nil
-	}
-	req.Header.Set("Content-Type", "application/json")
-
-	client := &http.Client{}
-	resp, err := client.Do(req)
-	if err != nil {
-		b.log.Printf("failed to do request: %v\n", err)
-		return nil
-	}
-	defer resp.Body.Close()
-
 	var response models.TranslationResponse
-	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
-		b.log.Printf("failed to decode response: %v\n", err)
+	if err := doDoshamQuery(context.Background(), query, map[string]any{"inputText": word}, &response); err != nil {
+		b.log.Printf("dosham find query failed: %v\n", err)
 		return nil
 	}
 
