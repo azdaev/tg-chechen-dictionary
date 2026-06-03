@@ -55,7 +55,7 @@ func (c *Client) FormatDictionaryEntry(ctx context.Context, rawEntry string) (st
 
 	// Clean up the response
 	formatted := strings.TrimSpace(content)
-	
+
 	// Remove markdown code blocks if present
 	formatted = strings.TrimPrefix(formatted, "```")
 	formatted = strings.TrimSuffix(formatted, "```")

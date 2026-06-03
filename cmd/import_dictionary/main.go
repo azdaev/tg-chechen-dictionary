@@ -139,9 +139,9 @@ func fetchEntries(client *http.Client, word string) ([]models.Entry, error) {
 		}
 	`
 
-	requestBody := map[string]interface{}{
+	requestBody := map[string]any{
 		"query": query,
-		"variables": map[string]interface{}{
+		"variables": map[string]any{
 			"inputText": word,
 		},
 	}

@@ -191,8 +191,6 @@ func (r *Repository) ListPendingTranslationPairsByWord(ctx context.Context, clea
 	return result, rows.Err()
 }
 
-// MarkTranslationPairsSent and SetTranslationPairApproval removed - no longer needed with new moderation flow
-
 func (r *Repository) SetTranslationPairFormattingChoice(ctx context.Context, id int64, choice string) error {
 	_, err := r.db.ExecContext(
 		ctx,
@@ -205,9 +203,8 @@ func (r *Repository) SetTranslationPairFormattingChoice(ctx context.Context, id 
 	return err
 }
 
-
 func (r *Repository) UpdateTranslationPairFormatting(ctx context.Context, id int64, formattedAI, formattedChosen string) error {
-	var chosenVal interface{}
+	var chosenVal any
 	if formattedChosen != "" {
 		chosenVal = formattedChosen
 	}

@@ -124,7 +124,7 @@ func (n *Net) HandleInline(ctx context.Context, update *tgbotapi.Update) error {
 		translations = translations[:InlineResultsLimit]
 	}
 
-	articles := make([]interface{}, len(translations))
+	articles := make([]any, len(translations))
 	for i := range articles {
 		article := tgbotapi.NewInlineQueryResultArticle(update.InlineQuery.ID+strconv.Itoa(i), tools.Clean(translations[i].Original), "")
 		article.Description = tools.Clean(translations[i].Translate)
@@ -309,4 +309,3 @@ func formatGrammarCard(g *models.WordGrammar) string {
 	}
 	return strings.Join(lines, "\n")
 }
-

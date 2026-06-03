@@ -96,7 +96,7 @@ func (n *Net) HandleInlineSpellcheck(ctx context.Context, update *tgbotapi.Updat
 			InlineQueryID: update.InlineQuery.ID,
 			IsPersonal:    true,
 			CacheTime:     0,
-			Results:       []interface{}{article},
+			Results:       []any{article},
 		}
 		_, _ = n.bot.Request(inlineConf)
 		return nil
@@ -108,7 +108,7 @@ func (n *Net) HandleInlineSpellcheck(ctx context.Context, update *tgbotapi.Updat
 		return nil
 	}
 
-	var articles []interface{}
+	var articles []any
 
 	if result.NoErrors {
 		article := tgbotapi.NewInlineQueryResultArticle(update.InlineQuery.ID+"_sp0", "✅ Ошибок не найдено", text)

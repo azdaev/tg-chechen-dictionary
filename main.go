@@ -14,8 +14,8 @@ import (
 	"os/signal"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
-	_ "modernc.org/sqlite"
 	"github.com/sirupsen/logrus"
+	_ "modernc.org/sqlite"
 )
 
 func main() {
@@ -34,7 +34,7 @@ func main() {
 		panic(err)
 	}
 	defer db.Close()
-	usersRepo := repository.NewRepository(db)
+	repo := repository.NewRepository(db)
 
 	err = db.Ping()
 	if err != nil {
@@ -72,16 +72,16 @@ func main() {
 		log.Println("AI formatting disabled (no OPENROUTER_API_KEY)")
 	}
 
-	translatorBusiness := business.NewBusiness(redisCache, usersRepo, aiClient, log)
+	translator := business.NewBusiness(redisCache, repo, aiClient, log)
 
 	var spellChecker net.AI
 	if aiClient != nil {
 		spellChecker = aiClient
 	}
-	botService := net.NewNet(log, usersRepo, bot, translatorBusiness, redisCache, spellChecker)
+	botService := net.NewNet(log, repo, bot, translator, redisCache, spellChecker)
 
 	// Wire callback: after AI formatting → send to moderation
-	translatorBusiness.SetOnPairReady(func(pairID int64, cleanWord string) {
+	translator.SetOnPairReady(func(pairID int64, cleanWord string) {
 		botService.SendAutoModeration(context.Background(), cleanWord)
 	})
 

@@ -62,7 +62,7 @@ func FormatTranslationLite(text string, originalWord string) string {
 
 	// Use provided original word, or extract from bolded text as fallback
 	word := strings.TrimSpace(originalWord)
-	
+
 	// Remove bolded word from text if present
 	wordRe := regexp.MustCompile(`\*\*([^*]+)\*\*`)
 	text = wordRe.ReplaceAllString(text, "")

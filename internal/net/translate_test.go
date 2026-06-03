@@ -37,11 +37,11 @@ func TestParseMoreCallback(t *testing.T) {
 		{"more_дерево_12", "дерево", 12, true},
 		{"more_two_words_4", "two_words", 4, true}, // underscore in word preserved
 		{"more_a_b_c_0", "a_b_c", 0, true},
-		{"more__4", "", 0, false},     // empty word
-		{"more_дерево_", "", 0, false}, // missing offset
-		{"more_дерево_x", "", 0, false}, // non-numeric offset
+		{"more__4", "", 0, false},        // empty word
+		{"more_дерево_", "", 0, false},   // missing offset
+		{"more_дерево_x", "", 0, false},  // non-numeric offset
 		{"more_дерево_-1", "", 0, false}, // negative offset
-		{"random_x_4", "", 0, false},   // wrong prefix
+		{"random_x_4", "", 0, false},     // wrong prefix
 		{"", "", 0, false},
 	}
 	for _, c := range cases {
