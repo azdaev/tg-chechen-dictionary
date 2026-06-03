@@ -3,6 +3,7 @@ package net
 import (
 	"chetoru/internal/models"
 	"context"
+	_ "embed"
 	"fmt"
 	"strconv"
 	"strings"
@@ -11,12 +12,24 @@ import (
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
 
+// inlineVideo is the /start demo clip, embedded into the binary so it ships
+// regardless of the runtime working directory or what the container image copies.
+//
+//go:embed inline.mp4
+var inlineVideo []byte
+
 func (n *Net) HandleStart(m *tgbotapi.Message) error {
-	video := tgbotapi.NewVideo(m.Chat.ID, tgbotapi.FilePath(PathInlineVideo))
+	video := tgbotapi.NewVideo(m.Chat.ID, tgbotapi.FileBytes{Name: "inline.mp4", Bytes: inlineVideo})
 	video.Caption = StartMessageText
 
-	_, err := n.bot.Send(video)
-	return err
+	if _, err := n.bot.Send(video); err != nil {
+		// Never leave a new user with no welcome: if the video can't be sent,
+		// fall back to the caption as a plain text message.
+		n.log.WithError(err).Warn("failed to send start video, falling back to text")
+		_, err = n.bot.Send(tgbotapi.NewMessage(m.Chat.ID, StartMessageText))
+		return err
+	}
+	return nil
 }
 
 func (n *Net) HandleStats(ctx context.Context, m *tgbotapi.Message) error {

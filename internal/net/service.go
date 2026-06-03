@@ -17,7 +17,6 @@ import (
 )
 
 const (
-	PathInlineVideo            = "internal/net/inline.mp4"
 	MaxTranslations            = 4
 	InlineResultsLimit         = 50 // Telegram's hard cap on answerInlineQuery results
 	MoreTranslationsHelpText   = `<i>Чтобы просмотреть все доступные переводы, нажмите на кнопку «Еще» или воспользуйтесь инлайн-режимом: введите @chetoru_bot и слово, которое хотите перевести. Это позволит вам увидеть все варианты.</i>`
