@@ -123,15 +123,23 @@ func (n *Net) HandleInline(ctx context.Context, iq *tgbotapi.InlineQuery) error 
 		translations = translations[:InlineResultsLimit]
 	}
 
-	articles := make([]any, len(translations))
-	for i := range articles {
-		article := tgbotapi.NewInlineQueryResultArticle(iq.ID+strconv.Itoa(i), tools.Clean(translations[i].Original), "")
+	articles := make([]any, 0, len(translations))
+	for i := range translations {
+		title := tools.Clean(translations[i].Original)
+		if strings.TrimSpace(title) == "" {
+			// Telegram rejects the entire answer if any article title is empty,
+			// so one malformed entry would blank out the whole inline response.
+			continue
+		}
+		article := tgbotapi.NewInlineQueryResultArticle(iq.ID+strconv.Itoa(i), title, "")
 		article.Description = tools.Clean(translations[i].Translate)
 		article.InputMessageContent = tgbotapi.InputTextMessageContent{
-			Text:      fmt.Sprintf("<b>%s</b> - %s", translations[i].Original, translations[i].Translate),
+			Text: fmt.Sprintf("<b>%s</b> - %s",
+				tgbotapi.EscapeText(tgbotapi.ModeHTML, tools.Clean(translations[i].Original)),
+				tgbotapi.EscapeText(tgbotapi.ModeHTML, tools.Clean(translations[i].Translate))),
 			ParseMode: "html",
 		}
-		articles[i] = article
+		articles = append(articles, article)
 	}
 
 	inlineConf := tgbotapi.InlineConfig{
