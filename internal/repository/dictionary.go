@@ -4,7 +4,6 @@ import (
 	"chetoru/internal/models"
 	"context"
 	"database/sql"
-	"strings"
 )
 
 type TranslationPair struct {
@@ -206,22 +205,6 @@ func (r *Repository) SetTranslationPairFormattingChoice(ctx context.Context, id 
 	return err
 }
 
-func boolToInt(v bool) int {
-	if v {
-		return 1
-	}
-	return 0
-}
-
-func buildInClause(prefix string, ids []int64) (string, []interface{}) {
-	args := make([]interface{}, 0, len(ids))
-	placeholders := make([]string, 0, len(ids))
-	for _, id := range ids {
-		args = append(args, id)
-		placeholders = append(placeholders, "?")
-	}
-	return prefix + strings.Join(placeholders, ","), args
-}
 
 func (r *Repository) UpdateTranslationPairFormatting(ctx context.Context, id int64, formattedAI, formattedChosen string) error {
 	var chosenVal interface{}

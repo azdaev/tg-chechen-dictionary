@@ -126,32 +126,3 @@ func (c *Client) complete(ctx context.Context, msgs []message, maxTokens ...int)
 
 	return result, nil
 }
-
-// extractJSON extracts the first JSON object from a string,
-// handling cases where the model wraps JSON in markdown code blocks.
-func extractJSON(s string) string {
-	start := -1
-	for i := 0; i < len(s)-2; i++ {
-		if s[i] == '{' {
-			start = i
-			break
-		}
-	}
-	if start == -1 {
-		return s
-	}
-
-	depth := 0
-	for i := start; i < len(s); i++ {
-		switch s[i] {
-		case '{':
-			depth++
-		case '}':
-			depth--
-			if depth == 0 {
-				return s[start : i+1]
-			}
-		}
-	}
-	return s[start:]
-}

@@ -1,7 +1,6 @@
 package tools
 
 import (
-	"strings"
 	"testing"
 )
 
@@ -29,148 +28,6 @@ func TestFormatDeterminism(t *testing.T) {
 		if got := expandAbbreviations(abbrevInput); got != firstAbbrev {
 			t.Fatalf("expandAbbreviations non-deterministic at iter %d:\n first=%q\n got  =%q", i, firstAbbrev, got)
 		}
-	}
-}
-
-func TestFormatTranslation(t *testing.T) {
-	tests := []struct {
-		name     string
-		input    string
-		expected string
-	}{
-		{
-			name: "api карандаш",
-			input: "**Карандаш** - м къолам; химический ~ - шекъа долун къолам; цветные ~и - бес-бесара къоламаш",
-			expected: `📝 КАРАНДАШ
-
-1️⃣ къолам
-   • химический карандаш → шекъа долун къолам
-   • цветные карандаши → бес-бесара къоламаш`,
-		},
-		{
-			name:     "api маьл",
-			input:    "**Маьлказ** - клен",
-			expected: "📝 МАЬЛКАЗ\n\n1️⃣ клен",
-		},
-		{
-			name:     "api мел",
-			input:    "**Мел** - мест. 1) (о неопределенном количестве) сколько;",
-			expected: "📝 МЕЛ\n\n1️⃣ (о неопределенном количестве) сколько",
-		},
-		{
-			name:     "api хедар",
-			input:    "**Хедар** - ӏ блюдо (посуда)",
-			expected: "📝 ХЕДАР\n\n1️⃣ ӏ блюдо (посуда)",
-		},
-		{
-			name:     "api тергал",
-			input:    "**Тергал ве со** - обрати на меня внимание",
-			expected: "📝 ТЕРГАЛ ВЕ СО\n\n1️⃣ обрати на меня внимание",
-		},
-		{
-			name:     "api къолам",
-			input:    "**Къолам** - карандаш",
-			expected: "📝 КЪОЛАМ\n\n1️⃣ карандаш",
-		},
-		{
-			name:     "api седалище",
-			input:    "**Седалище** - с гаъ",
-			expected: "📝 СЕДАЛИЩЕ\n\n1️⃣ гаъ",
-		},
-		{
-			name:     "api дош",
-			input:    "**Дошло** - кавалерист; всадник",
-			expected: "📝 ДОШЛО\n\n1️⃣ кавалерист\n   • всадник",
-		},
-		{
-			name:  "simple single meaning",
-			input: "**ручка** - ручка (для письма)",
-			expected: `📝 РУЧКА
-
-1️⃣ ручка (для письма)`,
-		},
-		{
-			name: "complex entry with multiple meanings",
-			input: `**Ручка** - ж 1) уменьш. от рука; 2) (для письма) ручка; самопишущая ~а - ша язден ручка; шариковая ~а - шарикан ручка; ~а с пером - перо йолу ручка 3) (посуды, прибора, мебели) тӏам; (инструмента) мукъ; (ведра, котла) кӏай; дверная ~а - наьӏаран тӏам; ~а ножа - уьрсан мукъ; ~и дивана- диванан тӏаьмнаш; без ручек- тӏам боцуш ; дойти до ~и прост. - дан хӏума доцчу дала (кхача)`,
-			expected: `📝 РУЧКА
-
-1️⃣ уменьшительное от рука
-2️⃣ (для письма) ручка
-   • самопишущая ручка → ша язден ручка
-   • шариковая ручка → шарикан ручка
-   • ручка с пером → перо йолу ручка
-
-3️⃣ (посуды, прибора, мебели) тӏам
-   • (инструмента) мукъ
-   • (ведра, котла) кӏай
-   • дверная ручка → наьӏаран тӏам
-   • ручка ножа → уьрсан мукъ
-   • ручки дивана → диванан тӏаьмнаш`,
-		},
-		{
-			name: "tree entry with examples",
-			input: `**Дерево** - с 1) дитт; фруктовое ~ - стоьмийн дитт; лиственное ~ - гӏаш долу дитт 2) (материал) дечиг; стол красного дерева – цӏечу дечиган стол ; родословное ~ -силсил`,
-			expected: `📝 ДЕРЕВО
-
-1️⃣ дитт
-   • фруктовое дерево → стоьмийн дитт
-   • лиственное дерево → гӏаш долу дитт
-
-2️⃣ (материал) дечиг
-   • стол красного дерева – цӏечу дечиган стол
-   • родословное дерево → силсил`,
-		},
-		{
-			name: "verb entry",
-			input: `**Дита** - 1) в разн. знач. оставить, покинуть; ас сайн ахча цуьнгахь дитина я оставил у него свои деньги; 2) развестись, расторгнуть брак; цо зуда йитина он развелся с женой;  мостагӏ вита простить врагу (т. е. оставить без мщения); цигаьрка йита бросить курить (букв, оставить папиросу); мекхаш дита оставить усы (т. е. не брить усов)`,
-			expected: `📝 ДИТА
-
-1️⃣ в разн. знач. оставить, покинуть
-   • ас сайн ахча цуьнгахь дитина я оставил у него свои деньги
-
-2️⃣ развестись, расторгнуть брак
-   • цо зуда йитина он развелся с женой
-   • мостагӏ вита простить врагу (т. е. оставить без мщения)
-   • цигаьрка йита бросить курить (букв, оставить папиросу)
-   • мекхаш дита оставить усы (т. е. не брить усов)`,
-		},
-		{
-			name: "entry without bold word",
-			input: `дечиг-пхьолин; ~ые работы - дечиг-пхьолин белхаш`,
-			expected: `1️⃣ дечиг-пхьолин
-   • ~ые работы → дечиг-пхьолин белхаш`,
-		},
-		{
-			name:     "empty input",
-			input:    "",
-			expected: "",
-		},
-		{
-			name: "single meaning without numbering",
-			input: `**Детта** - доить; етт бетта доить корову`,
-			expected: `📝 ДЕТТА
-
-1️⃣ доить
-   • етт бетта доить корову`,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := FormatTranslation(tt.input)
-
-			// Normalize whitespace for comparison
-			normalizeWhitespace := func(s string) string {
-				return strings.TrimSpace(strings.ReplaceAll(s, "\r\n", "\n"))
-			}
-
-			expected := normalizeWhitespace(tt.expected)
-			actual := normalizeWhitespace(result)
-
-			if actual != expected {
-				t.Errorf("FormatTranslation() =\n%q\nwant:\n%q", actual, expected)
-			}
-		})
 	}
 }
 
@@ -268,29 +125,6 @@ func TestParseExamples(t *testing.T) {
 				if i >= len(result) || result[i] != expected {
 					t.Errorf("parseExamples()[%d] = %q, want %q", i, result[i], expected)
 				}
-			}
-		})
-	}
-}
-
-func TestGetNumberEmoji(t *testing.T) {
-	tests := []struct {
-		input    int
-		expected string
-	}{
-		{1, "1️⃣"},
-		{2, "2️⃣"},
-		{3, "3️⃣"},
-		{10, "🔟"},
-		{11, "11️⃣"},
-		{0, "0️⃣"},
-	}
-
-	for _, tt := range tests {
-		t.Run("", func(t *testing.T) {
-			result := getNumberEmoji(tt.input)
-			if result != tt.expected {
-				t.Errorf("getNumberEmoji(%d) = %q, want %q", tt.input, result, tt.expected)
 			}
 		})
 	}

@@ -39,21 +39,6 @@ func (n *Net) trackSpellcheckUsage(ctx context.Context, userID int64) {
 	}
 }
 
-// sendPaywall sends a limit message and an invoice if payments are configured.
-func (n *Net) sendPaywall(chatID int64) error {
-	providerToken := os.Getenv("PAYMENT_PROVIDER_TOKEN")
-	if providerToken == "" {
-		msg := tgbotapi.NewMessage(chatID, fmt.Sprintf(
-			"🔒 Лимит инлайн-проверок исчерпан (%d/мес).\n\nВ боте проверка бесплатная: /check или .текст\n\nПодписка на инлайн — %s/мес, но оплата пока не подключена.\nОбратитесь к @azdaev.",
-			FreeSpellcheckLimit, SubscriptionPriceFormatted,
-		))
-		_, err := n.bot.Send(msg)
-		return err
-	}
-
-	return n.sendInvoice(chatID)
-}
-
 // sendInvoice sends a Telegram Payments invoice for the spellcheck subscription.
 func (n *Net) sendInvoice(chatID int64) error {
 	providerToken := os.Getenv("PAYMENT_PROVIDER_TOKEN")
