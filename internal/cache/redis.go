@@ -97,6 +97,41 @@ func (c *Cache) GetQuizPoll(ctx context.Context, pollID string) (int, error) {
 	return c.client.Get(ctx, "quizpoll_"+pollID).Int()
 }
 
+// grammarCacheEntry wraps a grammar lookup so a "no grammar" answer can be
+// cached too: most lookups have no analyzed grammar, and negative caching spares
+// the bot from re-running 1–2 live dosham queries for them on every repeat.
+type grammarCacheEntry struct {
+	Found   bool                `json:"found"`
+	Grammar *models.WordGrammar `json:"grammar,omitempty"`
+}
+
+// GetGrammar returns the cached grammar for a word. A nil result with a nil
+// error is a cached "no grammar" answer; ErrMiss means nothing is cached.
+func (c *Cache) GetGrammar(ctx context.Context, key string) (*models.WordGrammar, error) {
+	val, err := c.client.Get(ctx, "grammar_"+key).Result()
+	if errors.Is(err, redis.Nil) {
+		return nil, ErrMiss
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	var entry grammarCacheEntry
+	if err := json.Unmarshal([]byte(val), &entry); err != nil {
+		return nil, err
+	}
+	return entry.Grammar, nil
+}
+
+// SetGrammar caches a grammar lookup, including a nil ("no grammar") result.
+func (c *Cache) SetGrammar(ctx context.Context, key string, g *models.WordGrammar) error {
+	data, err := json.Marshal(grammarCacheEntry{Found: g != nil, Grammar: g})
+	if err != nil {
+		return err
+	}
+	return c.client.Set(ctx, "grammar_"+key, data, 24*30*time.Hour).Err()
+}
+
 func (c *Cache) Delete(ctx context.Context, key string) error {
 	return c.client.Del(ctx, key).Err()
 }

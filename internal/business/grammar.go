@@ -1,9 +1,11 @@
 package business
 
 import (
+	"chetoru/internal/cache"
 	"chetoru/internal/models"
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 )
 
@@ -41,16 +43,35 @@ type grammarTranslation struct {
 const maxIdioms = 5
 
 // GrammarFor looks up lightweight grammar (part of speech + inflected forms) for
-// the Chechen headword most relevant to word. It issues one live `find` query,
-// keeps only morphologically analyzed Chechen WORD entries, and picks the
-// highest-rated one. Returns nil when there is nothing worth showing, so callers
-// can simply skip the grammar card.
+// the Chechen headword most relevant to word. Grammar cards are only meaningful
+// for a single word, so multi-word input is skipped without a query. Results
+// (including "no grammar") are cached, since the live dosham lookup is otherwise
+// repeated on every translation. Returns nil when there is nothing worth showing.
 func (b *Business) GrammarFor(ctx context.Context, word string) *models.WordGrammar {
 	word = strings.TrimSpace(word)
-	if word == "" {
+	if word == "" || strings.ContainsAny(word, " \t\n") {
 		return nil
 	}
 
+	cacheKey := normalizeCacheKey(word)
+	if g, err := b.cache.GetGrammar(ctx, cacheKey); err == nil {
+		return g
+	} else if !errors.Is(err, cache.ErrMiss) {
+		b.log.Printf("grammar cache get failed for %q: %v\n", cacheKey, err)
+	}
+
+	g := b.computeGrammar(ctx, word)
+
+	if err := b.cache.SetGrammar(ctx, cacheKey, g); err != nil {
+		b.log.Printf("grammar cache set failed for %q: %v\n", cacheKey, err)
+	}
+	return g
+}
+
+// computeGrammar runs the live dosham lookup behind GrammarFor: one `find` query,
+// keeping only morphologically analyzed Chechen WORD entries, picking the
+// highest-rated, and enriching cross-direction matches.
+func (b *Business) computeGrammar(ctx context.Context, word string) *models.WordGrammar {
 	best := bestGrammarEntry(b.findGrammarEntries(ctx, word), "")
 	if best == nil {
 		return nil
