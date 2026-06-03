@@ -1,12 +1,45 @@
 package net
 
 import (
+	"chetoru/internal/models"
 	"chetoru/pkg/tools"
 	"context"
 	"fmt"
+	"strings"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
+
+// maxSummaryForms caps the inflected forms shown on compact cards like /random,
+// where the word is the focus and grammar is a hint, not the content.
+const maxSummaryForms = 6
+
+// grammarSummaryLine renders a one-line italic grammar hint (part of speech and
+// a few inflected forms) for compact cards. Returns "" when there is nothing to show.
+func grammarSummaryLine(g *models.WordGrammar) string {
+	if g == nil {
+		return ""
+	}
+	var parts []string
+	if g.POS != "" {
+		parts = append(parts, g.POS)
+	}
+	if len(g.Forms) > 0 {
+		forms := g.Forms
+		if len(forms) > maxSummaryForms {
+			forms = forms[:maxSummaryForms]
+		}
+		cleaned := make([]string, 0, len(forms))
+		for _, f := range forms {
+			cleaned = append(cleaned, tgbotapi.EscapeText(tgbotapi.ModeHTML, tools.Clean(f)))
+		}
+		parts = append(parts, "формы: "+strings.Join(cleaned, ", "))
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return "<i>" + strings.Join(parts, " · ") + "</i>"
+}
 
 // HandleRandom sends a random Chechen word from the dictionary so users can
 // discover and learn new vocabulary, with a button to keep exploring.
@@ -36,6 +69,9 @@ func (n *Net) HandleRandom(ctx context.Context, chatID int64) error {
 		tgbotapi.EscapeText(tgbotapi.ModeHTML, tools.Clean(word.Chechen)),
 		tgbotapi.EscapeText(tgbotapi.ModeHTML, tools.Clean(word.Russian)),
 	)
+	if line := grammarSummaryLine(n.business.GrammarFor(ctx, word.Chechen)); line != "" {
+		text += "\n\n" + line
+	}
 
 	msg := tgbotapi.NewMessage(chatID, text)
 	msg.ParseMode = "html"

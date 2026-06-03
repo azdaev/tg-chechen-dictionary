@@ -84,3 +84,44 @@ func TestFormatGrammarCard(t *testing.T) {
 		}
 	})
 }
+
+func TestGrammarSummaryLine(t *testing.T) {
+	t.Run("pos and forms", func(t *testing.T) {
+		g := &models.WordGrammar{
+			POS:   "существительное",
+			Forms: []string{"деган", "дагна"},
+		}
+		want := "<i>существительное · формы: деган, дагна</i>"
+		if got := grammarSummaryLine(g); got != want {
+			t.Errorf("got %q, want %q", got, want)
+		}
+	})
+
+	t.Run("pos only", func(t *testing.T) {
+		g := &models.WordGrammar{POS: "глагол"}
+		if got := grammarSummaryLine(g); got != "<i>глагол</i>" {
+			t.Errorf("got %q", got)
+		}
+	})
+
+	t.Run("forms truncated to cap", func(t *testing.T) {
+		forms := make([]string, maxSummaryForms+3)
+		for i := range forms {
+			forms[i] = "ж"
+		}
+		g := &models.WordGrammar{Forms: forms}
+		got := grammarSummaryLine(g)
+		if want := maxSummaryForms; strings.Count(got, "ж") != want {
+			t.Errorf("expected %d forms, got %q", want, got)
+		}
+	})
+
+	t.Run("empty and nil give nothing", func(t *testing.T) {
+		if got := grammarSummaryLine(nil); got != "" {
+			t.Errorf("nil: got %q", got)
+		}
+		if got := grammarSummaryLine(&models.WordGrammar{Headword: "дог"}); got != "" {
+			t.Errorf("headword-only: got %q", got)
+		}
+	})
+}
