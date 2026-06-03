@@ -16,31 +16,44 @@ const quizOptionCount = 4
 // random dictionary entries. Active recall practice is far more effective for
 // learning vocabulary than passive lookup — this is the /quiz feature's engine.
 func (b *Business) GenerateQuiz(ctx context.Context) (*models.QuizQuestion, error) {
-	entries, err := b.fetchRandomEntries(ctx, 40)
-	if err != nil {
-		return nil, err
-	}
-
-	// Collect clean, distinct word→meaning pairs usable as quiz items.
-	pairs := make([]models.RandomWord, 0, len(entries))
+	// A single random batch can be dominated by phrases and glosses that filter
+	// out, leaving too few clean items. Accumulate distinct candidates across a
+	// few batches — like RandomWordFromAPI — so the quiz reliably has options.
+	const attempts = 3
+	pairs := make([]models.RandomWord, 0, quizOptionCount*2)
 	seenWord := make(map[string]bool)
 	seenMeaning := make(map[string]bool)
-	for _, entry := range entries {
-		word := orientEntry(entry)
-		if word == nil || !isLearnableWord(word.Chechen) || !isCleanMeaning(word.Russian) {
+	var lastErr error
+
+	for range attempts {
+		entries, err := b.fetchRandomEntries(ctx, 40)
+		if err != nil {
+			lastErr = err
 			continue
 		}
-		wordKey := strings.ToLower(word.Chechen)
-		meaningKey := strings.ToLower(word.Russian)
-		if seenWord[wordKey] || seenMeaning[meaningKey] {
-			continue
+		for _, entry := range entries {
+			word := orientEntry(entry)
+			if word == nil || !isLearnableWord(word.Chechen) || !isCleanMeaning(word.Russian) {
+				continue
+			}
+			wordKey := strings.ToLower(word.Chechen)
+			meaningKey := strings.ToLower(word.Russian)
+			if seenWord[wordKey] || seenMeaning[meaningKey] {
+				continue
+			}
+			seenWord[wordKey] = true
+			seenMeaning[meaningKey] = true
+			pairs = append(pairs, *word)
 		}
-		seenWord[wordKey] = true
-		seenMeaning[meaningKey] = true
-		pairs = append(pairs, *word)
+		if len(pairs) >= quizOptionCount {
+			break
+		}
 	}
 
 	if len(pairs) < quizOptionCount {
+		if lastErr != nil {
+			return nil, lastErr
+		}
 		return nil, fmt.Errorf("not enough quiz candidates: have %d, need %d", len(pairs), quizOptionCount)
 	}
 
