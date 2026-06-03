@@ -297,6 +297,13 @@ func formatGrammarCard(g *models.WordGrammar) string {
 		lines = append(lines, line)
 	}
 
+	if len(g.Idioms) > 0 {
+		lines = append(lines, "\n💬 <b>Выражения:</b>")
+		for _, idiom := range g.Idioms {
+			lines = append(lines, fmt.Sprintf("• %s — %s", tools.Clean(idiom.Chechen), tools.Clean(idiom.Russian)))
+		}
+	}
+
 	if len(lines) == 1 && g.POS == "" {
 		return "" // only a bare headword — nothing useful to show
 	}

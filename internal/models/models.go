@@ -57,6 +57,14 @@ type WordGrammar struct {
 	Headword string   // the Chechen word
 	POS      string   // human-readable part of speech, or "" if uncertain
 	Forms    []string // inflected forms (entryForms), unlabeled
+	Idioms   []Idiom  // set phrases/collocations (relatedEntries) with a translation
+}
+
+// Idiom is a Chechen set phrase or collocation paired with its Russian meaning,
+// sourced from the dosham API's relatedEntries.
+type Idiom struct {
+	Chechen string
+	Russian string
 }
 
 // QuizQuestion is a multiple-choice question for the /quiz feature: a Chechen

@@ -50,6 +50,34 @@ func TestFormatGrammarCard(t *testing.T) {
 		}
 	})
 
+	t.Run("idioms section", func(t *testing.T) {
+		g := &models.WordGrammar{
+			Headword: "дог",
+			POS:      "существительное",
+			Idioms: []models.Idiom{
+				{Chechen: "дог тедан", Russian: "успокоить"},
+				{Chechen: "дог эца", Russian: "утешить"},
+			},
+		}
+		got := formatGrammarCard(g)
+		if !strings.Contains(got, "💬 <b>Выражения:</b>") {
+			t.Errorf("missing idioms header: %q", got)
+		}
+		if !strings.Contains(got, "• дог тедан — успокоить") || !strings.Contains(got, "• дог эца — утешить") {
+			t.Errorf("missing idiom lines: %q", got)
+		}
+	})
+
+	t.Run("idioms alone (no POS/forms) still shows", func(t *testing.T) {
+		g := &models.WordGrammar{
+			Headword: "x",
+			Idioms:   []models.Idiom{{Chechen: "a", Russian: "b"}},
+		}
+		if got := formatGrammarCard(g); !strings.Contains(got, "• a — b") {
+			t.Errorf("expected idiom-only card to render, got %q", got)
+		}
+	})
+
 	t.Run("nil", func(t *testing.T) {
 		if got := formatGrammarCard(nil); got != "" {
 			t.Errorf("expected empty for nil, got %q", got)

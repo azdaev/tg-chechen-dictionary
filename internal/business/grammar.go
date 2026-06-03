@@ -15,16 +15,30 @@ type grammarResponse struct {
 }
 
 type grammarEntry struct {
-	Content    string        `json:"content"`
-	Type       string        `json:"type"`
-	Rate       int           `json:"rate"`
-	Details    string        `json:"details"`
-	EntryForms []grammarForm `json:"entryForms"`
+	Content        string         `json:"content"`
+	Type           string         `json:"type"`
+	Rate           int            `json:"rate"`
+	Details        string         `json:"details"`
+	EntryForms     []grammarForm  `json:"entryForms"`
+	RelatedEntries []relatedEntry `json:"relatedEntries"`
 }
 
 type grammarForm struct {
 	Content string `json:"content"`
 }
+
+type relatedEntry struct {
+	Content      string               `json:"content"`
+	Translations []grammarTranslation `json:"translations"`
+}
+
+type grammarTranslation struct {
+	Content      string `json:"content"`
+	LanguageCode string `json:"languageCode"`
+}
+
+// maxIdioms caps how many set phrases the grammar card carries.
+const maxIdioms = 5
 
 // GrammarFor looks up lightweight grammar (part of speech + inflected forms) for
 // the Chechen headword most relevant to word. It issues one live `find` query,
@@ -42,14 +56,14 @@ func (b *Business) GrammarFor(ctx context.Context, word string) *models.WordGram
 		return nil
 	}
 
-	// When the best match for the user's query has no inflected forms, the user
-	// likely typed the Russian side and matched a thin translation record. The
-	// rich analyzed entry (full paradigm) lives under the Chechen headword, so
-	// re-query it directly to enrich. Skip when the user already typed that
-	// headword (re-querying the same word can't add anything).
-	if len(best.EntryForms) == 0 && !strings.EqualFold(strings.TrimSpace(best.Content), word) {
+	// When the best match for the user's query carries neither a paradigm nor set
+	// phrases, the user likely typed the Russian side and matched a thin
+	// translation record. The rich analyzed entry lives under the Chechen
+	// headword, so re-query it directly to enrich. Skip when the user already
+	// typed that headword (re-querying the same word can't add anything).
+	if len(best.EntryForms) == 0 && len(best.RelatedEntries) == 0 && !strings.EqualFold(strings.TrimSpace(best.Content), word) {
 		if enriched := bestGrammarEntry(b.findGrammarEntries(ctx, best.Content), best.Content); enriched != nil {
-			if len(enriched.EntryForms) > 0 || posFromDetails(enriched.Details) != "" {
+			if len(enriched.EntryForms) > 0 || len(enriched.RelatedEntries) > 0 || posFromDetails(enriched.Details) != "" {
 				best = enriched
 			}
 		}
@@ -64,10 +78,34 @@ func (b *Business) GrammarFor(ctx context.Context, word string) *models.WordGram
 			g.Forms = append(g.Forms, s)
 		}
 	}
-	if g.POS == "" && len(g.Forms) == 0 {
+	for _, r := range best.RelatedEntries {
+		che := strings.TrimSpace(r.Content)
+		ru := firstRussian(r.Translations)
+		if che == "" || ru == "" {
+			continue // an idiom without a translation is useless to a learner
+		}
+		g.Idioms = append(g.Idioms, models.Idiom{Chechen: che, Russian: ru})
+		if len(g.Idioms) >= maxIdioms {
+			break
+		}
+	}
+
+	if g.POS == "" && len(g.Forms) == 0 && len(g.Idioms) == 0 {
 		return nil // nothing worth showing
 	}
 	return g
+}
+
+// firstRussian returns the first Russian translation content, or "".
+func firstRussian(translations []grammarTranslation) string {
+	for _, t := range translations {
+		if normalizeLang(t.LanguageCode) == "RUS" {
+			if s := strings.TrimSpace(t.Content); s != "" {
+				return s
+			}
+		}
+	}
+	return ""
 }
 
 // findGrammarEntries runs the grammar `find` query and returns the raw entries.
@@ -80,6 +118,7 @@ func (b *Business) findGrammarEntries(ctx context.Context, word string) []gramma
 				rate
 				details
 				entryForms { content }
+				relatedEntries { content translations { content languageCode } }
 			}
 		}
 	`
