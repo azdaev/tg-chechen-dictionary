@@ -167,3 +167,39 @@ func TestMakeRandomWord(t *testing.T) {
 		t.Errorf("makeRandomWord(_, blank) = %+v, want nil", w)
 	}
 }
+
+func TestHasExactOriginal(t *testing.T) {
+	pairs := []models.TranslationPairs{
+		{Original: "Белка", Translate: "тарсал"},
+		{Original: "Ёлка", Translate: "база"},
+	}
+	if !hasExactOriginal(pairs, "елка") {
+		t.Error("елка should match Ёлка (ё/е-insensitive)")
+	}
+	if !hasExactOriginal(pairs, "БЕЛКА") {
+		t.Error("БЕЛКА should match Белка (case-insensitive)")
+	}
+	if hasExactOriginal(pairs, "лка") {
+		t.Error("substring must not count as exact match")
+	}
+	if hasExactOriginal(nil, "елка") {
+		t.Error("no pairs can't contain a match")
+	}
+}
+
+func TestMergePairs(t *testing.T) {
+	first := []models.TranslationPairs{
+		{Original: "Ёлка", Translate: "база"},
+	}
+	second := []models.TranslationPairs{
+		{Original: "Белка", Translate: "тарсал"},
+		{Original: "ёлка", Translate: "База"}, // duplicate of first, modulo case/ё
+	}
+	got := mergePairs(first, second)
+	if len(got) != 2 {
+		t.Fatalf("expected 2 merged pairs, got %d: %+v", len(got), got)
+	}
+	if got[0].Original != "Ёлка" || got[1].Original != "Белка" {
+		t.Errorf("alternate results must come first, got %+v", got)
+	}
+}

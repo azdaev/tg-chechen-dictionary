@@ -24,16 +24,17 @@ func NormalizeSearch(text string) string {
 	return clean
 }
 
+// AlternateYo returns the ё/е-swapped spelling of a Russian query, or "" when
+// there is no alternate. Russians routinely type е for ё, and the dictionary
+// search does not fold the two, so a failed lookup is retried with the swap.
 func AlternateYo(text string) string {
 	if strings.ContainsAny(text, "ёЁ") {
-		return ""
+		return strings.NewReplacer("ё", "е", "Ё", "Е").Replace(text)
 	}
 	if !strings.ContainsAny(text, "еЕ") {
 		return ""
 	}
-
-	replacer := strings.NewReplacer("е", "ё", "Е", "Ё")
-	return replacer.Replace(text)
+	return strings.NewReplacer("е", "ё", "Е", "Ё").Replace(text)
 }
 
 func EscapeUnclosedTags(text string) string {

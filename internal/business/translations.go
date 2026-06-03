@@ -159,19 +159,56 @@ func (b *Business) TranslateFormatted(word string) *models.TranslationResult {
 	return result
 }
 
+// fetchTranslationsWithFallback queries the API for word and, when the results
+// lack an exact headword match for a ё/е-ambiguous query, retries with the
+// swapped spelling and puts those results first. The dosham search is a
+// substring match that does not fold ё/е — "елка" matches "Белка" but not
+// "Ёлка" — while Russians routinely type е for ё.
 func (b *Business) fetchTranslationsWithFallback(word string) []models.TranslationPairs {
 	word = strings.TrimSpace(word)
 	translations := b.fetchTranslationsFromAPI(word)
-	if len(translations) > 0 {
+
+	altWord := tools.AlternateYo(word)
+	if altWord == "" || hasExactOriginal(translations, word) {
 		return translations
 	}
 
-	altWord := tools.AlternateYo(word)
-	if altWord == "" {
-		return nil
+	alt := b.fetchTranslationsFromAPI(altWord)
+	if len(alt) == 0 {
+		return translations
 	}
+	return mergePairs(alt, translations)
+}
 
-	return b.fetchTranslationsFromAPI(altWord)
+// hasExactOriginal reports whether any pair's headword is exactly the searched
+// word (case- and ё/е-insensitive).
+func hasExactOriginal(pairs []models.TranslationPairs, word string) bool {
+	key := tools.NormalizeSearch(word)
+	for _, p := range pairs {
+		if tools.NormalizeSearch(p.Original) == key {
+			return true
+		}
+	}
+	return false
+}
+
+// mergePairs returns first followed by second, dropping duplicate pairs.
+func mergePairs(first, second []models.TranslationPairs) []models.TranslationPairs {
+	merged := make([]models.TranslationPairs, 0, len(first)+len(second))
+	seen := make(map[string]bool, len(first)+len(second))
+	add := func(pairs []models.TranslationPairs) {
+		for _, p := range pairs {
+			k := tools.NormalizeSearch(p.Original) + "\x00" + tools.NormalizeSearch(p.Translate)
+			if seen[k] {
+				continue
+			}
+			seen[k] = true
+			merged = append(merged, p)
+		}
+	}
+	add(first)
+	add(second)
+	return merged
 }
 
 func (b *Business) fetchTranslationsFromAPI(word string) []models.TranslationPairs {
