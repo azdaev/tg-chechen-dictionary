@@ -48,6 +48,14 @@ type RandomWord struct {
 	Russian string
 }
 
+// QuizQuestion is a multiple-choice question for the /quiz feature: a Chechen
+// word and several Russian answer options, one of which (CorrectIdx) is right.
+type QuizQuestion struct {
+	Chechen    string
+	Options    []string
+	CorrectIdx int
+}
+
 // GraphQL specific types (dosham.app /gql schema)
 type Entry struct {
 	EntryID      string        `json:"entryId"`

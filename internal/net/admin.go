@@ -4,6 +4,8 @@ import (
 	"chetoru/internal/models"
 	"context"
 	"fmt"
+	"strconv"
+	"strings"
 	"time"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
@@ -51,12 +53,14 @@ func (n *Net) HandleStats(ctx context.Context, update *tgbotapi.Update) error {
 		return fmt.Errorf("repo.CountMissingWords: %w", err)
 	}
 
-	dictText := fmt.Sprintf(DictionaryStatsFormat, totalPairs, approvedPairs, missingCount)
-
-	msg := tgbotapi.NewMessage(
-		update.Message.Chat.ID,
-		dictText+statsMessageText(newMonthlyUsers, monthlyActiveUsers, dailyActiveUsersLastMonth),
+	text := buildStatsMessage(
+		month, year,
+		newMonthlyUsers, monthlyActiveUsers,
+		totalPairs, approvedPairs, missingCount,
+		dailyActiveUsersLastMonth,
 	)
+
+	msg := tgbotapi.NewMessage(update.Message.Chat.ID, text)
 	msg.ParseMode = "html"
 
 	_, err = n.bot.Send(msg)
@@ -95,11 +99,76 @@ func (n *Net) HandleMissingWords(ctx context.Context, update *tgbotapi.Update) e
 	return err
 }
 
-func statsMessageText(newMonthlyUsers int, monthlyActiveUsers int, dailyActivityInMonth []models.DailyActivity) string {
-	messageText := fmt.Sprintf(StatsHeaderText, newMonthlyUsers, monthlyActiveUsers)
-	for i, activity := range dailyActivityInMonth {
-		day := i + 1
-		messageText += fmt.Sprintf(DailyStatsFormat, day, activity.ActiveUsers, activity.Calls)
+var russianMonths = [...]string{
+	"", "Январь", "Февраль", "Март", "Апрель", "Май", "Июнь",
+	"Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь",
+}
+
+// buildStatsMessage renders the admin /stats report as clean, Telegram-friendly
+// HTML — emoji-marked sections and bold figures, no fixed-width/ASCII tables.
+// The per-day breakdown lists only days that actually had activity, so the
+// report stays compact instead of printing a row for every empty day.
+func buildStatsMessage(
+	month, year int,
+	newUsers, activeUsers int,
+	totalPairs, approvedPairs, missingWords int,
+	daily []models.DailyActivity,
+) string {
+	monthName := ""
+	if month >= 1 && month <= 12 {
+		monthName = russianMonths[month]
 	}
-	return messageText
+
+	totalCalls, activeDays := 0, 0
+	for _, d := range daily {
+		totalCalls += d.Calls
+		if d.ActiveUsers > 0 || d.Calls > 0 {
+			activeDays++
+		}
+	}
+
+	var b strings.Builder
+	fmt.Fprintf(&b, "📊 <b>Статистика · %s %d</b>\n\n", monthName, year)
+
+	b.WriteString("👥 <b>Пользователи за месяц</b>\n")
+	fmt.Fprintf(&b, "🆕 Новых: <b>%s</b>\n", formatThousands(newUsers))
+	fmt.Fprintf(&b, "🟢 Активных: <b>%s</b>\n", formatThousands(activeUsers))
+	fmt.Fprintf(&b, "🔁 Вызовов: <b>%s</b>\n\n", formatThousands(totalCalls))
+
+	b.WriteString("📚 <b>Словарь</b>\n")
+	fmt.Fprintf(&b, "📖 Всего пар: <b>%s</b>\n", formatThousands(totalPairs))
+	fmt.Fprintf(&b, "✅ Проверено: <b>%s</b>\n", formatThousands(approvedPairs))
+	fmt.Fprintf(&b, "🔍 Без перевода: <b>%s</b>\n\n", formatThousands(missingWords))
+
+	b.WriteString("📅 <b>По дням</b> <i>(день · 🟢 активных · 🔁 вызовов)</i>\n")
+	if activeDays == 0 {
+		b.WriteString("<i>Пока нет активности в этом месяце</i>")
+		return b.String()
+	}
+	for i, d := range daily {
+		if d.ActiveUsers == 0 && d.Calls == 0 {
+			continue
+		}
+		fmt.Fprintf(&b, "<b>%d</b> · %d · %d\n", i+1, d.ActiveUsers, d.Calls)
+	}
+
+	return strings.TrimRight(b.String(), "\n")
+}
+
+// formatThousands formats an integer with spaces as thousands separators
+// (e.g. 12345 -> "12 345") for readability in the stats report.
+func formatThousands(n int) string {
+	s := strconv.Itoa(n)
+	sign := ""
+	if strings.HasPrefix(s, "-") {
+		sign, s = "-", s[1:]
+	}
+	var b strings.Builder
+	for i := 0; i < len(s); i++ {
+		if i > 0 && (len(s)-i)%3 == 0 {
+			b.WriteByte(' ')
+		}
+		b.WriteByte(s[i])
+	}
+	return sign + b.String()
 }

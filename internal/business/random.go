@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strings"
 )
@@ -17,40 +18,15 @@ import (
 // empty. Single-word ("WORD") entries are preferred over phrase ("TEXT")
 // entries for a cleaner learning card. Returns nil if nothing usable was found.
 func (b *Business) RandomWordFromAPI(ctx context.Context) (*models.RandomWord, error) {
-	requestBody := map[string]interface{}{
-		"query": `{ randomEntries(count: 20) { content type translations { content languageCode } } }`,
-	}
-
-	jsonData, err := json.Marshal(requestBody)
+	entries, err := b.fetchRandomEntries(ctx, 20)
 	if err != nil {
-		return nil, err
-	}
-
-	req, err := http.NewRequestWithContext(ctx, "POST", doshamAPIURL(), bytes.NewBuffer(jsonData))
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := (&http.Client{}).Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	var response struct {
-		Data struct {
-			RandomEntries []models.Entry `json:"randomEntries"`
-		} `json:"data"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
 		return nil, err
 	}
 
 	// Pick the best card in the batch: a single WORD entry whose Chechen side is
 	// a clean, learnable word. Fall back progressively to any WORD, then anything.
 	var bestWord, anyWord, fallback *models.RandomWord
-	for _, entry := range response.Data.RandomEntries {
+	for _, entry := range entries {
 		word := orientEntry(entry)
 		if word == nil {
 			continue
@@ -121,4 +97,40 @@ func makeRandomWord(chechen, russian string) *models.RandomWord {
 		return nil
 	}
 	return &models.RandomWord{Chechen: chechen, Russian: russian}
+}
+
+// fetchRandomEntries asks the dosham API for a batch of random dictionary
+// entries. Shared by the /random and /quiz features.
+func (b *Business) fetchRandomEntries(ctx context.Context, count int) ([]models.Entry, error) {
+	requestBody := map[string]interface{}{
+		"query": fmt.Sprintf(`{ randomEntries(count: %d) { content type translations { content languageCode } } }`, count),
+	}
+
+	jsonData, err := json.Marshal(requestBody)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "POST", doshamAPIURL(), bytes.NewBuffer(jsonData))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := (&http.Client{}).Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	var response struct {
+		Data struct {
+			RandomEntries []models.Entry `json:"randomEntries"`
+		} `json:"data"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
+		return nil, err
+	}
+
+	return response.Data.RandomEntries, nil
 }
