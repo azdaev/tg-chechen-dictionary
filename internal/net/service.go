@@ -21,7 +21,7 @@ const (
 	MaxTranslations            = 4
 	InlineResultsLimit         = 50 // Telegram's hard cap on answerInlineQuery results
 	MoreTranslationsHelpText   = `<i>Чтобы просмотреть все доступные переводы, нажмите на кнопку «Еще» или воспользуйтесь инлайн-режимом: введите @chetoru_bot и слово, которое хотите перевести. Это позволит вам увидеть все варианты.</i>`
-	StartMessageText           = "Отправь мне слово на русском или чеченском, а я скину перевод. Ещё ты можешь пользоваться ботом в других переписках, как на видео.\n\n🎲 /random — случайное чеченское слово.\n🧠 /quiz — викторина: проверь, как хорошо ты знаешь чеченский.\n🏆 /top — рейтинг знатоков.\n📖 /wotd — слово дня каждое утро.\n\nСловарные данные предоставлены проектом dosham.app"
+	StartMessageText           = "Отправь мне слово на русском или чеченском, а я скину перевод. Ещё ты можешь пользоваться ботом в других переписках, как на видео.\n\n🎲 /random — случайное чеченское слово.\n🧠 /quiz — викторина: проверь, как хорошо ты знаешь чеченский.\n🏆 /top — рейтинг знатоков.\n📖 /wotd — слово дня каждое утро.\n✍️ /check — проверить орфографию (или начни сообщение с точки).\n\nСловарные данные предоставлены проектом dosham.app"
 	NoTranslationText          = "К сожалению, нет перевода"
 	MoreButtonText             = "Еще (%d)"
 	MissingWordsLimit          = 30
@@ -180,6 +180,8 @@ func NewNet(log *logrus.Logger, repo Repository, bot *tgbotapi.BotAPI, business 
 func (n *Net) Start(ctx context.Context) {
 	n.log.Info("starting service")
 
+	n.registerBotCommands()
+
 	u := tgbotapi.NewUpdate(0)
 	u.Timeout = 60
 
@@ -226,6 +228,23 @@ func (n *Net) Start(ctx context.Context) {
 			n.routeInline(ctx, update.InlineQuery)
 			continue
 		}
+	}
+}
+
+// registerBotCommands publishes the user-facing command menu so Telegram shows
+// the "/" autocomplete list. Admin-only commands (stats, moderate, broadcast,
+// ai) are intentionally omitted. A failure here is non-fatal.
+func (n *Net) registerBotCommands() {
+	cmds := tgbotapi.NewSetMyCommands(
+		tgbotapi.BotCommand{Command: "random", Description: "🎲 Случайное чеченское слово"},
+		tgbotapi.BotCommand{Command: "quiz", Description: "🧠 Викторина по чеченскому"},
+		tgbotapi.BotCommand{Command: "top", Description: "🏆 Рейтинг знатоков"},
+		tgbotapi.BotCommand{Command: "wotd", Description: "📖 Слово дня"},
+		tgbotapi.BotCommand{Command: "check", Description: "✍️ Проверить орфографию"},
+		tgbotapi.BotCommand{Command: "subscribe", Description: "⭐ Подписка на безлимит"},
+	)
+	if _, err := n.bot.Request(cmds); err != nil {
+		n.log.WithError(err).Warn("failed to register bot commands")
 	}
 }
 
