@@ -11,6 +11,7 @@ import (
 
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -238,7 +239,13 @@ func normalizeCacheKey(word string) string {
 
 func (b *Business) loadCachedTranslations(ctx context.Context, cacheKey string) []models.TranslationPairs {
 	translations, err := b.cache.Get(ctx, cacheKey)
-	if err != nil || len(translations) == 0 {
+	if err != nil {
+		if !errors.Is(err, cache.ErrMiss) {
+			b.log.Printf("cache get failed for %q: %v\n", cacheKey, err)
+		}
+		return nil
+	}
+	if len(translations) == 0 {
 		return nil
 	}
 	return translations
@@ -273,7 +280,13 @@ func (b *Business) loadLocalTranslations(ctx context.Context, word string) []mod
 
 func (b *Business) loadCachedFormatted(ctx context.Context, cacheKey string) *models.TranslationResult {
 	result, err := b.cache.GetTranslationResult(ctx, cacheKey)
-	if err != nil || len(result.Pairs) == 0 {
+	if err != nil {
+		if !errors.Is(err, cache.ErrMiss) {
+			b.log.Printf("cache get failed for %q: %v\n", "formatted_"+cacheKey, err)
+		}
+		return nil
+	}
+	if len(result.Pairs) == 0 {
 		return nil
 	}
 	return result

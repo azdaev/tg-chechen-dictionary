@@ -4,10 +4,16 @@ import (
 	"chetoru/internal/models"
 	"context"
 	"encoding/json"
+	"errors"
 	"time"
 
 	redis "github.com/redis/go-redis/v9"
 )
+
+// ErrMiss is returned by the Get* methods when a key is absent. Callers use it
+// to tell a normal cache miss apart from a real backend failure (Redis down,
+// corrupt entry), which should be logged rather than silently swallowed.
+var ErrMiss = errors.New("cache: miss")
 
 type Cache struct {
 	client *redis.Client
@@ -26,6 +32,9 @@ func NewCache(addr, password string) *Cache {
 
 func (c *Cache) Get(ctx context.Context, key string) ([]models.TranslationPairs, error) {
 	val, err := c.client.Get(ctx, key).Result()
+	if errors.Is(err, redis.Nil) {
+		return nil, ErrMiss
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -48,9 +57,11 @@ func (c *Cache) Set(ctx context.Context, key string, translations []models.Trans
 	return c.client.Set(ctx, key, data, 24*30*time.Hour).Err()
 }
 
-// GetTranslationResult получает кэшированный результат с отформатированным текстом
 func (c *Cache) GetTranslationResult(ctx context.Context, key string) (*models.TranslationResult, error) {
 	val, err := c.client.Get(ctx, "formatted_"+key).Result()
+	if errors.Is(err, redis.Nil) {
+		return nil, ErrMiss
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -64,7 +75,6 @@ func (c *Cache) GetTranslationResult(ctx context.Context, key string) (*models.T
 	return &result, nil
 }
 
-// SetTranslationResult сохраняет результат с отформатированным текстом
 func (c *Cache) SetTranslationResult(ctx context.Context, key string, result *models.TranslationResult) error {
 	data, err := json.Marshal(result)
 	if err != nil {
@@ -87,7 +97,6 @@ func (c *Cache) GetQuizPoll(ctx context.Context, pollID string) (int, error) {
 	return c.client.Get(ctx, "quizpoll_"+pollID).Int()
 }
 
-// Delete удаляет ключ из кэша
 func (c *Cache) Delete(ctx context.Context, key string) error {
 	return c.client.Del(ctx, key).Err()
 }
