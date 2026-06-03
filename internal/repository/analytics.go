@@ -79,7 +79,7 @@ func (r *Repository) CountNewMonthlyUsers(ctx context.Context, month int, year i
 	count := 0
 	row := r.db.QueryRowContext(
 		ctx,
-		"SELECT COUNT(id) FROM users WHERE strftime('%m', created_at) = ? AND strftime('%Y', created_at) = ?;",
+		"SELECT COUNT(id) FROM users WHERE strftime('%m', created_at, 'localtime') = ? AND strftime('%Y', created_at, 'localtime') = ?;",
 		fmt.Sprintf("%02d", month), fmt.Sprintf("%04d", year),
 	)
 	err := row.Scan(&count)
@@ -94,7 +94,7 @@ func (r *Repository) DailyActiveUsersInMonth(ctx context.Context, month int, yea
 	result := make([]entities.DailyActivity, days)
 	rows, err := r.db.QueryContext(
 		ctx,
-		"SELECT day, COUNT(DISTINCT user_id) as \"dau\", COUNT(*) as \"calls\" FROM (SELECT user_id, strftime('%d', created_at) as \"day\"  FROM activity WHERE strftime('%m', created_at) = ? AND strftime('%Y', created_at) = ?) GROUP BY day;",
+		"SELECT day, COUNT(DISTINCT user_id) as \"dau\", COUNT(*) as \"calls\" FROM (SELECT user_id, strftime('%d', created_at, 'localtime') as \"day\"  FROM activity WHERE strftime('%m', created_at, 'localtime') = ? AND strftime('%Y', created_at, 'localtime') = ?) GROUP BY day;",
 		fmt.Sprintf("%02d", month), fmt.Sprintf("%04d", year),
 	)
 	if err != nil {
@@ -109,7 +109,6 @@ func (r *Repository) DailyActiveUsersInMonth(ctx context.Context, month int, yea
 			return nil, err
 		}
 
-		// Проверяем границы массива
 		if day < 1 || day > days {
 			continue
 		}
@@ -125,7 +124,7 @@ func (r *Repository) MonthlyActiveUsers(ctx context.Context, month int, year int
 	count := 0
 	row := r.db.QueryRowContext(
 		ctx,
-		"SELECT COUNT(DISTINCT user_id) FROM activity WHERE strftime('%m', created_at) = ? AND strftime('%Y', created_at) = ?;",
+		"SELECT COUNT(DISTINCT user_id) FROM activity WHERE strftime('%m', created_at, 'localtime') = ? AND strftime('%Y', created_at, 'localtime') = ?;",
 		fmt.Sprintf("%02d", month), fmt.Sprintf("%04d", year),
 	)
 
