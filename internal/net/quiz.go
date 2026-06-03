@@ -1,6 +1,7 @@
 package net
 
 import (
+	"chetoru/internal/models"
 	"context"
 	"fmt"
 	"strconv"
@@ -12,17 +13,112 @@ import (
 // quizLetters label the answer options. Indices map 1:1 to option/row order.
 var quizLetters = []string{"А", "Б", "В", "Г", "Д", "Е"}
 
-// HandleQuiz sends a fresh multiple-choice question. The correct answer index is
-// encoded directly in each button's callback data, so no server-side state is
-// needed to grade the answer.
-func (n *Net) HandleQuiz(ctx context.Context, chatID int64) error {
+// HandleQuiz sends a fresh question. In private chats it uses inline buttons
+// with per-user persistent scoring; in groups it uses a native Telegram quiz
+// poll so everyone can answer independently (inline buttons would let the first
+// tapper lock the question for the whole group).
+func (n *Net) HandleQuiz(ctx context.Context, chat *tgbotapi.Chat) error {
 	q, err := n.business.GenerateQuiz(ctx)
 	if err != nil {
 		n.log.WithError(err).Warn("GenerateQuiz failed")
-		_, sErr := n.bot.Send(tgbotapi.NewMessage(chatID, QuizErrorText))
+		_, sErr := n.bot.Send(tgbotapi.NewMessage(chat.ID, QuizErrorText))
 		return sErr
 	}
 
+	if chat.Type == "group" || chat.Type == "supergroup" {
+		return n.sendQuizPoll(ctx, chat.ID, q)
+	}
+	return n.sendQuizButtons(chat.ID, q)
+}
+
+// sendQuizPoll posts a native quiz poll — the idiomatic group experience. Each
+// member answers on their own and Telegram reveals the correct option to them.
+// The poll's correct option is cached by poll ID so answers can be graded into
+// the leaderboard when poll_answer updates arrive.
+func (n *Net) sendQuizPoll(ctx context.Context, chatID int64, q *models.QuizQuestion) error {
+	poll := tgbotapi.NewPoll(chatID, fmt.Sprintf("🧠 Как переводится на русский: %s?", q.Chechen), q.Options...)
+	poll.Type = "quiz"
+	poll.CorrectOptionID = int64(q.CorrectIdx)
+	poll.IsAnonymous = false
+	sent, err := n.bot.Send(poll)
+	if err != nil {
+		return err
+	}
+	if sent.Poll != nil {
+		if err := n.cache.SetQuizPoll(ctx, sent.Poll.ID, q.CorrectIdx); err != nil {
+			n.log.WithError(err).Warn("failed to cache quiz poll mapping")
+		}
+	}
+	return nil
+}
+
+// HandlePollAnswer grades a group quiz-poll answer into the leaderboard. Votes on
+// unknown/expired polls (or retracted votes) are ignored.
+func (n *Net) HandlePollAnswer(ctx context.Context, update *tgbotapi.Update) error {
+	pa := update.PollAnswer
+	if pa == nil || len(pa.OptionIDs) == 0 {
+		return nil
+	}
+	correctOption, err := n.cache.GetQuizPoll(ctx, pa.PollID)
+	if err != nil {
+		return nil // not one of our quiz polls, or it expired
+	}
+	correct := pa.OptionIDs[0] == correctOption
+	if err := n.repo.RecordQuizAnswer(ctx, pa.User.ID, pa.User.UserName, correct); err != nil {
+		return fmt.Errorf("RecordQuizAnswer (poll): %w", err)
+	}
+	return nil
+}
+
+// HandleTop renders the quiz leaderboard — friendly competition to encourage
+// sustained vocabulary practice.
+func (n *Net) HandleTop(ctx context.Context, chatID int64) error {
+	scorers, err := n.repo.TopQuizScorers(ctx, QuizTopLimit)
+	if err != nil {
+		return fmt.Errorf("repo.TopQuizScorers: %w", err)
+	}
+	if len(scorers) == 0 {
+		_, err = n.bot.Send(tgbotapi.NewMessage(chatID, QuizTopEmptyText))
+		return err
+	}
+
+	var b strings.Builder
+	b.WriteString(QuizTopHeader)
+	for i, s := range scorers {
+		name := s.Username
+		if name == "" {
+			name = "Аноним"
+		}
+		pct := 0
+		if s.Total > 0 {
+			pct = s.Correct * 100 / s.Total
+		}
+		fmt.Fprintf(&b, "%s <b>%s</b> — %d/%d (%d%%)\n", quizMedal(i), tgbotapi.EscapeText(tgbotapi.ModeHTML, name), s.Correct, s.Total, pct)
+	}
+
+	msg := tgbotapi.NewMessage(chatID, b.String())
+	msg.ParseMode = "html"
+	_, err = n.bot.Send(msg)
+	return err
+}
+
+func quizMedal(rank int) string {
+	switch rank {
+	case 0:
+		return "🥇"
+	case 1:
+		return "🥈"
+	case 2:
+		return "🥉"
+	default:
+		return fmt.Sprintf("%d.", rank+1)
+	}
+}
+
+// sendQuizButtons posts the inline-button quiz used in private chats. The
+// correct answer index is encoded in each button's callback data, so grading
+// needs no server-side state.
+func (n *Net) sendQuizButtons(chatID int64, q *models.QuizQuestion) error {
 	rows := make([][]tgbotapi.InlineKeyboardButton, 0, len(q.Options))
 	for i, opt := range q.Options {
 		letter := ""
@@ -40,7 +136,7 @@ func (n *Net) HandleQuiz(ctx context.Context, chatID int64) error {
 	msg := tgbotapi.NewMessage(chatID, fmt.Sprintf(QuizQuestionFormat, tgbotapi.EscapeText(tgbotapi.ModeHTML, q.Chechen)))
 	msg.ParseMode = "html"
 	msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(rows...)
-	_, err = n.bot.Send(msg)
+	_, err := n.bot.Send(msg)
 	return err
 }
 
@@ -58,7 +154,7 @@ func (n *Net) HandleQuizCallback(ctx context.Context, update *tgbotapi.Update) e
 		if _, err := n.bot.Request(tgbotapi.NewCallback(update.CallbackQuery.ID, "")); err != nil {
 			n.log.WithError(err).Warn("failed to ack quiz next callback")
 		}
-		return n.HandleQuiz(ctx, chatID)
+		return n.HandleQuiz(ctx, update.CallbackQuery.Message.Chat)
 	}
 
 	parts := strings.Split(data, "_") // [quiz a chosen correct]
@@ -78,7 +174,7 @@ func (n *Net) HandleQuizCallback(ctx context.Context, update *tgbotapi.Update) e
 
 	// Record the answer and fetch the running score for motivating feedback.
 	userID := update.CallbackQuery.From.ID
-	if err := n.repo.RecordQuizAnswer(ctx, userID, correct); err != nil {
+	if err := n.repo.RecordQuizAnswer(ctx, userID, update.CallbackQuery.From.UserName, correct); err != nil {
 		n.log.WithError(err).WithField("user_id", userID).Warn("RecordQuizAnswer failed")
 	}
 

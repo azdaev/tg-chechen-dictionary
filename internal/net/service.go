@@ -20,7 +20,7 @@ const (
 	PathInlineVideo          = "internal/net/inline.mp4"
 	MaxTranslations          = 4
 	MoreTranslationsHelpText = `<i>Чтобы просмотреть все доступные переводы, нажмите на кнопку «Еще» или воспользуйтесь инлайн-режимом: введите @chetoru_bot и слово, которое хотите перевести. Это позволит вам увидеть все варианты.</i>`
-	StartMessageText         = "Отправь мне слово на русском или чеченском, а я скину перевод. Ещё ты можешь пользоваться ботом в других переписках, как на видео.\n\n🎲 /random — случайное чеченское слово.\n🧠 /quiz — викторина: проверь, как хорошо ты знаешь чеченский.\n\nСловарные данные предоставлены проектом dosham.app"
+	StartMessageText         = "Отправь мне слово на русском или чеченском, а я скину перевод. Ещё ты можешь пользоваться ботом в других переписках, как на видео.\n\n🎲 /random — случайное чеченское слово.\n🧠 /quiz — викторина: проверь, как хорошо ты знаешь чеченский.\n🏆 /top — рейтинг знатоков.\n\nСловарные данные предоставлены проектом dosham.app"
 	NoTranslationText        = "К сожалению, нет перевода"
 	MoreButtonText           = "Еще (%d)"
 	MissingWordsLimit     = 30
@@ -35,6 +35,9 @@ const (
 	QuizCorrectToast      = "✅ Верно!"
 	QuizWrongToast        = "❌ Неверно"
 	QuizErrorText         = "Не удалось составить вопрос. Попробуйте /quiz ещё раз."
+	QuizTopLimit          = 10
+	QuizTopHeader         = "🏆 <b>Топ знатоков чеченского</b>\n<i>по количеству верных ответов в /quiz</i>\n\n"
+	QuizTopEmptyText      = "Пока никто не набрал очков в /quiz. Стань первым! 🧠"
 	DonationMessageFormat = "🌱 Чтобы наш проект мог продолжить работать, вы можете помочь нам"
 	DefaultModerationChat = int64(-5204234916)
 	BroadcastParseMode         = "html"
@@ -85,8 +88,9 @@ type Repository interface {
 	RandomApprovedPair(ctx context.Context) (*models.RandomWord, error)
 	CountDictionaryPairs(ctx context.Context) (total int, approved int, err error)
 	CountMissingWords(ctx context.Context) (int, error)
-	RecordQuizAnswer(ctx context.Context, userID int64, correct bool) error
+	RecordQuizAnswer(ctx context.Context, userID int64, username string, correct bool) error
 	GetQuizScore(ctx context.Context, userID int64) (correct int, total int, err error)
+	TopQuizScorers(ctx context.Context, limit int) ([]models.QuizScorer, error)
 }
 
 type Net struct {
@@ -123,6 +127,14 @@ func (n *Net) Start(ctx context.Context) {
 		// Callbacks
 		if update.CallbackQuery != nil {
 			n.routeCallback(ctx, &update)
+			continue
+		}
+
+		// Poll answers (group quiz scoring)
+		if update.PollAnswer != nil {
+			if err := n.HandlePollAnswer(ctx, &update); err != nil {
+				n.log.WithError(err).Error("service.HandlePollAnswer")
+			}
 			continue
 		}
 
@@ -192,7 +204,9 @@ func (n *Net) routeMessage(ctx context.Context, update *tgbotapi.Update) {
 	case "random":
 		err = n.HandleRandom(ctx, update.Message.Chat.ID)
 	case "quiz":
-		err = n.HandleQuiz(ctx, update.Message.Chat.ID)
+		err = n.HandleQuiz(ctx, update.Message.Chat)
+	case "top":
+		err = n.HandleTop(ctx, update.Message.Chat.ID)
 	case "moderate":
 		err = n.HandleModerate(ctx, update)
 	case "check":

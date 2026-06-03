@@ -74,6 +74,19 @@ func (c *Cache) SetTranslationResult(ctx context.Context, key string, result *mo
 	return c.client.Set(ctx, "formatted_"+key, data, 24*30*time.Hour).Err()
 }
 
+// SetQuizPoll remembers the correct option for a sent quiz poll so the answer
+// can be graded when a poll_answer update arrives. Short-lived — polls are
+// answered within minutes.
+func (c *Cache) SetQuizPoll(ctx context.Context, pollID string, correctOption int) error {
+	return c.client.Set(ctx, "quizpoll_"+pollID, correctOption, 24*time.Hour).Err()
+}
+
+// GetQuizPoll returns the stored correct option for a quiz poll, or an error if
+// it is unknown/expired.
+func (c *Cache) GetQuizPoll(ctx context.Context, pollID string) (int, error) {
+	return c.client.Get(ctx, "quizpoll_"+pollID).Int()
+}
+
 // Delete удаляет ключ из кэша
 func (c *Cache) Delete(ctx context.Context, key string) error {
 	return c.client.Del(ctx, key).Err()

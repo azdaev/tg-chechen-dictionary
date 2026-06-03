@@ -19,6 +19,7 @@ func newQuizTestRepo(t *testing.T) *Repository {
 
 	_, err = db.Exec(`CREATE TABLE quiz_stats (
 		user_id INTEGER PRIMARY KEY,
+		username TEXT,
 		correct_count INTEGER NOT NULL DEFAULT 0,
 		total_count INTEGER NOT NULL DEFAULT 0,
 		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
@@ -45,7 +46,7 @@ func TestQuizScore_AccumulatesAnswers(t *testing.T) {
 	ctx := context.Background()
 
 	for _, correct := range []bool{true, false, true, true, false} {
-		if err := r.RecordQuizAnswer(ctx, 7, correct); err != nil {
+		if err := r.RecordQuizAnswer(ctx, 7, "tester", correct); err != nil {
 			t.Fatalf("RecordQuizAnswer: %v", err)
 		}
 	}
@@ -59,12 +60,44 @@ func TestQuizScore_AccumulatesAnswers(t *testing.T) {
 	}
 }
 
+func TestTopQuizScorers(t *testing.T) {
+	r := newQuizTestRepo(t)
+	ctx := context.Background()
+
+	record := func(userID int64, name string, correct, wrong int) {
+		for range correct {
+			_ = r.RecordQuizAnswer(ctx, userID, name, true)
+		}
+		for range wrong {
+			_ = r.RecordQuizAnswer(ctx, userID, name, false)
+		}
+	}
+
+	record(1, "alice", 5, 1) // 5/6 — leader
+	record(2, "bob", 2, 3)   // 2/5
+	record(3, "carol", 1, 1) // 1/2 — below the 3-attempt threshold, excluded
+
+	board, err := r.TopQuizScorers(ctx, 10)
+	if err != nil {
+		t.Fatalf("TopQuizScorers: %v", err)
+	}
+	if len(board) != 2 {
+		t.Fatalf("board size = %d, want 2 (carol excluded)", len(board))
+	}
+	if board[0].Username != "alice" || board[0].Correct != 5 {
+		t.Fatalf("leader = %q %d, want alice 5", board[0].Username, board[0].Correct)
+	}
+	if board[1].Username != "bob" || board[1].Correct != 2 {
+		t.Fatalf("runner-up = %q %d, want bob 2", board[1].Username, board[1].Correct)
+	}
+}
+
 func TestQuizScore_IsolatedPerUser(t *testing.T) {
 	r := newQuizTestRepo(t)
 	ctx := context.Background()
 
-	_ = r.RecordQuizAnswer(ctx, 1, true)
-	_ = r.RecordQuizAnswer(ctx, 2, false)
+	_ = r.RecordQuizAnswer(ctx, 1, "alice", true)
+	_ = r.RecordQuizAnswer(ctx, 2, "bob", false)
 
 	c1, t1, _ := r.GetQuizScore(ctx, 1)
 	c2, t2, _ := r.GetQuizScore(ctx, 2)

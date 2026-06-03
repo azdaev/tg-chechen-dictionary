@@ -56,6 +56,14 @@ type QuizQuestion struct {
 	CorrectIdx int
 }
 
+// QuizScorer is one row of the /top quiz leaderboard.
+type QuizScorer struct {
+	UserID   int64
+	Username string
+	Correct  int
+	Total    int
+}
+
 // GraphQL specific types (dosham.app /gql schema)
 type Entry struct {
 	EntryID      string        `json:"entryId"`
