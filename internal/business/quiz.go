@@ -74,8 +74,9 @@ func (b *Business) GenerateQuiz(ctx context.Context) (*models.QuizQuestion, erro
 }
 
 // isCleanMeaning reports whether a Russian gloss is a concise standalone answer
-// suitable as a quiz option — not a multi-clause dictionary entry or a
-// cross-reference ("см. ...").
+// suitable as a quiz option or /random card — not a multi-clause dictionary
+// entry, a cross-reference ("см. ..."), or a derivational annotation
+// ("понуд. от ...", "масд. от ...", "прил. ...").
 func isCleanMeaning(russian string) bool {
 	russian = strings.TrimSpace(russian)
 	if russian == "" {
@@ -84,8 +85,9 @@ func isCleanMeaning(russian string) bool {
 	if strings.ContainsAny(russian, ";~") {
 		return false
 	}
-	low := strings.ToLower(russian)
-	if strings.HasPrefix(low, "см.") || strings.HasPrefix(low, "см ") {
+	// A period signals a dictionary abbreviation ("понуд. от", "прил.", "см."),
+	// never appearing in a plain Russian meaning of a single word.
+	if strings.Contains(russian, ".") {
 		return false
 	}
 	return len([]rune(russian)) <= 40

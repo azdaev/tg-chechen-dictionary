@@ -57,6 +57,10 @@ func TestIsLearnableWord(t *testing.T) {
 		"мел 1) сколько",    // numbered sense
 		"очень длинное чеченское словосочетание", // too long / many words
 		"", // empty
+		// Real /random bug: a Russian-headword adjective gloss leaked through.
+		"-ая, -ое 1) лекха; ~ие горы- лекха лаьмнаш; ~ий человек - лекха стаг",
+		"-ая, -ое",            // leading grammatical-ending marker
+		"раскрытие, открытие", // comma-separated gloss, not a single word
 	}
 	for _, w := range notLearnable {
 		if isLearnableWord(w) {
@@ -80,10 +84,31 @@ func TestIsCleanMeaning(t *testing.T) {
 		"очень длинное и подробное толкование которое не помещается", // too long
 		"",    // empty
 		"   ", // whitespace only
+		// Derivational cross-references — abbreviation period rejects these.
+		"понуд. от самукъадаккха",
+		"масд. от сагатдан",
+		"прил. коло",
 	}
 	for _, m := range dirty {
 		if isCleanMeaning(m) {
 			t.Errorf("isCleanMeaning(%q) = true, want false", m)
+		}
+	}
+}
+
+func TestStripLeadingGenderMarker(t *testing.T) {
+	cases := map[string]string{
+		"ж астагӏалла": "астагӏалла", // strip feminine marker
+		"м комбинезон": "комбинезон", // strip masculine marker
+		"с тешнабехк":  "тешнабехк",  // strip neuter marker
+		"мн чоьташ":    "чоьташ",     // strip plural marker
+		"астагӏалла":   "астагӏалла", // no marker -> unchanged
+		"маршо":        "маршо",      // first letter isn't a marker token
+		"ж":            "ж",          // marker alone -> leave (nothing follows)
+	}
+	for in, want := range cases {
+		if got := stripLeadingGenderMarker(in); got != want {
+			t.Errorf("stripLeadingGenderMarker(%q) = %q, want %q", in, got, want)
 		}
 	}
 }
