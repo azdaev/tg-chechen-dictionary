@@ -53,12 +53,30 @@ func (n *Net) HandleStats(ctx context.Context, update *tgbotapi.Update) error {
 		return fmt.Errorf("repo.CountMissingWords: %w", err)
 	}
 
-	text := buildStatsMessage(
-		month, year,
-		newMonthlyUsers, monthlyActiveUsers,
-		totalPairs, approvedPairs, missingCount,
-		dailyActiveUsersLastMonth,
-	)
+	wotdSubscribers, err := n.repo.CountWordOfDaySubscribers(ctx)
+	if err != nil {
+		return fmt.Errorf("repo.CountWordOfDaySubscribers: %w", err)
+	}
+
+	quizPlayers, quizAnswers, quizCorrect, err := n.repo.CountQuizStats(ctx)
+	if err != nil {
+		return fmt.Errorf("repo.CountQuizStats: %w", err)
+	}
+
+	text := buildStatsMessage(statsData{
+		month:           month,
+		year:            year,
+		newUsers:        newMonthlyUsers,
+		activeUsers:     monthlyActiveUsers,
+		totalPairs:      totalPairs,
+		approvedPairs:   approvedPairs,
+		missingWords:    missingCount,
+		wotdSubscribers: wotdSubscribers,
+		quizPlayers:     quizPlayers,
+		quizAnswers:     quizAnswers,
+		quizCorrect:     quizCorrect,
+		daily:           dailyActiveUsersLastMonth,
+	})
 
 	msg := tgbotapi.NewMessage(update.Message.Chat.ID, text)
 	msg.ParseMode = "html"
@@ -104,52 +122,71 @@ var russianMonths = [...]string{
 	"Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь",
 }
 
+// statsData bundles every figure shown in the /stats report.
+type statsData struct {
+	month, year     int
+	newUsers        int
+	activeUsers     int
+	totalPairs      int
+	approvedPairs   int
+	missingWords    int
+	wotdSubscribers int
+	quizPlayers     int
+	quizAnswers     int
+	quizCorrect     int
+	daily           []models.DailyActivity
+}
+
 // buildStatsMessage renders the admin /stats report as clean, Telegram-friendly
 // HTML — emoji-marked sections and bold figures, no fixed-width/ASCII tables.
 // The per-day breakdown lists only days that actually had activity, so the
 // report stays compact instead of printing a row for every empty day.
-func buildStatsMessage(
-	month, year int,
-	newUsers, activeUsers int,
-	totalPairs, approvedPairs, missingWords int,
-	daily []models.DailyActivity,
-) string {
+func buildStatsMessage(d statsData) string {
 	monthName := ""
-	if month >= 1 && month <= 12 {
-		monthName = russianMonths[month]
+	if d.month >= 1 && d.month <= 12 {
+		monthName = russianMonths[d.month]
 	}
 
 	totalCalls, activeDays := 0, 0
-	for _, d := range daily {
-		totalCalls += d.Calls
-		if d.ActiveUsers > 0 || d.Calls > 0 {
+	for _, day := range d.daily {
+		totalCalls += day.Calls
+		if day.ActiveUsers > 0 || day.Calls > 0 {
 			activeDays++
 		}
 	}
 
 	var b strings.Builder
-	fmt.Fprintf(&b, "📊 <b>Статистика · %s %d</b>\n\n", monthName, year)
+	fmt.Fprintf(&b, "📊 <b>Статистика · %s %d</b>\n\n", monthName, d.year)
 
 	b.WriteString("👥 <b>Пользователи за месяц</b>\n")
-	fmt.Fprintf(&b, "🆕 Новых: <b>%s</b>\n", formatThousands(newUsers))
-	fmt.Fprintf(&b, "🟢 Активных: <b>%s</b>\n", formatThousands(activeUsers))
+	fmt.Fprintf(&b, "🆕 Новых: <b>%s</b>\n", formatThousands(d.newUsers))
+	fmt.Fprintf(&b, "🟢 Активных: <b>%s</b>\n", formatThousands(d.activeUsers))
 	fmt.Fprintf(&b, "🔁 Вызовов: <b>%s</b>\n\n", formatThousands(totalCalls))
 
 	b.WriteString("📚 <b>Словарь</b>\n")
-	fmt.Fprintf(&b, "📖 Всего пар: <b>%s</b>\n", formatThousands(totalPairs))
-	fmt.Fprintf(&b, "✅ Проверено: <b>%s</b>\n", formatThousands(approvedPairs))
-	fmt.Fprintf(&b, "🔍 Без перевода: <b>%s</b>\n\n", formatThousands(missingWords))
+	fmt.Fprintf(&b, "📖 Всего пар: <b>%s</b>\n", formatThousands(d.totalPairs))
+	fmt.Fprintf(&b, "✅ Проверено: <b>%s</b>\n", formatThousands(d.approvedPairs))
+	fmt.Fprintf(&b, "🔍 Без перевода: <b>%s</b>\n\n", formatThousands(d.missingWords))
+
+	b.WriteString("🎮 <b>Вовлечённость</b>\n")
+	fmt.Fprintf(&b, "📖 Подписчиков на «Слово дня»: <b>%s</b>\n", formatThousands(d.wotdSubscribers))
+	fmt.Fprintf(&b, "🧠 Игроков в викторину: <b>%s</b>\n", formatThousands(d.quizPlayers))
+	quizPct := 0
+	if d.quizAnswers > 0 {
+		quizPct = d.quizCorrect * 100 / d.quizAnswers
+	}
+	fmt.Fprintf(&b, "✅ Ответов: <b>%s</b> (верных %s, %d%%)\n\n", formatThousands(d.quizAnswers), formatThousands(d.quizCorrect), quizPct)
 
 	b.WriteString("📅 <b>По дням</b> <i>(день · 🟢 активных · 🔁 вызовов)</i>\n")
 	if activeDays == 0 {
 		b.WriteString("<i>Пока нет активности в этом месяце</i>")
 		return b.String()
 	}
-	for i, d := range daily {
-		if d.ActiveUsers == 0 && d.Calls == 0 {
+	for i, day := range d.daily {
+		if day.ActiveUsers == 0 && day.Calls == 0 {
 			continue
 		}
-		fmt.Fprintf(&b, "<b>%d</b> · %d · %d\n", i+1, d.ActiveUsers, d.Calls)
+		fmt.Fprintf(&b, "<b>%d</b> · %d · %d\n", i+1, day.ActiveUsers, day.Calls)
 	}
 
 	return strings.TrimRight(b.String(), "\n")

@@ -92,6 +92,36 @@ func TestTopQuizScorers(t *testing.T) {
 	}
 }
 
+func TestCountQuizStats(t *testing.T) {
+	r := newQuizTestRepo(t)
+	ctx := context.Background()
+
+	// Empty table.
+	players, total, correct, err := r.CountQuizStats(ctx)
+	if err != nil {
+		t.Fatalf("CountQuizStats: %v", err)
+	}
+	if players != 0 || total != 0 || correct != 0 {
+		t.Fatalf("empty stats = %d/%d/%d, want 0/0/0", players, total, correct)
+	}
+
+	// alice: 3 correct of 4; bob: 0 correct of 2.
+	for _, c := range []bool{true, true, true, false} {
+		_ = r.RecordQuizAnswer(ctx, 1, "alice", c)
+	}
+	for range 2 {
+		_ = r.RecordQuizAnswer(ctx, 2, "bob", false)
+	}
+
+	players, total, correct, err = r.CountQuizStats(ctx)
+	if err != nil {
+		t.Fatalf("CountQuizStats: %v", err)
+	}
+	if players != 2 || total != 6 || correct != 3 {
+		t.Fatalf("stats = %d players, %d total, %d correct; want 2/6/3", players, total, correct)
+	}
+}
+
 func TestQuizScore_IsolatedPerUser(t *testing.T) {
 	r := newQuizTestRepo(t)
 	ctx := context.Background()

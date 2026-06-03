@@ -48,6 +48,17 @@ type RandomWord struct {
 	Russian string
 }
 
+// WordGrammar is lightweight grammatical info about a Chechen headword, sourced
+// from the dosham API's `details` (morphology) and `entryForms` (inflected
+// forms). Only fields safe to show without the undocumented integer legend are
+// kept: the part of speech (inferred from which `details` keys are present) and
+// the declension/conjugation paradigm.
+type WordGrammar struct {
+	Headword string   // the Chechen word
+	POS      string   // human-readable part of speech, or "" if uncertain
+	Forms    []string // inflected forms (entryForms), unlabeled
+}
+
 // QuizQuestion is a multiple-choice question for the /quiz feature: a Chechen
 // word and several Russian answer options, one of which (CorrectIdx) is right.
 type QuizQuestion struct {

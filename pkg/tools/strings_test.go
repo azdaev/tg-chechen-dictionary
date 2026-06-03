@@ -5,6 +5,33 @@ import (
 	"testing"
 )
 
+// TestFormatDeterminism guards against non-deterministic output. Go randomizes
+// map iteration order on every range (even within one process), so if any code
+// path's result depended on map order, repeated runs on the same input would
+// eventually disagree. We use a gloss rich in abbreviations (which exercise the
+// expandAbbreviations map) and tildes, and assert byte-identical output.
+func TestFormatDeterminism(t *testing.T) {
+	// Real-style gloss: multiple meanings, abbreviations (some substrings of
+	// others, e.g. "им." inside "хим."), and tilde examples.
+	input := "**дом** м 1) хим. им. род. цӏа; ~культуры -культуран цӏа; ~ отдыха – садаӏаран цӏа 2) (учреждение) тех. ист. цӏа; детский ~- берийн цӏа"
+	word := "дом"
+
+	first := FormatTranslationLite(input, word)
+	for i := 0; i < 200; i++ {
+		if got := FormatTranslationLite(input, word); got != first {
+			t.Fatalf("FormatTranslationLite non-deterministic at iter %d:\n first=%q\n got  =%q", i, first, got)
+		}
+	}
+
+	abbrevInput := "хим. им. род. дат. вин. тв. пр. мн. ед. тех. мед. юр."
+	firstAbbrev := expandAbbreviations(abbrevInput)
+	for i := 0; i < 200; i++ {
+		if got := expandAbbreviations(abbrevInput); got != firstAbbrev {
+			t.Fatalf("expandAbbreviations non-deterministic at iter %d:\n first=%q\n got  =%q", i, firstAbbrev, got)
+		}
+	}
+}
+
 func TestFormatTranslation(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -299,6 +326,14 @@ func TestReplaceTildeWithWord(t *testing.T) {
 			text:     "говорить о ~е; в ~ах; ~ами",
 			word:     "слово",
 			expected: "говорить о слове; в словах; словами",
+		},
+		{
+			// Real dosham data: the "Дом" gloss glues a whole word to the tilde
+			// ("~культуры"). It must read "дом культуры", not "домкультуры".
+			name:     "tilde glued to a separate word",
+			text:     "~культуры → культуран цӏа",
+			word:     "дом",
+			expected: "дом культуры → культуран цӏа",
 		},
 		{
 			name:     "no tilde",

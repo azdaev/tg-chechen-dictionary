@@ -19,8 +19,9 @@ import (
 const (
 	PathInlineVideo          = "internal/net/inline.mp4"
 	MaxTranslations          = 4
+	InlineResultsLimit       = 50 // Telegram's hard cap on answerInlineQuery results
 	MoreTranslationsHelpText = `<i>Чтобы просмотреть все доступные переводы, нажмите на кнопку «Еще» или воспользуйтесь инлайн-режимом: введите @chetoru_bot и слово, которое хотите перевести. Это позволит вам увидеть все варианты.</i>`
-	StartMessageText         = "Отправь мне слово на русском или чеченском, а я скину перевод. Ещё ты можешь пользоваться ботом в других переписках, как на видео.\n\n🎲 /random — случайное чеченское слово.\n🧠 /quiz — викторина: проверь, как хорошо ты знаешь чеченский.\n🏆 /top — рейтинг знатоков.\n\nСловарные данные предоставлены проектом dosham.app"
+	StartMessageText         = "Отправь мне слово на русском или чеченском, а я скину перевод. Ещё ты можешь пользоваться ботом в других переписках, как на видео.\n\n🎲 /random — случайное чеченское слово.\n🧠 /quiz — викторина: проверь, как хорошо ты знаешь чеченский.\n🏆 /top — рейтинг знатоков.\n📖 /wotd — слово дня каждое утро.\n\nСловарные данные предоставлены проектом dosham.app"
 	NoTranslationText        = "К сожалению, нет перевода"
 	MoreButtonText           = "Еще (%d)"
 	MissingWordsLimit     = 30
@@ -38,6 +39,14 @@ const (
 	QuizTopLimit          = 10
 	QuizTopHeader         = "🏆 <b>Топ знатоков чеченского</b>\n<i>по количеству верных ответов в /quiz</i>\n\n"
 	QuizTopEmptyText      = "Пока никто не набрал очков в /quiz. Стань первым! 🧠"
+	WordOfDayHour         = 9 // local hour (container TZ is Europe/Moscow)
+	WordOfDayFormat       = "📖 <b>Слово дня</b>\n\n<b>%s</b> — %s\n\n<i>Учите чеченский каждый день! 🇨🇪</i>"
+	WotdStatusOnText      = "📖 <b>Слово дня</b>\n\nВы подписаны ✅ — каждый день в 9:00 будете получать новое чеченское слово."
+	WotdStatusOffText     = "📖 <b>Слово дня</b>\n\nПодпишитесь, чтобы каждое утро получать новое чеченское слово и пополнять словарный запас."
+	WotdSubscribeButton   = "🔔 Подписаться"
+	WotdUnsubscribeButton = "🔕 Отписаться"
+	WotdSubscribedToast   = "Вы подписались на слово дня! 🔔"
+	WotdUnsubscribedToast = "Вы отписались от слова дня"
 	DonationMessageFormat = "🌱 Чтобы наш проект мог продолжить работать, вы можете помочь нам"
 	DefaultModerationChat = int64(-5204234916)
 	BroadcastParseMode         = "html"
@@ -91,6 +100,11 @@ type Repository interface {
 	RecordQuizAnswer(ctx context.Context, userID int64, username string, correct bool) error
 	GetQuizScore(ctx context.Context, userID int64) (correct int, total int, err error)
 	TopQuizScorers(ctx context.Context, limit int) ([]models.QuizScorer, error)
+	CountQuizStats(ctx context.Context) (players, totalAnswers, correctAnswers int, err error)
+	SetWordOfDaySubscription(ctx context.Context, userID int64, subscribed bool) error
+	IsWordOfDaySubscribed(ctx context.Context, userID int64) (bool, error)
+	ListWordOfDaySubscribers(ctx context.Context) ([]int64, error)
+	CountWordOfDaySubscribers(ctx context.Context) (int, error)
 }
 
 type Net struct {
@@ -180,6 +194,8 @@ func (n *Net) routeCallback(ctx context.Context, update *tgbotapi.Update) {
 		err = n.HandleRandomCallback(ctx, update)
 	case strings.HasPrefix(data, "quiz_"):
 		err = n.HandleQuizCallback(ctx, update)
+	case strings.HasPrefix(data, "wotd_"):
+		err = n.HandleWordOfDayCallback(ctx, update)
 	case strings.HasPrefix(data, "spell_"):
 		err = n.HandleSpellcheckFeedback(ctx, update)
 	case strings.HasPrefix(data, "mod_"):
@@ -207,6 +223,8 @@ func (n *Net) routeMessage(ctx context.Context, update *tgbotapi.Update) {
 		err = n.HandleQuiz(ctx, update.Message.Chat)
 	case "top":
 		err = n.HandleTop(ctx, update.Message.Chat.ID)
+	case "wotd":
+		err = n.HandleWordOfDay(ctx, update)
 	case "moderate":
 		err = n.HandleModerate(ctx, update)
 	case "check":

@@ -2,5 +2,9 @@
 .idea
 */.DS_Store
 .DS_STORE
-chetoru
+/chetoru
 .claude
+.omc
+tmp_resp.json
+/migrate
+database.db

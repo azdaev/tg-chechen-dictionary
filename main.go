@@ -6,6 +6,7 @@ import (
 	"chetoru/internal/cache"
 	"chetoru/internal/net"
 	"chetoru/internal/repository"
+	"chetoru/migrations"
 
 	"context"
 	"database/sql"
@@ -39,6 +40,14 @@ func main() {
 	if err != nil {
 		log.Fatal("cannot ping database", err)
 	}
+
+	// Apply any pending schema migrations before serving. goose tracks applied
+	// versions, so an up-to-date database is a no-op; a failure here aborts
+	// startup rather than letting the bot run against a stale schema.
+	if err := migrations.Up(db); err != nil {
+		log.Fatal("failed to apply migrations: ", err)
+	}
+	log.Info("database migrations up to date")
 
 	bot, err := tgbotapi.NewBotAPI(os.Getenv("TG_BOT_TOKEN"))
 	if err != nil {
@@ -75,6 +84,9 @@ func main() {
 	translatorBusiness.SetOnPairReady(func(pairID int64, cleanWord string) {
 		botService.SendAutoModeration(context.Background(), cleanWord)
 	})
+
+	// Daily "Word of the Day" push to opted-in subscribers.
+	botService.StartWordOfDayScheduler(ctx)
 
 	botService.Start(ctx)
 }

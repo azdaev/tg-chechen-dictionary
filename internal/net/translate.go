@@ -65,14 +65,19 @@ func (n *Net) HandleText(ctx context.Context, update *tgbotapi.Update) error {
 
 	if len(result.Pairs) > MaxTranslations {
 		remainingCount := len(result.Pairs) - MaxTranslations
-		msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(
-			tgbotapi.NewInlineKeyboardRow(
-				tgbotapi.NewInlineKeyboardButtonData(
-					fmt.Sprintf(MoreButtonText, remainingCount),
-					fmt.Sprintf("more_%s_4", m.Text),
+		// Only attach the "More" button when its callback data fits Telegram's
+		// 64-byte limit; otherwise sending the whole message would fail. The
+		// inline-mode hint below still tells users how to see all translations.
+		if data, ok := moreCallbackData(m.Text, MaxTranslations); ok {
+			msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(
+				tgbotapi.NewInlineKeyboardRow(
+					tgbotapi.NewInlineKeyboardButtonData(
+						fmt.Sprintf(MoreButtonText, remainingCount),
+						data,
+					),
 				),
-			),
-		)
+			)
+		}
 		msg.Text += "\n\n" + MoreTranslationsHelpText
 	}
 
@@ -106,6 +111,13 @@ func (n *Net) HandleText(ctx context.Context, update *tgbotapi.Update) error {
 
 func (n *Net) HandleInline(ctx context.Context, update *tgbotapi.Update) error {
 	translations := n.business.Translate(update.InlineQuery.Query)
+
+	// Telegram allows at most 50 results per inline query; sending more makes
+	// answerInlineQuery fail and the user sees nothing. Cap defensively — common
+	// words (e.g. "дать") can have far more than 50 translation pairs.
+	if len(translations) > InlineResultsLimit {
+		translations = translations[:InlineResultsLimit]
+	}
 
 	articles := make([]interface{}, len(translations))
 	for i := range articles {
@@ -147,13 +159,17 @@ func (n *Net) HandleInline(ctx context.Context, update *tgbotapi.Update) error {
 }
 
 func (n *Net) HandleMoreTranslations(ctx context.Context, update *tgbotapi.Update) error {
-	parts := strings.Split(update.CallbackQuery.Data, "_")
-	if len(parts) != 3 {
-		return fmt.Errorf("invalid callback data format")
+	word, offset, ok := parseMoreCallback(update.CallbackQuery.Data)
+	if !ok {
+		return fmt.Errorf("invalid more callback data: %q", update.CallbackQuery.Data)
 	}
 
-	word := parts[1]
-	offset, _ := strconv.Atoi(parts[2])
+	// Always acknowledge the callback so the client's loading spinner clears.
+	defer func() {
+		if _, err := n.bot.Request(tgbotapi.NewCallback(update.CallbackQuery.ID, "")); err != nil {
+			n.log.WithError(err).Warn("failed to ack more callback")
+		}
+	}()
 
 	translations := n.business.Translate(word)
 	if len(translations) == 0 {
@@ -161,30 +177,64 @@ func (n *Net) HandleMoreTranslations(ctx context.Context, update *tgbotapi.Updat
 		return err
 	}
 
-	end := min(offset+4, len(translations))
+	// Clamp the offset: the result set may have shrunk since the button was
+	// created (cache expiry, API change), which would otherwise panic on slice.
+	if offset < 0 {
+		offset = 0
+	}
+	if offset >= len(translations) {
+		return nil // nothing more to show; callback already acked
+	}
+
+	end := min(offset+MaxTranslations, len(translations))
 	nextTranslations := translations[offset:end]
 
 	msg := tgbotapi.NewMessage(update.CallbackQuery.Message.Chat.ID, formatTranslations(nextTranslations))
 	msg.ParseMode = "html"
 
 	if end < len(translations) {
-		msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(
-			tgbotapi.NewInlineKeyboardRow(
-				tgbotapi.NewInlineKeyboardButtonData(
-					fmt.Sprintf(MoreButtonText, len(translations)-end),
-					fmt.Sprintf("more_%s_%d", word, end),
+		if data, ok := moreCallbackData(word, end); ok {
+			msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(
+				tgbotapi.NewInlineKeyboardRow(
+					tgbotapi.NewInlineKeyboardButtonData(
+						fmt.Sprintf(MoreButtonText, len(translations)-end),
+						data,
+					),
 				),
-			),
-		)
+			)
+		}
 	}
 
 	if _, err := n.bot.Send(msg); err != nil {
 		return fmt.Errorf("bot.Send: %w", err)
 	}
+	return nil
+}
 
-	callback := tgbotapi.NewCallback(update.CallbackQuery.ID, "")
-	_, err := n.bot.Request(callback)
-	return err
+// moreCallbackData builds the "More" button payload. Telegram caps callback_data
+// at 64 bytes, so it returns ok=false when the word is too long to encode; the
+// caller then omits the button rather than letting the whole message send fail.
+func moreCallbackData(word string, offset int) (string, bool) {
+	data := fmt.Sprintf("more_%s_%d", word, offset)
+	return data, len(data) <= 64
+}
+
+// parseMoreCallback parses "more_<word>_<offset>". The offset is read from the
+// last underscore so words containing underscores are handled correctly.
+func parseMoreCallback(data string) (word string, offset int, ok bool) {
+	rest, found := strings.CutPrefix(data, "more_")
+	if !found {
+		return "", 0, false
+	}
+	idx := strings.LastIndex(rest, "_")
+	if idx <= 0 {
+		return "", 0, false
+	}
+	n, err := strconv.Atoi(rest[idx+1:])
+	if err != nil || n < 0 {
+		return "", 0, false
+	}
+	return rest[:idx], n, true
 }
 
 func formatTranslations(translations []models.TranslationPairs) string {

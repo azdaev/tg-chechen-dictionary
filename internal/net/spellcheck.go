@@ -88,9 +88,9 @@ func (n *Net) HandleInlineSpellcheck(ctx context.Context, update *tgbotapi.Updat
 			fmt.Sprintf("🔒 Лимит исчерпан (%d/мес)", FreeSpellcheckLimit),
 			"",
 		)
-		article.Description = fmt.Sprintf("Подписка %s/мес — напишите боту /start", SubscriptionPriceFormatted)
+		article.Description = fmt.Sprintf("Подписка %s/мес — отправьте боту /subscribe", SubscriptionPriceFormatted)
 		article.InputMessageContent = tgbotapi.InputTextMessageContent{
-			Text: fmt.Sprintf("Бесплатный лимит проверки орфографии исчерпан. Подписка: %s/мес.", SubscriptionPriceFormatted),
+			Text: fmt.Sprintf("Бесплатный лимит инлайн-проверок исчерпан. Безлимитная подписка — %s/мес: отправьте /subscribe боту @chetoru_bot.\n\nВ самом боте проверка бесплатна: /check или .текст", SubscriptionPriceFormatted),
 		}
 		inlineConf := tgbotapi.InlineConfig{
 			InlineQueryID: update.InlineQuery.ID,
@@ -108,9 +108,6 @@ func (n *Net) HandleInlineSpellcheck(ctx context.Context, update *tgbotapi.Updat
 		return nil
 	}
 
-	// Track usage
-	n.trackSpellcheckUsage(ctx, update.InlineQuery.From.ID)
-
 	var articles []interface{}
 
 	if result.NoErrors {
@@ -123,6 +120,12 @@ func (n *Net) HandleInlineSpellcheck(ctx context.Context, update *tgbotapi.Updat
 		article.Description = "Нажмите, чтобы отправить исправленный текст"
 		article.InputMessageContent = tgbotapi.InputTextMessageContent{Text: result.Corrected}
 		articles = append(articles, article)
+	}
+
+	// Only count a use when we actually produced a result for the user; an
+	// empty/ambiguous AI response should not burn the free quota.
+	if len(articles) > 0 {
+		n.trackSpellcheckUsage(ctx, update.InlineQuery.From.ID)
 	}
 
 	inlineConf := tgbotapi.InlineConfig{

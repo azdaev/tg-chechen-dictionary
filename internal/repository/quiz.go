@@ -28,6 +28,17 @@ func (r *Repository) RecordQuizAnswer(ctx context.Context, userID int64, usernam
 	return err
 }
 
+// CountQuizStats returns aggregate quiz engagement: number of players and the
+// total/correct answer counts across everyone.
+func (r *Repository) CountQuizStats(ctx context.Context) (players, totalAnswers, correctAnswers int, err error) {
+	err = r.db.QueryRowContext(
+		ctx,
+		`SELECT COUNT(*), COALESCE(SUM(total_count), 0), COALESCE(SUM(correct_count), 0)
+		 FROM quiz_stats;`,
+	).Scan(&players, &totalAnswers, &correctAnswers)
+	return players, totalAnswers, correctAnswers, err
+}
+
 // TopQuizScorers returns the leaderboard: players with the most correct answers.
 // Only players with a meaningful number of attempts are included so the board
 // reflects sustained practice rather than a single lucky guess.

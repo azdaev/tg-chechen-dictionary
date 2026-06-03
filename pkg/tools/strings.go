@@ -349,7 +349,14 @@ func replaceTildeWithWord(text, word string) string {
 		if replacement, exists := commonEndings[ending]; exists {
 			return replacement
 		}
-		// Если окончание не найдено в словаре, используем базовую замену
+		// Русские грамматические окончания не длиннее 3 букв. Более длинный
+		// «хвост» — это отдельное слово, склеенное в источнике с заглавным
+		// (например «~культуры» для слова «дом» значит «дом культуры»).
+		// Подставляем слово с пробелом, а не лепим несуществующее «домкультуры».
+		if len([]rune(ending)) >= 4 {
+			return lowerWord + " " + ending
+		}
+		// Иначе считаем это нераспознанным окончанием на основе слова.
 		return wordBase + ending
 	})
 
@@ -447,7 +454,10 @@ func expandAbbreviations(text string) string {
 		keys = append(keys, abbrev)
 	}
 	sort.Slice(keys, func(i, j int) bool {
-		return len(keys[i]) > len(keys[j])
+		if len(keys[i]) != len(keys[j]) {
+			return len(keys[i]) > len(keys[j])
+		}
+		return keys[i] < keys[j] // total order: ties are alphabetical, never random
 	})
 
 	for _, abbrev := range keys {
