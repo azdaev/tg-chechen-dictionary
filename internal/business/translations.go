@@ -146,45 +146,9 @@ func (b *Business) TranslateFormatted(word string) *models.TranslationResult {
 		}
 	}
 
-	// Форматируем результат
-	var formattedResult string
-	for _, t := range translations {
-		// Проверяем, должны ли мы использовать AI форматирование
-		if t.FormattedChosen == "ai" && t.FormattedAI != "" {
-			formattedResult += t.FormattedAI + "\n\n"
-			continue
-		}
-
-		// Используем legacy форматирование
-		// Определяем сложность перевода: нумерация (1), 2)) или тильды (~)
-		isComplexTranslation := strings.Contains(t.Translate, "1)") ||
-			strings.Contains(t.Translate, "2)") ||
-			strings.Contains(t.Translate, "~") ||
-			strings.Contains(t.Original, "1)") ||
-			strings.Contains(t.Original, "2)") ||
-			strings.Contains(t.Original, "~")
-
-		if isComplexTranslation {
-			// Определяем, какое поле содержит сложный перевод
-			if strings.Contains(t.Translate, "1)") || strings.Contains(t.Translate, "2)") || strings.Contains(t.Translate, "~") {
-				// Создаем словарную статью в нужном формате
-				dictionaryEntry := fmt.Sprintf("**%s** - %s", t.Original, t.Translate)
-				formatted := tools.FormatTranslationLite(dictionaryEntry, t.Original)
-				formattedResult += formatted + "\n\n"
-			} else if strings.Contains(t.Original, "1)") || strings.Contains(t.Original, "2)") || strings.Contains(t.Original, "~") {
-				dictionaryEntry := fmt.Sprintf("**%s** - %s", t.Translate, t.Original)
-				formatted := tools.FormatTranslationLite(dictionaryEntry, t.Translate)
-				formattedResult += formatted + "\n\n"
-			}
-		} else {
-			// Обычное форматирование для простых переводов
-			formattedResult += fmt.Sprintf("%s — %s\n\n", t.Original, tools.Clean(t.Translate))
-		}
-	}
-
 	result = &models.TranslationResult{
 		Pairs:     translations,
-		Formatted: strings.TrimSpace(formattedResult),
+		Formatted: tools.FormatPairs(translations),
 	}
 
 	if len(result.Pairs) > 0 {

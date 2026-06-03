@@ -57,7 +57,7 @@ func (n *Net) HandleText(ctx context.Context, update *tgbotapi.Update) error {
 	if len(result.Pairs) <= MaxTranslations {
 		messageText = result.Formatted
 	} else {
-		messageText = formatTranslations(firstTranslations)
+		messageText = tools.FormatPairs(firstTranslations)
 	}
 
 	msg := tgbotapi.NewMessage(m.Chat.ID, messageText)
@@ -194,7 +194,7 @@ func (n *Net) HandleMoreTranslations(ctx context.Context, update *tgbotapi.Updat
 	end := min(offset+MaxTranslations, len(translations))
 	nextTranslations := translations[offset:end]
 
-	msg := tgbotapi.NewMessage(update.CallbackQuery.Message.Chat.ID, formatTranslations(nextTranslations))
+	msg := tgbotapi.NewMessage(update.CallbackQuery.Message.Chat.ID, tools.FormatPairs(nextTranslations))
 	msg.ParseMode = "html"
 
 	if end < len(translations) {
@@ -310,34 +310,3 @@ func formatGrammarCard(g *models.WordGrammar) string {
 	return strings.Join(lines, "\n")
 }
 
-func formatTranslations(translations []models.TranslationPairs) string {
-	var result string
-	for _, t := range translations {
-		if t.FormattedChosen == "ai" && t.FormattedAI != "" {
-			result += t.FormattedAI + "\n\n"
-			continue
-		}
-
-		isComplexTranslation := strings.Contains(t.Translate, "1)") ||
-			strings.Contains(t.Translate, "2)") ||
-			strings.Contains(t.Translate, "~") ||
-			strings.Contains(t.Original, "1)") ||
-			strings.Contains(t.Original, "2)") ||
-			strings.Contains(t.Original, "~")
-
-		if isComplexTranslation {
-			if strings.Contains(t.Translate, "1)") || strings.Contains(t.Translate, "2)") || strings.Contains(t.Translate, "~") {
-				dictionaryEntry := fmt.Sprintf("**%s** - %s", t.Original, t.Translate)
-				formatted := tools.FormatTranslationLite(dictionaryEntry, t.Original)
-				result += formatted + "\n\n"
-			} else if strings.Contains(t.Original, "1)") || strings.Contains(t.Original, "2)") || strings.Contains(t.Original, "~") {
-				dictionaryEntry := fmt.Sprintf("**%s** - %s", t.Translate, t.Original)
-				formatted := tools.FormatTranslationLite(dictionaryEntry, t.Translate)
-				result += formatted + "\n\n"
-			}
-		} else {
-			result += fmt.Sprintf("%s — %s\n\n", t.Original, tools.Clean(t.Translate))
-		}
-	}
-	return result
-}

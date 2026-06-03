@@ -1,0 +1,47 @@
+package tools
+
+import (
+	"chetoru/internal/models"
+	"fmt"
+	"strings"
+)
+
+// FormatPairs renders translation pairs into the bot's display text. Each pair
+// is shown via its stored AI formatting, the lightweight dictionary formatter
+// (for entries with numbered senses or tilde placeholders), or a plain
+// "original — translation" line. The joined result is trimmed.
+//
+// It is the single source of truth for translation formatting, shared by the
+// business layer (TranslateFormatted) and the net handlers (HandleText,
+// HandleMoreTranslations).
+func FormatPairs(pairs []models.TranslationPairs) string {
+	var b strings.Builder
+	for _, t := range pairs {
+		b.WriteString(formatPair(t))
+	}
+	return strings.TrimSpace(b.String())
+}
+
+// formatPair renders a single pair, including the trailing blank-line separator.
+func formatPair(t models.TranslationPairs) string {
+	if t.FormattedChosen == "ai" && t.FormattedAI != "" {
+		return t.FormattedAI + "\n\n"
+	}
+	// A dictionary-structured side becomes the gloss; the other side is its
+	// headword. Telegram-side checks Translate first to match historical output.
+	if hasDictionaryMarkup(t.Translate) {
+		entry := fmt.Sprintf("**%s** - %s", t.Original, t.Translate)
+		return FormatTranslationLite(entry, t.Original) + "\n\n"
+	}
+	if hasDictionaryMarkup(t.Original) {
+		entry := fmt.Sprintf("**%s** - %s", t.Translate, t.Original)
+		return FormatTranslationLite(entry, t.Translate) + "\n\n"
+	}
+	return fmt.Sprintf("%s — %s\n\n", t.Original, Clean(t.Translate))
+}
+
+// hasDictionaryMarkup reports whether a string carries dictionary structure:
+// numbered senses ("1)", "2)") or a tilde headword placeholder ("~").
+func hasDictionaryMarkup(s string) bool {
+	return strings.Contains(s, "1)") || strings.Contains(s, "2)") || strings.Contains(s, "~")
+}
