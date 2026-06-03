@@ -122,6 +122,11 @@ func (n *Net) sendWordOfDay(ctx context.Context) {
 		tgbotapi.EscapeText(tgbotapi.ModeHTML, word.Chechen),
 		tgbotapi.EscapeText(tgbotapi.ModeHTML, word.Russian),
 	)
+	// One grammar lookup for the whole broadcast, not one per subscriber.
+	if line := grammarSummaryLine(n.business.GrammarFor(ctx, word.Chechen)); line != "" {
+		text += "\n\n" + line
+	}
+	text += "\n\n" + WordOfDayFooter
 	n.log.Infof("word of the day: sending %q to %d subscribers", word.Chechen, len(subscribers))
 
 	for _, id := range subscribers {
