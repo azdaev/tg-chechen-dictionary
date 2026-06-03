@@ -60,10 +60,9 @@ func FormatTranslationLite(text string, originalWord string) string {
 		return ""
 	}
 
-	// Use provided original word, or extract from bolded text as fallback
 	word := strings.TrimSpace(originalWord)
 
-	// Remove bolded word from text if present
+	// Strip the bolded headword; we render it ourselves from originalWord.
 	wordRe := regexp.MustCompile(`\*\*([^*]+)\*\*`)
 	text = wordRe.ReplaceAllString(text, "")
 
@@ -122,9 +121,10 @@ func FormatTranslationLite(text string, originalWord string) string {
 	return strings.TrimSpace(strings.Join(lines, "\n"))
 }
 
-// findMainSemicolon находит первую точку с запятой, которая разделяет основной перевод и примеры
+// findMainSemicolon returns the index of the semicolon that separates the main
+// translation from its examples: the first one followed by a dash (the example
+// marker), falling back to the first semicolon, or -1 if there is none.
 func findMainSemicolon(text string) int {
-	// Ищем первую точку с запятой, после которой есть тире (признак примера)
 	semicolons := []int{}
 	for i, r := range text {
 		if r == ';' {
@@ -133,14 +133,11 @@ func findMainSemicolon(text string) int {
 	}
 
 	for _, pos := range semicolons {
-		afterSemicolon := text[pos+1:]
-		// Если после точки с запятой есть тире, то это начало примеров
-		if strings.Contains(afterSemicolon, "-") {
+		if strings.Contains(text[pos+1:], "-") {
 			return pos
 		}
 	}
 
-	// Если не нашли подходящую точку с запятой, возвращаем первую
 	if len(semicolons) > 0 {
 		return semicolons[0]
 	}
@@ -148,20 +145,18 @@ func findMainSemicolon(text string) int {
 	return -1
 }
 
-// cleanTranslation очищает основной перевод от лишних символов
 func cleanTranslation(text string) string {
-	// Убираем лишние пробелы и знаки препинания
 	text = strings.TrimSpace(text)
 	text = strings.TrimPrefix(text, "-")
 	text = strings.TrimSpace(text)
 	return text
 }
 
-// parseExamples извлекает примеры в формате "русская фраза - чеченский перевод"
+// parseExamples splits a "russian phrase - chechen translation" list (separated
+// by semicolons) into rendered "russian → chechen" lines, capped at 5.
 func parseExamples(text string) []string {
 	var examples []string
 
-	// Сначала разделим по точкам с запятой
 	parts := strings.Split(text, ";")
 	for _, part := range parts {
 		part = strings.TrimSpace(part)
@@ -169,32 +164,22 @@ func parseExamples(text string) []string {
 			continue
 		}
 
-		// Проверяем, есть ли тире в части
 		if strings.Contains(part, "-") {
-			// Пытаемся разделить по тире
 			dashIndex := strings.Index(part, "-")
 			if dashIndex > 0 && dashIndex < len(part)-1 {
-				russian := strings.TrimSpace(part[:dashIndex])
-				chechen := strings.TrimSpace(part[dashIndex+1:])
-
-				// Убираем кавычки если есть
-				russian = strings.Trim(russian, `"«»""`)
-				chechen = strings.Trim(chechen, `"«»""`)
-
+				russian := strings.Trim(strings.TrimSpace(part[:dashIndex]), `"«»""`)
+				chechen := strings.Trim(strings.TrimSpace(part[dashIndex+1:]), `"«»""`)
 				if russian != "" && chechen != "" {
 					examples = append(examples, fmt.Sprintf("%s → %s", russian, chechen))
 				}
 			} else {
-				// Если не удалось разделить по тире, добавляем как есть
 				examples = append(examples, part)
 			}
 		} else {
-			// Если нет тире, это может быть просто предложение-пример
 			examples = append(examples, part)
 		}
 	}
 
-	// Ограничиваем количество примеров до 5
 	if len(examples) > 5 {
 		examples = examples[:5]
 	}
@@ -208,7 +193,6 @@ func replaceTildeWithWord(text, word string) string {
 		return text
 	}
 
-	// Получаем основу слова для правильного склонения
 	wordBase := getWordBase(word)
 	lowerWord := strings.ToLower(word)
 
@@ -234,10 +218,9 @@ func replaceTildeWithWord(text, word string) string {
 
 	result := text
 
-	// Сначала заменяем конкретные окончания из словаря
 	tildeRe := regexp.MustCompile(`~([а-яё]+)`)
 	result = tildeRe.ReplaceAllStringFunc(result, func(match string) string {
-		ending := match[1:] // убираем тильду
+		ending := match[1:]
 		if replacement, exists := commonEndings[ending]; exists {
 			return replacement
 		}
