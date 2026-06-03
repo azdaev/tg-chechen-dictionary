@@ -12,31 +12,30 @@ import (
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
 
-func (n *Net) HandleText(ctx context.Context, update *tgbotapi.Update) error {
-	loaderMessage, err := n.bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "⌛️"))
+func (n *Net) HandleText(ctx context.Context, m *tgbotapi.Message) error {
+	loaderMessage, err := n.bot.Send(tgbotapi.NewMessage(m.Chat.ID, "⌛️"))
 	if err != nil {
 		return fmt.Errorf("bot.Send: %w", err)
 	}
 
 	defer func() {
-		n.bot.Send(tgbotapi.NewDeleteMessage(update.Message.Chat.ID, loaderMessage.MessageID))
+		n.bot.Send(tgbotapi.NewDeleteMessage(m.Chat.ID, loaderMessage.MessageID))
 	}()
 
-	n.bot.Send(tgbotapi.NewChatAction(update.Message.Chat.ID, tgbotapi.ChatTyping))
+	n.bot.Send(tgbotapi.NewChatAction(m.Chat.ID, tgbotapi.ChatTyping))
 
-	if err := n.repo.StoreUser(ctx, int(update.Message.From.ID), update.Message.From.UserName); err != nil {
+	if err := n.repo.StoreUser(ctx, int(m.From.ID), m.From.UserName); err != nil {
 		return fmt.Errorf("repo.StoreUser: %w", err)
 	}
 
-	if err := n.repo.MarkUserUnblocked(ctx, update.Message.From.ID); err != nil {
-		n.log.WithError(err).WithField("user_id", update.Message.From.ID).Warn("failed to unblock user")
+	if err := n.repo.MarkUserUnblocked(ctx, m.From.ID); err != nil {
+		n.log.WithError(err).WithField("user_id", m.From.ID).Warn("failed to unblock user")
 	}
 
-	if err := n.repo.StoreActivity(ctx, int(update.Message.From.ID), models.ActivityTypeText); err != nil {
+	if err := n.repo.StoreActivity(ctx, int(m.From.ID), models.ActivityTypeText); err != nil {
 		return fmt.Errorf("repo.StoreActivity: %w", err)
 	}
 
-	m := update.Message
 	result := n.business.TranslateFormatted(m.Text)
 	if len(result.Pairs) == 0 {
 		// Record the vocabulary gap so maintainers know what to add next.
@@ -91,7 +90,7 @@ func (n *Net) HandleText(ctx context.Context, update *tgbotapi.Update) error {
 	go n.sendGrammarCard(context.Background(), m.Chat.ID, m.Text)
 
 	// Check if we should send a donation message
-	shouldSend, err := n.repo.ShouldSendDonationMessage(ctx, int(update.Message.From.ID))
+	shouldSend, err := n.repo.ShouldSendDonationMessage(ctx, int(m.From.ID))
 	if err != nil {
 		return fmt.Errorf("failed to check donation message status: %w", err)
 	}
@@ -106,7 +105,7 @@ func (n *Net) HandleText(ctx context.Context, update *tgbotapi.Update) error {
 		if _, err = n.bot.Send(donationMsg); err != nil {
 			return fmt.Errorf("failed to send donation message: %w", err)
 		}
-		if err = n.repo.StoreDonationMessage(ctx, int(update.Message.From.ID)); err != nil {
+		if err = n.repo.StoreDonationMessage(ctx, int(m.From.ID)); err != nil {
 			return fmt.Errorf("failed to store donation message: %w", err)
 		}
 	}
@@ -114,8 +113,8 @@ func (n *Net) HandleText(ctx context.Context, update *tgbotapi.Update) error {
 	return nil
 }
 
-func (n *Net) HandleInline(ctx context.Context, update *tgbotapi.Update) error {
-	translations := n.business.Translate(update.InlineQuery.Query)
+func (n *Net) HandleInline(ctx context.Context, iq *tgbotapi.InlineQuery) error {
+	translations := n.business.Translate(iq.Query)
 
 	// Telegram allows at most 50 results per inline query; sending more makes
 	// answerInlineQuery fail and the user sees nothing. Cap defensively — common
@@ -126,7 +125,7 @@ func (n *Net) HandleInline(ctx context.Context, update *tgbotapi.Update) error {
 
 	articles := make([]any, len(translations))
 	for i := range articles {
-		article := tgbotapi.NewInlineQueryResultArticle(update.InlineQuery.ID+strconv.Itoa(i), tools.Clean(translations[i].Original), "")
+		article := tgbotapi.NewInlineQueryResultArticle(iq.ID+strconv.Itoa(i), tools.Clean(translations[i].Original), "")
 		article.Description = tools.Clean(translations[i].Translate)
 		article.InputMessageContent = tgbotapi.InputTextMessageContent{
 			Text:      fmt.Sprintf("<b>%s</b> - %s", translations[i].Original, translations[i].Translate),
@@ -136,7 +135,7 @@ func (n *Net) HandleInline(ctx context.Context, update *tgbotapi.Update) error {
 	}
 
 	inlineConf := tgbotapi.InlineConfig{
-		InlineQueryID: update.InlineQuery.ID,
+		InlineQueryID: iq.ID,
 		IsPersonal:    true,
 		CacheTime:     0,
 		Results:       articles,
@@ -150,35 +149,35 @@ func (n *Net) HandleInline(ctx context.Context, update *tgbotapi.Update) error {
 		return fmt.Errorf("bot.Request: %s", resp.Description)
 	}
 
-	if err := n.repo.StoreUser(ctx, int(update.InlineQuery.From.ID), update.InlineQuery.From.UserName); err != nil {
+	if err := n.repo.StoreUser(ctx, int(iq.From.ID), iq.From.UserName); err != nil {
 		return fmt.Errorf("repo.StoreUser: %w", err)
 	}
-	if err := n.repo.MarkUserUnblocked(ctx, update.InlineQuery.From.ID); err != nil {
-		n.log.WithError(err).WithField("user_id", update.InlineQuery.From.ID).Warn("failed to unblock user")
+	if err := n.repo.MarkUserUnblocked(ctx, iq.From.ID); err != nil {
+		n.log.WithError(err).WithField("user_id", iq.From.ID).Warn("failed to unblock user")
 	}
-	if err := n.repo.StoreActivity(ctx, int(update.InlineQuery.From.ID), models.ActivityTypeInline); err != nil {
+	if err := n.repo.StoreActivity(ctx, int(iq.From.ID), models.ActivityTypeInline); err != nil {
 		return fmt.Errorf("repo.StoreActivity: %w", err)
 	}
 
 	return nil
 }
 
-func (n *Net) HandleMoreTranslations(ctx context.Context, update *tgbotapi.Update) error {
-	word, offset, ok := parseMoreCallback(update.CallbackQuery.Data)
+func (n *Net) HandleMoreTranslations(ctx context.Context, cq *tgbotapi.CallbackQuery) error {
+	word, offset, ok := parseMoreCallback(cq.Data)
 	if !ok {
-		return fmt.Errorf("invalid more callback data: %q", update.CallbackQuery.Data)
+		return fmt.Errorf("invalid more callback data: %q", cq.Data)
 	}
 
 	// Always acknowledge the callback so the client's loading spinner clears.
 	defer func() {
-		if _, err := n.bot.Request(tgbotapi.NewCallback(update.CallbackQuery.ID, "")); err != nil {
+		if _, err := n.bot.Request(tgbotapi.NewCallback(cq.ID, "")); err != nil {
 			n.log.WithError(err).Warn("failed to ack more callback")
 		}
 	}()
 
 	translations := n.business.Translate(word)
 	if len(translations) == 0 {
-		_, err := n.bot.Send(tgbotapi.NewMessage(update.CallbackQuery.Message.Chat.ID, NoTranslationText))
+		_, err := n.bot.Send(tgbotapi.NewMessage(cq.Message.Chat.ID, NoTranslationText))
 		return err
 	}
 
@@ -194,7 +193,7 @@ func (n *Net) HandleMoreTranslations(ctx context.Context, update *tgbotapi.Updat
 	end := min(offset+MaxTranslations, len(translations))
 	nextTranslations := translations[offset:end]
 
-	msg := tgbotapi.NewMessage(update.CallbackQuery.Message.Chat.ID, tools.FormatPairs(nextTranslations))
+	msg := tgbotapi.NewMessage(cq.Message.Chat.ID, tools.FormatPairs(nextTranslations))
 	msg.ParseMode = "html"
 
 	if end < len(translations) {

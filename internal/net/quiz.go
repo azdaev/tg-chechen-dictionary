@@ -54,8 +54,7 @@ func (n *Net) sendQuizPoll(ctx context.Context, chatID int64, q *models.QuizQues
 
 // HandlePollAnswer grades a group quiz-poll answer into the leaderboard. Votes on
 // unknown/expired polls (or retracted votes) are ignored.
-func (n *Net) HandlePollAnswer(ctx context.Context, update *tgbotapi.Update) error {
-	pa := update.PollAnswer
+func (n *Net) HandlePollAnswer(ctx context.Context, pa *tgbotapi.PollAnswer) error {
 	if pa == nil || len(pa.OptionIDs) == 0 {
 		return nil
 	}
@@ -142,19 +141,19 @@ func (n *Net) sendQuizButtons(chatID int64, q *models.QuizQuestion) error {
 
 // HandleQuizCallback grades an answer (or serves the next question). Callback
 // data formats: "quiz_a_<chosen>_<correct>", "quiz_n" (next), "quiz_done" (noop).
-func (n *Net) HandleQuizCallback(ctx context.Context, update *tgbotapi.Update) error {
-	data := update.CallbackQuery.Data
-	chatID := update.CallbackQuery.Message.Chat.ID
+func (n *Net) HandleQuizCallback(ctx context.Context, cq *tgbotapi.CallbackQuery) error {
+	data := cq.Data
+	chatID := cq.Message.Chat.ID
 
 	switch data {
 	case "quiz_done":
-		_, err := n.bot.Request(tgbotapi.NewCallback(update.CallbackQuery.ID, ""))
+		_, err := n.bot.Request(tgbotapi.NewCallback(cq.ID, ""))
 		return err
 	case "quiz_n":
-		if _, err := n.bot.Request(tgbotapi.NewCallback(update.CallbackQuery.ID, "")); err != nil {
+		if _, err := n.bot.Request(tgbotapi.NewCallback(cq.ID, "")); err != nil {
 			n.log.WithError(err).Warn("failed to ack quiz next callback")
 		}
-		return n.HandleQuiz(ctx, update.CallbackQuery.Message.Chat)
+		return n.HandleQuiz(ctx, cq.Message.Chat)
 	}
 
 	parts := strings.Split(data, "_") // [quiz a chosen correct]
@@ -173,8 +172,8 @@ func (n *Net) HandleQuizCallback(ctx context.Context, update *tgbotapi.Update) e
 	correct := chosenIdx == correctIdx
 
 	// Record the answer and fetch the running score for motivating feedback.
-	userID := update.CallbackQuery.From.ID
-	if err := n.repo.RecordQuizAnswer(ctx, userID, update.CallbackQuery.From.UserName, correct); err != nil {
+	userID := cq.From.ID
+	if err := n.repo.RecordQuizAnswer(ctx, userID, cq.From.UserName, correct); err != nil {
 		n.log.WithError(err).WithField("user_id", userID).Warn("RecordQuizAnswer failed")
 	}
 
@@ -188,12 +187,12 @@ func (n *Net) HandleQuizCallback(ctx context.Context, update *tgbotapi.Update) e
 		toast += fmt.Sprintf("  ·  Счёт: %d/%d (%d%%)", score, total, score*100/total)
 	}
 
-	if _, err := n.bot.Request(tgbotapi.NewCallback(update.CallbackQuery.ID, toast)); err != nil {
+	if _, err := n.bot.Request(tgbotapi.NewCallback(cq.ID, toast)); err != nil {
 		n.log.WithError(err).Warn("failed to ack quiz answer callback")
 	}
 
 	// Mark the result on the buttons and disable further answering.
-	oldRows := update.CallbackQuery.Message.ReplyMarkup.InlineKeyboard
+	oldRows := cq.Message.ReplyMarkup.InlineKeyboard
 	newRows := make([][]tgbotapi.InlineKeyboardButton, 0, len(oldRows)+1)
 	for i, row := range oldRows {
 		if len(row) == 0 {
@@ -214,7 +213,7 @@ func (n *Net) HandleQuizCallback(ctx context.Context, update *tgbotapi.Update) e
 		tgbotapi.NewInlineKeyboardButtonData(QuizNextButtonText, "quiz_n"),
 	))
 
-	edit := tgbotapi.NewEditMessageReplyMarkup(chatID, update.CallbackQuery.Message.MessageID, tgbotapi.NewInlineKeyboardMarkup(newRows...))
+	edit := tgbotapi.NewEditMessageReplyMarkup(chatID, cq.Message.MessageID, tgbotapi.NewInlineKeyboardMarkup(newRows...))
 	if _, err := n.bot.Send(edit); err != nil {
 		return fmt.Errorf("bot.Send edit: %w", err)
 	}

@@ -64,8 +64,8 @@ func (n *Net) sendInvoice(chatID int64) error {
 }
 
 // HandleSubscribe shows subscription status or sends an invoice.
-func (n *Net) HandleSubscribe(ctx context.Context, update *tgbotapi.Update) error {
-	userID := update.Message.From.ID
+func (n *Net) HandleSubscribe(ctx context.Context, m *tgbotapi.Message) error {
+	userID := m.From.ID
 
 	hasSub, err := n.repo.HasActiveSubscription(ctx, userID)
 	if err != nil {
@@ -73,7 +73,7 @@ func (n *Net) HandleSubscribe(ctx context.Context, update *tgbotapi.Update) erro
 	}
 
 	if hasSub {
-		msg := tgbotapi.NewMessage(update.Message.Chat.ID, "✅ У вас уже есть активная подписка. Проверка орфографии без ограничений!")
+		msg := tgbotapi.NewMessage(m.Chat.ID, "✅ У вас уже есть активная подписка. Проверка орфографии без ограничений!")
 		_, err = n.bot.Send(msg)
 		return err
 	}
@@ -111,21 +111,19 @@ func (n *Net) HandleSubscribe(ctx context.Context, update *tgbotapi.Update) erro
 		)
 	}
 
-	infoMsg := tgbotapi.NewMessage(update.Message.Chat.ID, text)
+	infoMsg := tgbotapi.NewMessage(m.Chat.ID, text)
 	if _, err = n.bot.Send(infoMsg); err != nil {
 		return err
 	}
 
 	if providerToken != "" {
-		return n.sendInvoice(update.Message.Chat.ID)
+		return n.sendInvoice(m.Chat.ID)
 	}
 	return nil
 }
 
 // HandlePreCheckout approves pre-checkout queries from Telegram Payments.
-func (n *Net) HandlePreCheckout(update *tgbotapi.Update) error {
-	pq := update.PreCheckoutQuery
-
+func (n *Net) HandlePreCheckout(pq *tgbotapi.PreCheckoutQuery) error {
 	// Validate payload
 	if pq.InvoicePayload != "spellcheck_subscription" {
 		answer := tgbotapi.PreCheckoutConfig{
@@ -146,9 +144,9 @@ func (n *Net) HandlePreCheckout(update *tgbotapi.Update) error {
 }
 
 // HandleSuccessfulPayment processes successful payments and activates subscriptions.
-func (n *Net) HandleSuccessfulPayment(ctx context.Context, update *tgbotapi.Update) error {
-	payment := update.Message.SuccessfulPayment
-	userID := update.Message.From.ID
+func (n *Net) HandleSuccessfulPayment(ctx context.Context, m *tgbotapi.Message) error {
+	payment := m.SuccessfulPayment
+	userID := m.From.ID
 
 	if payment.InvoicePayload != "spellcheck_subscription" {
 		return nil
@@ -158,12 +156,12 @@ func (n *Net) HandleSuccessfulPayment(ctx context.Context, update *tgbotapi.Upda
 
 	if err := n.repo.CreateSubscription(ctx, userID, expiresAt, payment.TelegramPaymentChargeID); err != nil {
 		n.log.WithError(err).WithField("user_id", userID).Error("failed to create subscription")
-		msg := tgbotapi.NewMessage(update.Message.Chat.ID, "⚠️ Оплата прошла, но произошла ошибка. Обратитесь к администратору.")
+		msg := tgbotapi.NewMessage(m.Chat.ID, "⚠️ Оплата прошла, но произошла ошибка. Обратитесь к администратору.")
 		n.bot.Send(msg)
 		return err
 	}
 
-	msg := tgbotapi.NewMessage(update.Message.Chat.ID, fmt.Sprintf(
+	msg := tgbotapi.NewMessage(m.Chat.ID, fmt.Sprintf(
 		"✅ Подписка активирована!\n\nБезлимитная проверка орфографии до %s.\n\nИспользуйте /check или начните сообщение с точки.",
 		expiresAt.Format("02.01.2006"),
 	))

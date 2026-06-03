@@ -12,13 +12,13 @@ import (
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
 
-func (n *Net) HandleModerate(ctx context.Context, update *tgbotapi.Update) error {
-	if !n.isAdmin(update.Message.From.ID) {
+func (n *Net) HandleModerate(ctx context.Context, m *tgbotapi.Message) error {
+	if !n.isAdmin(m.From.ID) {
 		return nil
 	}
 
 	limit := 20
-	args := strings.Fields(update.Message.CommandArguments())
+	args := strings.Fields(m.CommandArguments())
 	if len(args) > 0 {
 		if parsed, err := strconv.Atoi(args[0]); err == nil && parsed > 0 {
 			limit = parsed
@@ -30,7 +30,7 @@ func (n *Net) HandleModerate(ctx context.Context, update *tgbotapi.Update) error
 		return fmt.Errorf("repo.ListPendingTranslationPairs: %w", err)
 	}
 	if len(pairs) == 0 {
-		_, err = n.bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "Нет новых слов для модерации."))
+		_, err = n.bot.Send(tgbotapi.NewMessage(m.Chat.ID, "Нет новых слов для модерации."))
 		return err
 	}
 
@@ -44,12 +44,12 @@ func (n *Net) HandleModerate(ctx context.Context, update *tgbotapi.Update) error
 		}
 	}
 
-	_, err = n.bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, fmt.Sprintf("Отправлено на модерацию: %d", len(pairs))))
+	_, err = n.bot.Send(tgbotapi.NewMessage(m.Chat.ID, fmt.Sprintf("Отправлено на модерацию: %d", len(pairs))))
 	return err
 }
 
-func (n *Net) HandleModerationCallback(ctx context.Context, update *tgbotapi.Update) error {
-	data := update.CallbackQuery.Data
+func (n *Net) HandleModerationCallback(ctx context.Context, cq *tgbotapi.CallbackQuery) error {
+	data := cq.Data
 	parts := strings.Split(data, "_")
 	if len(parts) != 3 {
 		return fmt.Errorf("invalid moderation callback format")
@@ -78,15 +78,15 @@ func (n *Net) HandleModerationCallback(ctx context.Context, update *tgbotapi.Upd
 	go n.invalidateCacheForPair(ctx, id)
 
 	edited := tgbotapi.NewEditMessageText(
-		update.CallbackQuery.Message.Chat.ID,
-		update.CallbackQuery.Message.MessageID,
-		status+"\n\n"+update.CallbackQuery.Message.Text,
+		cq.Message.Chat.ID,
+		cq.Message.MessageID,
+		status+"\n\n"+cq.Message.Text,
 	)
 	if _, err := n.bot.Send(edited); err != nil {
 		n.log.WithError(err).Warn("failed to edit moderation message")
 	}
 
-	callback := tgbotapi.NewCallback(update.CallbackQuery.ID, status)
+	callback := tgbotapi.NewCallback(cq.ID, status)
 	_, err = n.bot.Request(callback)
 	return err
 }

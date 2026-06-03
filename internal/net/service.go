@@ -188,13 +188,13 @@ func (n *Net) Start(ctx context.Context) {
 	for update := range updates {
 		// Callbacks
 		if update.CallbackQuery != nil {
-			n.routeCallback(ctx, &update)
+			n.routeCallback(ctx, update.CallbackQuery)
 			continue
 		}
 
 		// Poll answers (group quiz scoring)
 		if update.PollAnswer != nil {
-			if err := n.HandlePollAnswer(ctx, &update); err != nil {
+			if err := n.HandlePollAnswer(ctx, update.PollAnswer); err != nil {
 				n.log.WithError(err).Error("service.HandlePollAnswer")
 			}
 			continue
@@ -202,7 +202,7 @@ func (n *Net) Start(ctx context.Context) {
 
 		// Pre-checkout query (Telegram Payments)
 		if update.PreCheckoutQuery != nil {
-			if err := n.HandlePreCheckout(&update); err != nil {
+			if err := n.HandlePreCheckout(update.PreCheckoutQuery); err != nil {
 				n.log.WithError(err).Error("service.HandlePreCheckout")
 			}
 			continue
@@ -212,42 +212,42 @@ func (n *Net) Start(ctx context.Context) {
 		if update.Message != nil {
 			// Successful payment
 			if update.Message.SuccessfulPayment != nil {
-				if err := n.HandleSuccessfulPayment(ctx, &update); err != nil {
+				if err := n.HandleSuccessfulPayment(ctx, update.Message); err != nil {
 					n.log.WithError(err).Error("service.HandleSuccessfulPayment")
 				}
 				continue
 			}
-			n.routeMessage(ctx, &update)
+			n.routeMessage(ctx, update.Message)
 			continue
 		}
 
 		// Inline queries
 		if update.InlineQuery != nil && update.InlineQuery.Query != "" {
-			n.routeInline(ctx, &update)
+			n.routeInline(ctx, update.InlineQuery)
 			continue
 		}
 	}
 }
 
-func (n *Net) routeCallback(ctx context.Context, update *tgbotapi.Update) {
-	data := update.CallbackQuery.Data
+func (n *Net) routeCallback(ctx context.Context, cq *tgbotapi.CallbackQuery) {
+	data := cq.Data
 	var err error
 
 	switch {
 	case strings.HasPrefix(data, "broadcast_"):
-		err = n.HandleBroadcastCallback(ctx, update)
+		err = n.HandleBroadcastCallback(ctx, cq)
 	case strings.HasPrefix(data, "more_"):
-		err = n.HandleMoreTranslations(ctx, update)
+		err = n.HandleMoreTranslations(ctx, cq)
 	case strings.HasPrefix(data, "random_"):
-		err = n.HandleRandomCallback(ctx, update)
+		err = n.HandleRandomCallback(ctx, cq)
 	case strings.HasPrefix(data, "quiz_"):
-		err = n.HandleQuizCallback(ctx, update)
+		err = n.HandleQuizCallback(ctx, cq)
 	case strings.HasPrefix(data, "wotd_"):
-		err = n.HandleWordOfDayCallback(ctx, update)
+		err = n.HandleWordOfDayCallback(ctx, cq)
 	case strings.HasPrefix(data, "spell_"):
-		err = n.HandleSpellcheckFeedback(ctx, update)
+		err = n.HandleSpellcheckFeedback(ctx, cq)
 	case strings.HasPrefix(data, "mod_"):
-		err = n.HandleModerationCallback(ctx, update)
+		err = n.HandleModerationCallback(ctx, cq)
 	}
 
 	if err != nil {
@@ -255,43 +255,43 @@ func (n *Net) routeCallback(ctx context.Context, update *tgbotapi.Update) {
 	}
 }
 
-func (n *Net) routeMessage(ctx context.Context, update *tgbotapi.Update) {
+func (n *Net) routeMessage(ctx context.Context, m *tgbotapi.Message) {
 	var err error
 
-	switch update.Message.Command() {
+	switch m.Command() {
 	case "start":
-		err = n.HandleStart(update)
+		err = n.HandleStart(m)
 	case "stats":
-		err = n.HandleStats(ctx, update)
+		err = n.HandleStats(ctx, m)
 	case "missing":
-		err = n.HandleMissingWords(ctx, update)
+		err = n.HandleMissingWords(ctx, m)
 	case "random":
-		err = n.HandleRandom(ctx, update.Message.Chat.ID)
+		err = n.HandleRandom(ctx, m.Chat.ID)
 	case "quiz":
-		err = n.HandleQuiz(ctx, update.Message.Chat)
+		err = n.HandleQuiz(ctx, m.Chat)
 	case "top":
-		err = n.HandleTop(ctx, update.Message.Chat.ID)
+		err = n.HandleTop(ctx, m.Chat.ID)
 	case "wotd":
-		err = n.HandleWordOfDay(ctx, update)
+		err = n.HandleWordOfDay(ctx, m)
 	case "moderate":
-		err = n.HandleModerate(ctx, update)
+		err = n.HandleModerate(ctx, m)
 	case "check":
-		err = n.HandleCheck(ctx, update)
+		err = n.HandleCheck(ctx, m)
 	case "subscribe":
-		err = n.HandleSubscribe(ctx, update)
+		err = n.HandleSubscribe(ctx, m)
 	case "ai":
-		n.HandleAIToggle(update.Message)
+		n.HandleAIToggle(m)
 		return
 	case "broadcast":
-		err = n.HandleBroadcast(ctx, update)
+		err = n.HandleBroadcast(ctx, m)
 	case "broadcast_cancel":
-		err = n.HandleBroadcastCancel(update)
+		err = n.HandleBroadcastCancel(m)
 	default:
 		// Spellcheck: message starts with "."
-		if strings.HasPrefix(update.Message.Text, ".") && len(update.Message.Text) > 1 {
-			update.Message.Text = strings.TrimSpace(strings.TrimPrefix(update.Message.Text, "."))
-			if update.Message.Text != "" {
-				err = n.HandleCheck(ctx, update)
+		if strings.HasPrefix(m.Text, ".") && len(m.Text) > 1 {
+			m.Text = strings.TrimSpace(strings.TrimPrefix(m.Text, "."))
+			if m.Text != "" {
+				err = n.HandleCheck(ctx, m)
 				if err != nil {
 					n.log.WithError(err).Error("service.HandleCheck (dot prefix)")
 				}
@@ -299,35 +299,35 @@ func (n *Net) routeMessage(ctx context.Context, update *tgbotapi.Update) {
 			}
 		}
 
-		if n.isAwaitingBroadcastContent(update) {
-			err = n.HandleBroadcastContent(update)
+		if n.isAwaitingBroadcastContent(m) {
+			err = n.HandleBroadcastContent(m)
 		} else {
-			err = n.HandleText(ctx, update)
+			err = n.HandleText(ctx, m)
 		}
 	}
 
 	if err != nil {
 		n.log.
-			WithField("user_id", update.Message.From.ID).
-			WithField("command", update.Message.Command()).
+			WithField("user_id", m.From.ID).
+			WithField("command", m.Command()).
 			WithError(err).
 			Error("message handler failed")
 	}
 }
 
-func (n *Net) routeInline(ctx context.Context, update *tgbotapi.Update) {
+func (n *Net) routeInline(ctx context.Context, iq *tgbotapi.InlineQuery) {
 	var err error
 
-	if strings.HasPrefix(update.InlineQuery.Query, ". ") && len(update.InlineQuery.Query) > 2 {
-		err = n.HandleInlineSpellcheck(ctx, update)
+	if strings.HasPrefix(iq.Query, ". ") && len(iq.Query) > 2 {
+		err = n.HandleInlineSpellcheck(ctx, iq)
 	} else {
-		err = n.HandleInline(ctx, update)
+		err = n.HandleInline(ctx, iq)
 	}
 
 	if err != nil {
 		n.log.
-			WithField("user_id", update.InlineQuery.From.ID).
-			WithField("query", update.InlineQuery.Query).
+			WithField("user_id", iq.From.ID).
+			WithField("query", iq.Query).
 			WithError(err).
 			Error("inline handler failed")
 	}

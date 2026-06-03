@@ -8,38 +8,38 @@ import (
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
 
-func (n *Net) HandleCheck(ctx context.Context, update *tgbotapi.Update) error {
+func (n *Net) HandleCheck(ctx context.Context, m *tgbotapi.Message) error {
 	// Try command arguments first, then raw message text (for dot-prefix mode)
-	text := strings.TrimSpace(update.Message.CommandArguments())
+	text := strings.TrimSpace(m.CommandArguments())
 	if text == "" {
-		text = strings.TrimSpace(update.Message.Text)
+		text = strings.TrimSpace(m.Text)
 	}
 	if text == "" {
-		msg := tgbotapi.NewMessage(update.Message.Chat.ID,
+		msg := tgbotapi.NewMessage(m.Chat.ID,
 			"Использование: /check <текст на чеченском>\n\nПример: /check дала безам бу хьо\n\nИли просто начни сообщение с точки:\n.дала безам бу хьо")
 		_, err := n.bot.Send(msg)
 		return err
 	}
 
 	if n.ai == nil {
-		msg := tgbotapi.NewMessage(update.Message.Chat.ID, "⚠️ Проверка орфографии временно недоступна")
+		msg := tgbotapi.NewMessage(m.Chat.ID, "⚠️ Проверка орфографии временно недоступна")
 		_, err := n.bot.Send(msg)
 		return err
 	}
 
-	n.bot.Send(tgbotapi.NewChatAction(update.Message.Chat.ID, tgbotapi.ChatTyping))
+	n.bot.Send(tgbotapi.NewChatAction(m.Chat.ID, tgbotapi.ChatTyping))
 
 	result, err := n.ai.SpellCheck(ctx, text)
 	if err != nil {
 		n.log.WithError(err).Error("ai.SpellCheck")
-		msg := tgbotapi.NewMessage(update.Message.Chat.ID, "⚠️ Не удалось проверить текст, попробуйте позже")
+		msg := tgbotapi.NewMessage(m.Chat.ID, "⚠️ Не удалось проверить текст, попробуйте позже")
 		_, sendErr := n.bot.Send(msg)
 		return sendErr
 	}
 
 	if result.NoErrors {
-		msg := tgbotapi.NewMessage(update.Message.Chat.ID, "✅ Ошибок не найдено")
-		msg.ReplyToMessageID = update.Message.MessageID
+		msg := tgbotapi.NewMessage(m.Chat.ID, "✅ Ошибок не найдено")
+		msg.ReplyToMessageID = m.MessageID
 		_, err = n.bot.Send(msg)
 		return err
 	}
@@ -59,8 +59,8 @@ func (n *Net) HandleCheck(ctx context.Context, update *tgbotapi.Update) error {
 		responseText = result.Explanation
 	}
 
-	msg := tgbotapi.NewMessage(update.Message.Chat.ID, responseText)
-	msg.ReplyToMessageID = update.Message.MessageID
+	msg := tgbotapi.NewMessage(m.Chat.ID, responseText)
+	msg.ReplyToMessageID = m.MessageID
 
 	if result.Corrected != "" {
 		msg.ReplyMarkup = spellcheckFeedbackKeyboard(text, result.Corrected)
@@ -70,21 +70,21 @@ func (n *Net) HandleCheck(ctx context.Context, update *tgbotapi.Update) error {
 	return err
 }
 
-func (n *Net) HandleInlineSpellcheck(ctx context.Context, update *tgbotapi.Update) error {
-	text := strings.TrimPrefix(update.InlineQuery.Query, ". ")
+func (n *Net) HandleInlineSpellcheck(ctx context.Context, iq *tgbotapi.InlineQuery) error {
+	text := strings.TrimPrefix(iq.Query, ". ")
 
 	if n.ai == nil {
 		return nil
 	}
 
 	// Check usage limits
-	allowed, err := n.canUseSpellcheck(ctx, update.InlineQuery.From.ID)
+	allowed, err := n.canUseSpellcheck(ctx, iq.From.ID)
 	if err != nil {
 		n.log.WithError(err).Error("canUseSpellcheck inline")
 	}
 	if !allowed {
 		article := tgbotapi.NewInlineQueryResultArticle(
-			update.InlineQuery.ID+"_limit",
+			iq.ID+"_limit",
 			fmt.Sprintf("🔒 Лимит исчерпан (%d/мес)", FreeSpellcheckLimit),
 			"",
 		)
@@ -93,7 +93,7 @@ func (n *Net) HandleInlineSpellcheck(ctx context.Context, update *tgbotapi.Updat
 			Text: fmt.Sprintf("Бесплатный лимит инлайн-проверок исчерпан. Безлимитная подписка — %s/мес: отправьте /subscribe боту @chetoru_bot.\n\nВ самом боте проверка бесплатна: /check или .текст", SubscriptionPriceFormatted),
 		}
 		inlineConf := tgbotapi.InlineConfig{
-			InlineQueryID: update.InlineQuery.ID,
+			InlineQueryID: iq.ID,
 			IsPersonal:    true,
 			CacheTime:     0,
 			Results:       []any{article},
@@ -111,12 +111,12 @@ func (n *Net) HandleInlineSpellcheck(ctx context.Context, update *tgbotapi.Updat
 	var articles []any
 
 	if result.NoErrors {
-		article := tgbotapi.NewInlineQueryResultArticle(update.InlineQuery.ID+"_sp0", "✅ Ошибок не найдено", text)
+		article := tgbotapi.NewInlineQueryResultArticle(iq.ID+"_sp0", "✅ Ошибок не найдено", text)
 		article.Description = text
 		article.InputMessageContent = tgbotapi.InputTextMessageContent{Text: text}
 		articles = append(articles, article)
 	} else if result.Corrected != "" {
-		article := tgbotapi.NewInlineQueryResultArticle(update.InlineQuery.ID+"_sp0", "✏️ "+result.Corrected, result.Corrected)
+		article := tgbotapi.NewInlineQueryResultArticle(iq.ID+"_sp0", "✏️ "+result.Corrected, result.Corrected)
 		article.Description = "Нажмите, чтобы отправить исправленный текст"
 		article.InputMessageContent = tgbotapi.InputTextMessageContent{Text: result.Corrected}
 		articles = append(articles, article)
@@ -125,11 +125,11 @@ func (n *Net) HandleInlineSpellcheck(ctx context.Context, update *tgbotapi.Updat
 	// Only count a use when we actually produced a result for the user; an
 	// empty/ambiguous AI response should not burn the free quota.
 	if len(articles) > 0 {
-		n.trackSpellcheckUsage(ctx, update.InlineQuery.From.ID)
+		n.trackSpellcheckUsage(ctx, iq.From.ID)
 	}
 
 	inlineConf := tgbotapi.InlineConfig{
-		InlineQueryID: update.InlineQuery.ID,
+		InlineQueryID: iq.ID,
 		IsPersonal:    true,
 		CacheTime:     0,
 		Results:       articles,
@@ -146,15 +146,15 @@ func (n *Net) HandleInlineSpellcheck(ctx context.Context, update *tgbotapi.Updat
 	return nil
 }
 
-func (n *Net) HandleSpellcheckFeedback(ctx context.Context, update *tgbotapi.Update) error {
-	data := update.CallbackQuery.Data
+func (n *Net) HandleSpellcheckFeedback(ctx context.Context, cq *tgbotapi.CallbackQuery) error {
+	data := cq.Data
 	parts := strings.SplitN(data, "_", 3)
 	if len(parts) != 3 {
 		return fmt.Errorf("invalid spellcheck feedback format")
 	}
 
 	feedback := parts[1] // "like" or "dislike"
-	msgText := update.CallbackQuery.Message.Text
+	msgText := cq.Message.Text
 
 	var corrected string
 	for _, line := range strings.Split(msgText, "\n") {
@@ -165,7 +165,7 @@ func (n *Net) HandleSpellcheckFeedback(ctx context.Context, update *tgbotapi.Upd
 		}
 	}
 
-	if err := n.repo.StoreSpellcheckFeedback(ctx, update.CallbackQuery.From.ID, msgText, corrected, feedback); err != nil {
+	if err := n.repo.StoreSpellcheckFeedback(ctx, cq.From.ID, msgText, corrected, feedback); err != nil {
 		n.log.WithError(err).Error("repo.StoreSpellcheckFeedback")
 	}
 
@@ -176,15 +176,15 @@ func (n *Net) HandleSpellcheckFeedback(ctx context.Context, update *tgbotapi.Upd
 		status = "👎 Спасибо, учтём!"
 	}
 
-	callback := tgbotapi.NewCallback(update.CallbackQuery.ID, status)
+	callback := tgbotapi.NewCallback(cq.ID, status)
 	if _, err := n.bot.Request(callback); err != nil {
 		return fmt.Errorf("bot.Request: %w", err)
 	}
 
 	// Remove buttons after feedback
 	edited := tgbotapi.NewEditMessageReplyMarkup(
-		update.CallbackQuery.Message.Chat.ID,
-		update.CallbackQuery.Message.MessageID,
+		cq.Message.Chat.ID,
+		cq.Message.MessageID,
 		tgbotapi.InlineKeyboardMarkup{InlineKeyboard: [][]tgbotapi.InlineKeyboardButton{}},
 	)
 	n.bot.Send(edited)

@@ -10,18 +10,17 @@ import (
 
 // HandleWordOfDay shows the user's Word of the Day subscription status with a
 // button to opt in or out.
-func (n *Net) HandleWordOfDay(ctx context.Context, update *tgbotapi.Update) error {
-	msg := update.Message
-	if err := n.repo.StoreUser(ctx, int(msg.From.ID), msg.From.UserName); err != nil {
+func (n *Net) HandleWordOfDay(ctx context.Context, m *tgbotapi.Message) error {
+	if err := n.repo.StoreUser(ctx, int(m.From.ID), m.From.UserName); err != nil {
 		return fmt.Errorf("repo.StoreUser: %w", err)
 	}
 
-	subscribed, err := n.repo.IsWordOfDaySubscribed(ctx, msg.From.ID)
+	subscribed, err := n.repo.IsWordOfDaySubscribed(ctx, m.From.ID)
 	if err != nil {
 		return fmt.Errorf("repo.IsWordOfDaySubscribed: %w", err)
 	}
 
-	out := tgbotapi.NewMessage(msg.Chat.ID, wotdStatusText(subscribed))
+	out := tgbotapi.NewMessage(m.Chat.ID, wotdStatusText(subscribed))
 	out.ParseMode = "html"
 	out.ReplyMarkup = wotdButton(subscribed)
 	_, err = n.bot.Send(out)
@@ -29,8 +28,7 @@ func (n *Net) HandleWordOfDay(ctx context.Context, update *tgbotapi.Update) erro
 }
 
 // HandleWordOfDayCallback toggles the subscription from the inline button.
-func (n *Net) HandleWordOfDayCallback(ctx context.Context, update *tgbotapi.Update) error {
-	cq := update.CallbackQuery
+func (n *Net) HandleWordOfDayCallback(ctx context.Context, cq *tgbotapi.CallbackQuery) error {
 	subscribe := cq.Data == "wotd_on"
 
 	if err := n.repo.StoreUser(ctx, int(cq.From.ID), cq.From.UserName); err != nil {

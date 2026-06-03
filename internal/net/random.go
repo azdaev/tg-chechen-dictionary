@@ -50,10 +50,10 @@ func (n *Net) HandleRandom(ctx context.Context, chatID int64) error {
 }
 
 // HandleRandomCallback answers the "🎲 Ещё" button by sending another random word.
-func (n *Net) HandleRandomCallback(ctx context.Context, update *tgbotapi.Update) error {
-	callback := tgbotapi.NewCallback(update.CallbackQuery.ID, "")
+func (n *Net) HandleRandomCallback(ctx context.Context, cq *tgbotapi.CallbackQuery) error {
+	callback := tgbotapi.NewCallback(cq.ID, "")
 	if _, err := n.bot.Request(callback); err != nil {
 		n.log.WithError(err).Warn("failed to ack random callback")
 	}
-	return n.HandleRandom(ctx, update.CallbackQuery.Message.Chat.ID)
+	return n.HandleRandom(ctx, cq.Message.Chat.ID)
 }

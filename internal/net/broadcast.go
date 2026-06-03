@@ -16,45 +16,45 @@ type broadcastPayload struct {
 	HasPhoto bool
 }
 
-func (n *Net) HandleBroadcast(ctx context.Context, update *tgbotapi.Update) error {
-	if !n.isAdmin(update.Message.From.ID) {
+func (n *Net) HandleBroadcast(ctx context.Context, m *tgbotapi.Message) error {
+	if !n.isAdmin(m.From.ID) {
 		return nil
 	}
 
 	n.awaitingBroadcast = true
 	n.pendingBroadcast = nil
-	msg := tgbotapi.NewMessage(update.Message.Chat.ID, "Отправьте текст или фото с подписью. Я покажу превью перед рассылкой.")
+	msg := tgbotapi.NewMessage(m.Chat.ID, "Отправьте текст или фото с подписью. Я покажу превью перед рассылкой.")
 	_, err := n.bot.Send(msg)
 	return err
 }
 
-func (n *Net) HandleBroadcastCancel(update *tgbotapi.Update) error {
-	if !n.isAdmin(update.Message.From.ID) {
+func (n *Net) HandleBroadcastCancel(m *tgbotapi.Message) error {
+	if !n.isAdmin(m.From.ID) {
 		return nil
 	}
 
 	n.awaitingBroadcast = false
 	n.pendingBroadcast = nil
-	msg := tgbotapi.NewMessage(update.Message.Chat.ID, "Рассылка отменена.")
+	msg := tgbotapi.NewMessage(m.Chat.ID, "Рассылка отменена.")
 	_, err := n.bot.Send(msg)
 	return err
 }
 
-func (n *Net) HandleBroadcastContent(update *tgbotapi.Update) error {
-	if !n.isAdmin(update.Message.From.ID) {
+func (n *Net) HandleBroadcastContent(m *tgbotapi.Message) error {
+	if !n.isAdmin(m.From.ID) {
 		return nil
 	}
 
-	payload, err := buildBroadcastPayload(update.Message)
+	payload, err := buildBroadcastPayload(m)
 	if err != nil {
-		msg := tgbotapi.NewMessage(update.Message.Chat.ID, err.Error())
+		msg := tgbotapi.NewMessage(m.Chat.ID, err.Error())
 		_, sendErr := n.bot.Send(msg)
 		return sendErr
 	}
 
 	n.awaitingBroadcast = false
 	n.pendingBroadcast = payload
-	preview, err := n.sendBroadcastPreview(update.Message.Chat.ID, payload)
+	preview, err := n.sendBroadcastPreview(m.Chat.ID, payload)
 	if err != nil {
 		return err
 	}
@@ -62,30 +62,30 @@ func (n *Net) HandleBroadcastContent(update *tgbotapi.Update) error {
 	return err
 }
 
-func (n *Net) HandleBroadcastCallback(ctx context.Context, update *tgbotapi.Update) error {
-	if update.CallbackQuery == nil || !n.isAdmin(update.CallbackQuery.From.ID) {
+func (n *Net) HandleBroadcastCallback(ctx context.Context, cq *tgbotapi.CallbackQuery) error {
+	if cq == nil || !n.isAdmin(cq.From.ID) {
 		return nil
 	}
 
-	switch update.CallbackQuery.Data {
+	switch cq.Data {
 	case "broadcast_send":
-		callback := tgbotapi.NewCallback(update.CallbackQuery.ID, "Отправляю")
+		callback := tgbotapi.NewCallback(cq.ID, "Отправляю")
 		if _, err := n.bot.Request(callback); err != nil {
 			return fmt.Errorf("bot.Request: %w", err)
 		}
 		go func() {
-			if err := n.sendBroadcast(ctx, update); err != nil {
+			if err := n.sendBroadcast(ctx, cq); err != nil {
 				n.log.WithError(err).Error("service.sendBroadcast")
 			}
 		}()
 		return nil
 	case "broadcast_cancel":
 		n.pendingBroadcast = nil
-		callback := tgbotapi.NewCallback(update.CallbackQuery.ID, "Отменено")
+		callback := tgbotapi.NewCallback(cq.ID, "Отменено")
 		if _, err := n.bot.Request(callback); err != nil {
 			return fmt.Errorf("bot.Request: %w", err)
 		}
-		msg := tgbotapi.NewMessage(update.CallbackQuery.Message.Chat.ID, "Рассылка отменена.")
+		msg := tgbotapi.NewMessage(cq.Message.Chat.ID, "Рассылка отменена.")
 		_, err := n.bot.Send(msg)
 		return err
 	default:
@@ -93,14 +93,14 @@ func (n *Net) HandleBroadcastCallback(ctx context.Context, update *tgbotapi.Upda
 	}
 }
 
-func (n *Net) isAwaitingBroadcastContent(update *tgbotapi.Update) bool {
-	return update.Message != nil && n.awaitingBroadcast && n.isAdmin(update.Message.From.ID)
+func (n *Net) isAwaitingBroadcastContent(m *tgbotapi.Message) bool {
+	return m != nil && n.awaitingBroadcast && n.isAdmin(m.From.ID)
 }
 
-func (n *Net) sendBroadcast(ctx context.Context, update *tgbotapi.Update) error {
+func (n *Net) sendBroadcast(ctx context.Context, cq *tgbotapi.CallbackQuery) error {
 	payload := n.pendingBroadcast
 	if payload == nil {
-		callback := tgbotapi.NewCallback(update.CallbackQuery.ID, "Нет данных для рассылки")
+		callback := tgbotapi.NewCallback(cq.ID, "Нет данных для рассылки")
 		_, err := n.bot.Request(callback)
 		return err
 	}
@@ -131,7 +131,7 @@ func (n *Net) sendBroadcast(ctx context.Context, update *tgbotapi.Update) error 
 	n.pendingBroadcast = nil
 
 	summary := fmt.Sprintf("Рассылка завершена. Всего: %d, отправлено: %d, ошибки: %d, заблокировано: %d", len(userIDs), sent, failed, blocked)
-	msg := tgbotapi.NewMessage(update.CallbackQuery.Message.Chat.ID, summary)
+	msg := tgbotapi.NewMessage(cq.Message.Chat.ID, summary)
 	_, err = n.bot.Send(msg)
 	return err
 }

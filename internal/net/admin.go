@@ -11,16 +11,16 @@ import (
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
 
-func (n *Net) HandleStart(update *tgbotapi.Update) error {
-	video := tgbotapi.NewVideo(update.Message.Chat.ID, tgbotapi.FilePath(PathInlineVideo))
+func (n *Net) HandleStart(m *tgbotapi.Message) error {
+	video := tgbotapi.NewVideo(m.Chat.ID, tgbotapi.FilePath(PathInlineVideo))
 	video.Caption = StartMessageText
 
 	_, err := n.bot.Send(video)
 	return err
 }
 
-func (n *Net) HandleStats(ctx context.Context, update *tgbotapi.Update) error {
-	if !n.isAdmin(update.Message.From.ID) {
+func (n *Net) HandleStats(ctx context.Context, m *tgbotapi.Message) error {
+	if !n.isAdmin(m.From.ID) {
 		return nil
 	}
 
@@ -78,7 +78,7 @@ func (n *Net) HandleStats(ctx context.Context, update *tgbotapi.Update) error {
 		daily:           dailyActiveUsersLastMonth,
 	})
 
-	msg := tgbotapi.NewMessage(update.Message.Chat.ID, text)
+	msg := tgbotapi.NewMessage(m.Chat.ID, text)
 	msg.ParseMode = "html"
 
 	_, err = n.bot.Send(msg)
@@ -87,8 +87,8 @@ func (n *Net) HandleStats(ctx context.Context, update *tgbotapi.Update) error {
 
 // HandleMissingWords lists the most-searched words that have no translation,
 // helping maintainers prioritize which Chechen words to add to the dictionary.
-func (n *Net) HandleMissingWords(ctx context.Context, update *tgbotapi.Update) error {
-	if !n.isAdmin(update.Message.From.ID) {
+func (n *Net) HandleMissingWords(ctx context.Context, m *tgbotapi.Message) error {
+	if !n.isAdmin(m.From.ID) {
 		return nil
 	}
 
@@ -98,7 +98,7 @@ func (n *Net) HandleMissingWords(ctx context.Context, update *tgbotapi.Update) e
 	}
 
 	if len(words) == 0 {
-		_, err = n.bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, MissingWordsEmpty))
+		_, err = n.bot.Send(tgbotapi.NewMessage(m.Chat.ID, MissingWordsEmpty))
 		return err
 	}
 
@@ -111,7 +111,7 @@ func (n *Net) HandleMissingWords(ctx context.Context, update *tgbotapi.Update) e
 		text += fmt.Sprintf(MissingWordRowFormat, i+1, tgbotapi.EscapeText(tgbotapi.ModeHTML, display), w.SearchCount)
 	}
 
-	msg := tgbotapi.NewMessage(update.Message.Chat.ID, text)
+	msg := tgbotapi.NewMessage(m.Chat.ID, text)
 	msg.ParseMode = "html"
 	_, err = n.bot.Send(msg)
 	return err
