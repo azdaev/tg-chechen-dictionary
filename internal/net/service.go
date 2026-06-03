@@ -71,37 +71,84 @@ type Business interface {
 	GrammarFor(ctx context.Context, word string) *models.WordGrammar
 }
 
+// Repository is the persistence boundary the handlers depend on. It is composed
+// from per-domain sub-interfaces so each storage concern can be read (and, in
+// tests, mocked) in isolation. The concrete *repository.Repository satisfies the
+// whole set; the split is purely for documentation and testability.
 type Repository interface {
+	UserStore
+	StatsStore
+	DictionaryStore
+	MissingWordStore
+	SpellcheckStore
+	SubscriptionStore
+	QuizStore
+	WordOfDayStore
+}
+
+// UserStore tracks users, their activity, block state, and donation prompts.
+type UserStore interface {
 	StoreUser(ctx context.Context, userID int, username string) error
 	StoreActivity(ctx context.Context, userID int, activityType models.ActivityType) error
-	CountNewMonthlyUsers(ctx context.Context, month int, year int) (int, error)
-	DailyActiveUsersInMonth(ctx context.Context, month int, year int, days int) ([]models.DailyActivity, error)
-	MonthlyActiveUsers(ctx context.Context, month int, year int) (int, error)
-	ShouldSendDonationMessage(ctx context.Context, userID int) (bool, error)
-	StoreDonationMessage(ctx context.Context, userID int) error
 	ListUserIDs(ctx context.Context) ([]int64, error)
 	MarkUserBlocked(ctx context.Context, userID int64, reason string) error
 	MarkUserUnblocked(ctx context.Context, userID int64) error
+	ShouldSendDonationMessage(ctx context.Context, userID int) (bool, error)
+	StoreDonationMessage(ctx context.Context, userID int) error
+}
+
+// StatsStore answers the aggregate questions behind /stats.
+type StatsStore interface {
+	CountNewMonthlyUsers(ctx context.Context, month int, year int) (int, error)
+	DailyActiveUsersInMonth(ctx context.Context, month int, year int, days int) ([]models.DailyActivity, error)
+	MonthlyActiveUsers(ctx context.Context, month int, year int) (int, error)
+}
+
+// DictionaryStore holds the user-contributed translation pairs and their
+// moderation/formatting state.
+type DictionaryStore interface {
 	ListPendingTranslationPairs(ctx context.Context, limit int) ([]repository.TranslationPair, error)
 	ListPendingTranslationPairsByWord(ctx context.Context, cleanWord string, limit int) ([]repository.TranslationPair, error)
 	SetTranslationPairFormattingChoice(ctx context.Context, id int64, choice string) error
 	FindTranslationPairs(ctx context.Context, cleanWord string, limit int) ([]models.TranslationPairs, error)
 	FindStrictlyApprovedPairs(ctx context.Context, cleanWord string, limit int) ([]models.TranslationPairs, error)
 	GetPairCleanWords(ctx context.Context, pairID int64) ([]string, error)
+	RandomApprovedPair(ctx context.Context) (*models.RandomWord, error)
+	CountDictionaryPairs(ctx context.Context) (total int, approved int, err error)
+}
+
+// MissingWordStore records lookups that found no translation, so maintainers
+// know what coverage to add next.
+type MissingWordStore interface {
+	RecordMissingWord(ctx context.Context, cleanWord, rawWord string) error
+	TopMissingWords(ctx context.Context, limit int) ([]models.MissingWord, error)
+	CountMissingWords(ctx context.Context) (int, error)
+}
+
+// SpellcheckStore persists spellcheck feedback and per-user monthly usage (for
+// the free-tier quota).
+type SpellcheckStore interface {
 	StoreSpellcheckFeedback(ctx context.Context, userID int64, originalText, correctedText, feedback string) error
 	GetSpellcheckUsage(ctx context.Context, userID int64, month, year int) (int, error)
 	IncrementSpellcheckUsage(ctx context.Context, userID int64, month, year int) error
+}
+
+// SubscriptionStore tracks paid subscriptions purchased via Telegram Payments.
+type SubscriptionStore interface {
 	HasActiveSubscription(ctx context.Context, userID int64) (bool, error)
 	CreateSubscription(ctx context.Context, userID int64, expiresAt time.Time, telegramPaymentID string) error
-	RecordMissingWord(ctx context.Context, cleanWord, rawWord string) error
-	TopMissingWords(ctx context.Context, limit int) ([]models.MissingWord, error)
-	RandomApprovedPair(ctx context.Context) (*models.RandomWord, error)
-	CountDictionaryPairs(ctx context.Context) (total int, approved int, err error)
-	CountMissingWords(ctx context.Context) (int, error)
+}
+
+// QuizStore records /quiz answers and the leaderboard behind /top.
+type QuizStore interface {
 	RecordQuizAnswer(ctx context.Context, userID int64, username string, correct bool) error
 	GetQuizScore(ctx context.Context, userID int64) (correct int, total int, err error)
 	TopQuizScorers(ctx context.Context, limit int) ([]models.QuizScorer, error)
 	CountQuizStats(ctx context.Context) (players, totalAnswers, correctAnswers int, err error)
+}
+
+// WordOfDayStore manages opt-in subscriptions for the daily "Word of the Day".
+type WordOfDayStore interface {
 	SetWordOfDaySubscription(ctx context.Context, userID int64, subscribed bool) error
 	IsWordOfDaySubscribed(ctx context.Context, userID int64) (bool, error)
 	ListWordOfDaySubscribers(ctx context.Context) ([]int64, error)
