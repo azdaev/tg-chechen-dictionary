@@ -85,6 +85,11 @@ func (n *Net) HandleText(ctx context.Context, update *tgbotapi.Update) error {
 		return fmt.Errorf("bot.Send: %w", err)
 	}
 
+	// Grammar card for the Chechen headword, sent as a follow-up so it never
+	// delays the (usually cached) translation above. Runs detached because the
+	// update loop processes messages synchronously and this makes a live API call.
+	go n.sendGrammarCard(context.Background(), m.Chat.ID, m.Text)
+
 	// Check if we should send a donation message
 	shouldSend, err := n.repo.ShouldSendDonationMessage(ctx, int(update.Message.From.ID))
 	if err != nil {
@@ -235,6 +240,67 @@ func parseMoreCallback(data string) (word string, offset int, ok bool) {
 		return "", 0, false
 	}
 	return rest[:idx], n, true
+}
+
+// maxGrammarForms caps how many inflected forms the grammar card lists, so a
+// word with a long paradigm doesn't produce an overwhelming message.
+const maxGrammarForms = 12
+
+// sendGrammarCard looks up grammar for the Chechen headword behind a query and,
+// if any is available, sends a compact follow-up card. It is a no-op when the
+// word has no analyzed grammar, so most TEXT/phrase lookups send nothing.
+func (n *Net) sendGrammarCard(ctx context.Context, chatID int64, word string) {
+	g := n.business.GrammarFor(ctx, word)
+	if g == nil {
+		return
+	}
+	text := formatGrammarCard(g)
+	if text == "" {
+		return
+	}
+	msg := tgbotapi.NewMessage(chatID, text)
+	msg.ParseMode = "html"
+	msg.DisableNotification = true
+	if _, err := n.bot.Send(msg); err != nil {
+		n.log.WithError(err).Warn("failed to send grammar card")
+	}
+}
+
+// formatGrammarCard renders a WordGrammar as a small Telegram-HTML card. Only
+// facts safe to show without the dosham integer-code legend are included: the
+// part of speech (when confidently known) and the inflected forms.
+func formatGrammarCard(g *models.WordGrammar) string {
+	if g == nil || g.Headword == "" {
+		return ""
+	}
+	header := "📖 <b>" + tools.Clean(g.Headword) + "</b>"
+	if g.POS != "" {
+		header += " · " + g.POS
+	}
+
+	lines := []string{header}
+	if len(g.Forms) > 0 {
+		forms := g.Forms
+		more := 0
+		if len(forms) > maxGrammarForms {
+			more = len(forms) - maxGrammarForms
+			forms = forms[:maxGrammarForms]
+		}
+		cleaned := make([]string, 0, len(forms))
+		for _, f := range forms {
+			cleaned = append(cleaned, tools.Clean(f))
+		}
+		line := "Формы: " + strings.Join(cleaned, ", ")
+		if more > 0 {
+			line += fmt.Sprintf(" … (+%d)", more)
+		}
+		lines = append(lines, line)
+	}
+
+	if len(lines) == 1 && g.POS == "" {
+		return "" // only a bare headword — nothing useful to show
+	}
+	return strings.Join(lines, "\n")
 }
 
 func formatTranslations(translations []models.TranslationPairs) string {

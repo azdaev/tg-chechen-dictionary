@@ -68,6 +68,7 @@ type Business interface {
 	AIFormattingEnabled() bool
 	RandomWordFromAPI(ctx context.Context) (*models.RandomWord, error)
 	GenerateQuiz(ctx context.Context) (*models.QuizQuestion, error)
+	GrammarFor(ctx context.Context, word string) *models.WordGrammar
 }
 
 type Repository interface {
