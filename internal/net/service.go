@@ -74,6 +74,7 @@ type Business interface {
 	GenerateQuiz(ctx context.Context) (*models.QuizQuestion, error)
 	GrammarFor(ctx context.Context, word string) *models.WordGrammar
 	TranslationCacheStats() (hits, misses int64)
+	RecheckTranslation(word string) bool
 }
 
 // Repository is the persistence boundary the handlers depend on. It is composed

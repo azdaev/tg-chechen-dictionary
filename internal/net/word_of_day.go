@@ -96,9 +96,44 @@ func (n *Net) StartWordOfDayScheduler(ctx context.Context) {
 				return
 			case <-timer.C:
 				n.sendWordOfDay(ctx)
+				n.resolveMissingWords(ctx)
 			}
 		}
 	}()
+}
+
+// missingWordsRecheckLimit caps how many gap-list words the daily sweep
+// re-checks against the API.
+const missingWordsRecheckLimit = 50
+
+// resolveMissingWords re-checks the most-wanted missing words once a day:
+// dosham grows, and resolved entries should leave the report without waiting
+// for a user to happen to re-search them.
+func (n *Net) resolveMissingWords(ctx context.Context) {
+	words, err := n.repo.TopMissingWords(ctx, missingWordsRecheckLimit)
+	if err != nil {
+		n.log.WithError(err).Warn("missing words recheck: list")
+		return
+	}
+	resolved := 0
+	for _, w := range words {
+		select {
+		case <-ctx.Done():
+			return
+		default:
+		}
+		if n.business.RecheckTranslation(w.CleanWord) {
+			if err := n.repo.ResolveMissingWord(ctx, w.CleanWord); err != nil {
+				n.log.WithError(err).WithField("word", w.CleanWord).Warn("missing words recheck: resolve")
+				continue
+			}
+			resolved++
+		}
+		time.Sleep(500 * time.Millisecond) // be kind to the dosham API
+	}
+	if resolved > 0 {
+		n.log.Infof("missing words recheck: resolved %d of %d", resolved, len(words))
+	}
 }
 
 // wordOfDayDue reports whether today's broadcast was missed: the send hour

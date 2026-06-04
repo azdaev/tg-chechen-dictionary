@@ -154,6 +154,18 @@ func toNullString(v string) sql.NullString {
 	return sql.NullString{String: v, Valid: true}
 }
 
+// RecheckTranslation queries the API afresh, bypassing the negative cache,
+// and reports whether the word has translations now. Used by the daily
+// missing-words sweep; a found result is cached so the next search is instant.
+func (b *Business) RecheckTranslation(word string) bool {
+	translations := b.fetchTranslationsWithFallback(word)
+	if len(translations) == 0 {
+		return false
+	}
+	b.cacheTranslationsAsync(context.Background(), normalizeCacheKey(word), translations)
+	return true
+}
+
 // fetchTranslationsWithFallback queries the API for word and, when the results
 // lack an exact headword match for a ё/е-ambiguous query, retries with the
 // candidate respellings and puts those results first. The dosham search is a

@@ -101,6 +101,18 @@ func TestFetchTranslations_YoFallbackFindsVariant(t *testing.T) {
 	}
 }
 
+func TestRecheckTranslation(t *testing.T) {
+	stubDoshamFind(t, map[string]string{"яблоко": "Яблоко"})
+	b := &Business{log: logrus.New(), cache: cache.NewCache("127.0.0.1:1", "")}
+
+	if !b.RecheckTranslation("яблоко") {
+		t.Error("word now in the dictionary must report true")
+	}
+	if b.RecheckTranslation("ыыыы") {
+		t.Error("still-missing word must report false")
+	}
+}
+
 func TestSuggestTranslations_PhraseFallsBackToWords(t *testing.T) {
 	// The phrase itself has no entry; each word does. Both words' top pairs
 	// come back as suggestions, in phrase order.
