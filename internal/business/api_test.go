@@ -90,6 +90,18 @@ func TestSuggestTranslations_LongestPrefixWins(t *testing.T) {
 	}
 }
 
+func TestFetchTranslations_YoFallbackFindsVariant(t *testing.T) {
+	// "береза" itself misses; the ё-respelling "берёза" hits. Variant lookups
+	// run concurrently, but the merged result must still surface the match.
+	stubDoshamFind(t, map[string]string{"берёза": "Берёза"})
+	b := &Business{log: logrus.New()}
+
+	got := b.fetchTranslationsWithFallback("береза")
+	if len(got) != 1 || got[0].Original != "Берёза" {
+		t.Fatalf("translations = %+v, want exactly [Берёза]", got)
+	}
+}
+
 type recordingDictRepo struct {
 	inserted chan repository.TranslationPair
 }

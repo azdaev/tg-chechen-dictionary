@@ -177,8 +177,26 @@ func (b *Business) fetchTranslationsWithFallback(word string) []models.Translati
 		return translations
 	}
 
-	for _, alt := range tools.YoVariants(word) {
-		altPairs := b.fetchTranslationsFromAPI(alt)
+	variants := tools.YoVariants(word)
+	if len(variants) == 0 {
+		return translations
+	}
+
+	// The user is already waiting on a miss, so variant lookups run
+	// concurrently instead of chaining API round trips. Merging still follows
+	// variant order, so the result is the same as the sequential version.
+	results := make([][]models.TranslationPairs, len(variants))
+	var wg sync.WaitGroup
+	for i, alt := range variants {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			results[i] = b.fetchTranslationsFromAPI(alt)
+		}()
+	}
+	wg.Wait()
+
+	for _, altPairs := range results {
 		if len(altPairs) == 0 {
 			continue
 		}
