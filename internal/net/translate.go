@@ -61,7 +61,7 @@ func (n *Net) HandleText(ctx context.Context, m *tgbotapi.Message) error {
 		firstTranslations = translations[:MaxTranslations]
 	}
 
-	msg := tgbotapi.NewMessage(m.Chat.ID, tools.FormatPairs(firstTranslations))
+	msg := tgbotapi.NewMessage(m.Chat.ID, clampMessage(tools.FormatPairs(firstTranslations)))
 	msg.ParseMode = "html"
 
 	if len(translations) > MaxTranslations {
@@ -123,6 +123,24 @@ func (n *Net) maybeSendDonation(ctx context.Context, chatID int64, userID int) {
 	if err := n.repo.StoreDonationMessage(ctx, userID); err != nil {
 		n.log.WithError(err).WithField("user_id", userID).Warn("failed to store donation message")
 	}
+}
+
+// clampMessage keeps text under Telegram's message-length cap; an oversized
+// message is rejected outright, so the user would get nothing at all. The cut
+// lands on a line boundary so HTML tags inside a line aren't split open.
+func clampMessage(text string) string {
+	// Telegram's limit is 4096; leave margin for the help-text suffixes some
+	// callers append after clamping.
+	const limit = 3800
+	runes := []rune(text)
+	if len(runes) <= limit {
+		return text
+	}
+	cut := string(runes[:limit])
+	if i := strings.LastIndex(cut, "\n"); i > 0 {
+		cut = cut[:i]
+	}
+	return cut + "\n…"
 }
 
 // isRecordableMissingWord filters dead-end searches before they reach the
@@ -192,7 +210,7 @@ func (n *Net) HandleInline(ctx context.Context, iq *tgbotapi.InlineQuery) error 
 		// The sent message gets the same card the text path produces, instead
 		// of dumping the raw gloss ("м 1) цӏа; деревянный ~- …"). The picker
 		// description shows the card minus its headword, condensed to one line.
-		formatted := tools.FormatPairs(translations[i : i+1])
+		formatted := clampMessage(tools.FormatPairs(translations[i : i+1]))
 		article := tgbotapi.NewInlineQueryResultArticle(iq.ID+strconv.Itoa(i), title, "")
 		article.Description = strings.ReplaceAll(
 			strings.TrimPrefix(formatted, tools.Clean(translations[i].Original)+" — "), "\n", " · ")
@@ -257,7 +275,7 @@ func (n *Net) HandleMoreTranslations(ctx context.Context, cq *tgbotapi.CallbackQ
 	end := min(offset+MaxTranslations, len(translations))
 	nextTranslations := translations[offset:end]
 
-	msg := tgbotapi.NewMessage(cq.Message.Chat.ID, tools.FormatPairs(nextTranslations))
+	msg := tgbotapi.NewMessage(cq.Message.Chat.ID, clampMessage(tools.FormatPairs(nextTranslations)))
 	msg.ParseMode = "html"
 
 	if end < len(translations) {

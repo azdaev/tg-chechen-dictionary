@@ -26,6 +26,28 @@ func TestMoreCallbackData_FitsLimit(t *testing.T) {
 	}
 }
 
+func TestClampMessage(t *testing.T) {
+	if got := clampMessage("короткий текст"); got != "короткий текст" {
+		t.Errorf("short text must pass through, got %q", got)
+	}
+
+	// An oversized card is cut at a line boundary and marked with an ellipsis.
+	line := strings.Repeat("ц", 80)
+	long := strings.Repeat(line+"\n", 60)
+	got := clampMessage(long)
+	if n := len([]rune(got)); n > 3800+2 {
+		t.Errorf("clamped length = %d runes, want <= 3802", n)
+	}
+	if !strings.HasSuffix(got, "\n…") {
+		t.Errorf("clamped text must end with ellipsis, got %q", got[len(got)-20:])
+	}
+	for l := range strings.SplitSeq(strings.TrimSuffix(got, "\n…"), "\n") {
+		if len([]rune(l)) != 80 {
+			t.Errorf("clamp split a line: %d runes", len([]rune(l)))
+		}
+	}
+}
+
 func TestIsRecordableMissingWord(t *testing.T) {
 	cases := []struct {
 		word string
