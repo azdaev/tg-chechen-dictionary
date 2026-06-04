@@ -101,6 +101,18 @@ func TestFetchTranslations_YoFallbackFindsVariant(t *testing.T) {
 	}
 }
 
+func TestSuggestTranslations_PhraseFallsBackToWords(t *testing.T) {
+	// The phrase itself has no entry; each word does. Both words' top pairs
+	// come back as suggestions, in phrase order.
+	stubDoshamFind(t, map[string]string{"красное": "Красный", "яблоко": "Яблоко"})
+	b := &Business{log: logrus.New(), cache: cache.NewCache("127.0.0.1:1", "")}
+
+	got := b.SuggestTranslations("красное яблоко")
+	if len(got) != 2 || got[0].Original != "Красный" || got[1].Original != "Яблоко" {
+		t.Fatalf("suggestions = %+v, want [Красный Яблоко]", got)
+	}
+}
+
 type recordingDictRepo struct {
 	inserted chan repository.TranslationPair
 }

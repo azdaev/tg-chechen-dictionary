@@ -240,6 +240,12 @@ const (
 // failed search, so this can't afford to chain API round trips — but the
 // longest matching prefix still wins.
 func (b *Business) SuggestTranslations(word string) []models.TranslationPairs {
+	// A phrase the dictionary lacks as a whole is rescued word by word:
+	// "красное яблоко" suggests «Красный» and «Яблоко» instead of nothing.
+	if words := phraseWords(word); len(words) > 1 {
+		return b.suggestFromPhraseWords(words)
+	}
+
 	prefixes := prefixCandidates(word)
 	if len(prefixes) == 0 {
 		return nil
@@ -278,6 +284,53 @@ func (b *Business) SuggestTranslations(word string) []models.TranslationPairs {
 		}
 	}
 	return nil
+}
+
+// phraseWords splits a multi-word query into distinct lookup-worthy words,
+// skipping short particles. Returns nil for single-word queries.
+func phraseWords(query string) []string {
+	fields := strings.Fields(strings.TrimSpace(query))
+	if len(fields) < 2 {
+		return nil
+	}
+	seen := make(map[string]bool, len(fields))
+	var out []string
+	for _, f := range fields {
+		if len([]rune(f)) < minSuggestPrefix {
+			continue
+		}
+		key := tools.NormalizeSearch(f)
+		if key == "" || seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, f)
+		if len(out) == maxSuggestions {
+			break
+		}
+	}
+	return out
+}
+
+// suggestFromPhraseWords translates each word of a failed phrase concurrently
+// and offers the top pair of every word that resolves.
+func (b *Business) suggestFromPhraseWords(words []string) []models.TranslationPairs {
+	results := make([][]models.TranslationPairs, len(words))
+	var wg sync.WaitGroup
+	for i, w := range words {
+		wg.Go(func() {
+			if pairs := b.Translate(w); len(pairs) > 0 {
+				results[i] = pairs[:1]
+			}
+		})
+	}
+	wg.Wait()
+
+	var out []models.TranslationPairs
+	for _, r := range results {
+		out = append(out, r...)
+	}
+	return out
 }
 
 // prefixCandidates returns the query with 1..maxSuggestTrims trailing runes
