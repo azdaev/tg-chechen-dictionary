@@ -190,6 +190,11 @@ func NewNet(log *logrus.Logger, repo Repository, bot *tgbotapi.BotAPI, business 
 // other user's message.
 const maxConcurrentUpdates = 8
 
+// slowUpdateThreshold flags handlers that keep a user waiting long enough to
+// notice. AI-backed paths (/check) legitimately take a few seconds; anything
+// past this is worth a look in the logs.
+const slowUpdateThreshold = 5 * time.Second
+
 func (n *Net) Start(ctx context.Context) {
 	n.log.Info("starting service")
 
@@ -202,9 +207,10 @@ func (n *Net) Start(ctx context.Context) {
 
 	// dispatch runs a handler concurrently, bounded by the semaphore — when all
 	// slots are busy the loop applies backpressure instead of spawning unbounded
-	// goroutines. A panicking handler is logged, not fatal.
+	// goroutines. A panicking handler is logged, not fatal. Slow handlers are
+	// logged with their kind so optimization targets come from live data.
 	sem := make(chan struct{}, maxConcurrentUpdates)
-	dispatch := func(fn func()) {
+	dispatch := func(kind string, fn func()) {
 		sem <- struct{}{}
 		go func() {
 			defer func() {
@@ -213,7 +219,11 @@ func (n *Net) Start(ctx context.Context) {
 				}
 				<-sem
 			}()
+			start := time.Now()
 			fn()
+			if d := time.Since(start); d > slowUpdateThreshold {
+				n.log.WithField("kind", kind).WithField("duration", d.Round(time.Millisecond).String()).Warn("slow update")
+			}
 		}()
 	}
 
@@ -221,7 +231,7 @@ func (n *Net) Start(ctx context.Context) {
 		// Callbacks
 		if update.CallbackQuery != nil {
 			cq := update.CallbackQuery
-			dispatch(func() { n.routeCallback(ctx, cq) })
+			dispatch("callback", func() { n.routeCallback(ctx, cq) })
 			continue
 		}
 
@@ -252,14 +262,14 @@ func (n *Net) Start(ctx context.Context) {
 				continue
 			}
 			m := update.Message
-			dispatch(func() { n.routeMessage(ctx, m) })
+			dispatch("message", func() { n.routeMessage(ctx, m) })
 			continue
 		}
 
 		// Inline queries
 		if update.InlineQuery != nil && update.InlineQuery.Query != "" {
 			iq := update.InlineQuery
-			dispatch(func() { n.routeInline(ctx, iq) })
+			dispatch("inline", func() { n.routeInline(ctx, iq) })
 			continue
 		}
 	}
