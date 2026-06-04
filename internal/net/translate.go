@@ -26,12 +26,12 @@ func (n *Net) HandleText(ctx context.Context, m *tgbotapi.Message) error {
 	if len(translations) == 0 {
 		// Record the vocabulary gap so maintainers know what to add next —
 		// detached, so the write never delays the reply the user is waiting on.
-		go func() {
+		n.bg.Go(func() {
 			cleanWord := tools.NormalizeSearch(m.Text)
 			if err := n.repo.RecordMissingWord(ctx, cleanWord, strings.TrimSpace(m.Text)); err != nil {
 				n.log.WithError(err).WithField("word", cleanWord).Warn("failed to record missing word")
 			}
-		}()
+		})
 		text := NoTranslationText
 		if suggestions := n.business.SuggestTranslations(m.Text); len(suggestions) > 0 {
 			text += "\n\n" + SuggestionsHeaderText + "\n\n" + tools.FormatPairs(suggestions)
@@ -75,11 +75,11 @@ func (n *Net) HandleText(ctx context.Context, m *tgbotapi.Message) error {
 	// Grammar card for the Chechen headword, sent as a follow-up so it never
 	// delays the (usually cached) translation above. Runs detached because the
 	// update loop processes messages synchronously and this makes a live API call.
-	go n.sendGrammarCard(context.Background(), m.Chat.ID, m.Text)
+	n.bg.Go(func() { n.sendGrammarCard(context.Background(), m.Chat.ID, m.Text) })
 
 	// Donation nudge runs detached: it is a DB check plus an extra Telegram
 	// message per lookup, and was the last synchronous roundtrip in this tail.
-	go n.maybeSendDonation(context.Background(), m.Chat.ID, int(m.From.ID))
+	n.bg.Go(func() { n.maybeSendDonation(context.Background(), m.Chat.ID, int(m.From.ID)) })
 
 	return nil
 }

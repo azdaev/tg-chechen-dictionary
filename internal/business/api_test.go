@@ -10,7 +10,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
-	"time"
 
 	"github.com/sirupsen/logrus"
 )
@@ -133,12 +132,13 @@ func TestFetchTranslations_StoresPairsDetached(t *testing.T) {
 		t.Fatalf("translations = %+v, want 1 pair", got)
 	}
 
+	b.WaitBackground()
 	select {
 	case pair := <-repo.inserted:
 		if pair.OriginalClean != "яблоко" || pair.TranslationLang != "CHE" {
 			t.Fatalf("stored pair = %+v", pair)
 		}
-	case <-time.After(2 * time.Second):
+	default:
 		t.Fatal("pair was never persisted")
 	}
 }

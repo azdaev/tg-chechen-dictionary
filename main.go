@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 	"github.com/sirupsen/logrus"
@@ -98,4 +99,18 @@ func main() {
 	botService.StartWordOfDayScheduler(ctx)
 
 	botService.Start(ctx)
+
+	// Bounded grace for detached background work (pair persistence, cache
+	// writes) before the deferred db.Close cuts it off.
+	done := make(chan struct{})
+	go func() {
+		botService.WaitBackground()
+		translator.WaitBackground()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		log.Warn("background work still running at shutdown")
+	}
 }

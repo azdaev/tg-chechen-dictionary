@@ -37,6 +37,15 @@ type Business struct {
 
 	cacheHits   atomic.Int64
 	cacheMisses atomic.Int64
+
+	// bg tracks detached persistence work (pair storage, AI formatting, cache
+	// writes) so shutdown can wait for it instead of cutting writes mid-flight.
+	bg sync.WaitGroup
+}
+
+// WaitBackground blocks until detached background work has finished.
+func (b *Business) WaitBackground() {
+	b.bg.Wait()
 }
 
 // TranslationCacheStats returns hit/miss counts for the translation cache
@@ -168,11 +177,7 @@ func (b *Business) fetchTranslationsWithFallback(word string) []models.Translati
 	results := make([][]models.TranslationPairs, len(variants))
 	var wg sync.WaitGroup
 	for i, alt := range variants {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			results[i] = b.fetchTranslationsFromAPI(alt)
-		}()
+		wg.Go(func() { results[i] = b.fetchTranslationsFromAPI(alt) })
 	}
 	wg.Wait()
 
@@ -242,11 +247,7 @@ func (b *Business) SuggestTranslations(word string) []models.TranslationPairs {
 	results := make([][]models.TranslationPairs, len(prefixes))
 	var wg sync.WaitGroup
 	for i, prefix := range prefixes {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			results[i] = filterPrefixMatches(b.Translate(prefix), prefix)
-		}()
+		wg.Go(func() { results[i] = filterPrefixMatches(b.Translate(prefix), prefix) })
 	}
 	wg.Wait()
 
@@ -349,11 +350,11 @@ func (b *Business) fetchTranslationsFromAPI(word string) []models.TranslationPai
 	// and a common word carries dozens of them — run detached so those round
 	// trips never sit between the user and the answer.
 	if len(toStore) > 0 && b.dictRepo != nil {
-		go func() {
+		b.bg.Go(func() {
 			for _, p := range toStore {
 				b.storeTranslationPair(p.entry, p.translation)
 			}
-		}()
+		})
 	}
 
 	if utf8.RuneCountInString(word) <= 3 && len(translations) >= 10 {
@@ -386,11 +387,11 @@ func (b *Business) loadCachedTranslations(ctx context.Context, cacheKey string) 
 }
 
 func (b *Business) cacheTranslationsAsync(ctx context.Context, cacheKey string, translations []models.TranslationPairs) {
-	go func() {
+	b.bg.Go(func() {
 		if err := b.cache.Set(ctx, cacheKey, translations); err != nil {
 			b.log.Printf("failed to cache translation: %v\n", err)
 		}
-	}()
+	})
 }
 
 func (b *Business) loadLocalTranslations(ctx context.Context, word string) []models.TranslationPairs {
@@ -446,10 +447,10 @@ func (b *Business) storeTranslationPair(entry models.Entry, translation models.T
 	}
 
 	if b.aiFormattingEnabled && b.aiClient != nil {
-		go b.formatPairWithAI(pairID, pair.OriginalClean, pair.OriginalRaw, pair.TranslationRaw)
+		b.bg.Go(func() { b.formatPairWithAI(pairID, pair.OriginalClean, pair.OriginalRaw, pair.TranslationRaw) })
 	} else if b.onPairReady != nil {
 		// No AI client — trigger moderation immediately
-		go b.onPairReady(pairID, pair.OriginalClean)
+		b.bg.Go(func() { b.onPairReady(pairID, pair.OriginalClean) })
 	}
 }
 

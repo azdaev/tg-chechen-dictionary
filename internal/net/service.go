@@ -172,6 +172,15 @@ type Net struct {
 
 	inlineSpellMu     sync.Mutex
 	inlineSpellLatest map[int64]string
+
+	// bg tracks detached post-reply work (donation nudge, cache invalidation,
+	// missing-word records) so shutdown can wait for it.
+	bg sync.WaitGroup
+}
+
+// WaitBackground blocks until detached background work has finished.
+func (n *Net) WaitBackground() {
+	n.bg.Wait()
 }
 
 func NewNet(log *logrus.Logger, repo Repository, bot *tgbotapi.BotAPI, business Business, cache *cache.Cache, aiClient AI) *Net {

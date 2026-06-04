@@ -75,7 +75,7 @@ func (n *Net) HandleModerationCallback(ctx context.Context, cq *tgbotapi.Callbac
 		return fmt.Errorf("repo.SetTranslationPairFormattingChoice: %w", err)
 	}
 
-	go n.invalidateCacheForPair(ctx, id)
+	n.bg.Go(func() { n.invalidateCacheForPair(ctx, id) })
 
 	edited := tgbotapi.NewEditMessageText(
 		cq.Message.Chat.ID,
