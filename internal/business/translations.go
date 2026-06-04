@@ -16,6 +16,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -33,6 +34,15 @@ type Business struct {
 	log                 *logrus.Logger
 	onPairReady         OnPairReady
 	pool                wordPool
+
+	cacheHits   atomic.Int64
+	cacheMisses atomic.Int64
+}
+
+// TranslationCacheStats returns hit/miss counts for the translation cache
+// since process start.
+func (b *Business) TranslationCacheStats() (hits, misses int64) {
+	return b.cacheHits.Load(), b.cacheMisses.Load()
 }
 
 type DictionaryRepository interface {
@@ -368,8 +378,10 @@ func (b *Business) loadCachedTranslations(ctx context.Context, cacheKey string) 
 		if !errors.Is(err, cache.ErrMiss) {
 			b.log.Printf("cache get failed for %q: %v\n", cacheKey, err)
 		}
+		b.cacheMisses.Add(1)
 		return nil, false
 	}
+	b.cacheHits.Add(1)
 	return translations, true
 }
 

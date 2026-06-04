@@ -76,6 +76,8 @@ func (n *Net) HandleStats(ctx context.Context, m *tgbotapi.Message) error {
 		return fmt.Errorf("repo.CountQuizStats: %w", err)
 	}
 
+	cacheHits, cacheMisses := n.business.TranslationCacheStats()
+
 	text := buildStatsMessage(statsData{
 		month:           month,
 		year:            year,
@@ -88,6 +90,8 @@ func (n *Net) HandleStats(ctx context.Context, m *tgbotapi.Message) error {
 		quizPlayers:     quizPlayers,
 		quizAnswers:     quizAnswers,
 		quizCorrect:     quizCorrect,
+		cacheHits:       cacheHits,
+		cacheMisses:     cacheMisses,
 		daily:           dailyActiveUsersLastMonth,
 	})
 
@@ -148,6 +152,8 @@ type statsData struct {
 	quizPlayers     int
 	quizAnswers     int
 	quizCorrect     int
+	cacheHits       int64
+	cacheMisses     int64
 	daily           []models.DailyActivity
 }
 
@@ -190,6 +196,12 @@ func buildStatsMessage(d statsData) string {
 		quizPct = d.quizCorrect * 100 / d.quizAnswers
 	}
 	fmt.Fprintf(&b, "✅ Ответов: <b>%s</b> (верных %s, %d%%)\n\n", formatThousands(d.quizAnswers), formatThousands(d.quizCorrect), quizPct)
+
+	if lookups := d.cacheHits + d.cacheMisses; lookups > 0 {
+		b.WriteString("⚡ <b>Кэш переводов</b> <i>(с перезапуска)</i>\n")
+		fmt.Fprintf(&b, "🎯 Хиты: <b>%s</b> из <b>%s</b> (%d%%)\n\n",
+			formatThousands(int(d.cacheHits)), formatThousands(int(lookups)), d.cacheHits*100/lookups)
+	}
 
 	b.WriteString("📅 <b>По дням</b> <i>(день · 🟢 активных · 🔁 вызовов)</i>\n")
 	if activeDays == 0 {
