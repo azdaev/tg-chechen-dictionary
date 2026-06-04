@@ -8,6 +8,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"unicode"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
@@ -28,6 +29,9 @@ func (n *Net) HandleText(ctx context.Context, m *tgbotapi.Message) error {
 		// detached, so the write never delays the reply the user is waiting on.
 		n.bg.Go(func() {
 			cleanWord := tools.NormalizeSearch(m.Text)
+			if !isRecordableMissingWord(cleanWord) {
+				return
+			}
 			if err := n.repo.RecordMissingWord(ctx, cleanWord, strings.TrimSpace(m.Text)); err != nil {
 				n.log.WithError(err).WithField("word", cleanWord).Warn("failed to record missing word")
 			}
@@ -119,6 +123,33 @@ func (n *Net) maybeSendDonation(ctx context.Context, chatID int64, userID int) {
 	if err := n.repo.StoreDonationMessage(ctx, userID); err != nil {
 		n.log.WithError(err).WithField("user_id", userID).Warn("failed to store donation message")
 	}
+}
+
+// isRecordableMissingWord filters dead-end searches before they reach the
+// missing-words report: URLs, Latin-only strings, digits and whole sentences
+// are not dictionary candidates and would bury the real gaps.
+func isRecordableMissingWord(cleanWord string) bool {
+	runes := []rune(cleanWord)
+	if len(runes) < 2 || len(runes) > 40 {
+		return false
+	}
+	if strings.Count(cleanWord, " ") > 2 {
+		return false
+	}
+	hasCyrillic := false
+	for _, r := range runes {
+		switch {
+		case r >= 'а' && r <= 'я' || r == 'ё' || r == 'ӏ':
+			hasCyrillic = true
+		case r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z':
+			return false
+		case unicode.IsDigit(r) && r != '1':
+			// "1" stays: it is how Russian keyboards type the palochka
+			// ("къинт1ера" for "къинтӏера").
+			return false
+		}
+	}
+	return hasCyrillic
 }
 
 // recordActivity persists per-user bookkeeping for a lookup. Failures are

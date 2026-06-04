@@ -26,6 +26,31 @@ func TestMoreCallbackData_FitsLimit(t *testing.T) {
 	}
 }
 
+func TestIsRecordableMissingWord(t *testing.T) {
+	cases := []struct {
+		word string
+		want bool
+	}{
+		{"дитт", true},
+		{"ӏаж", true},                     // palochka counts as Cyrillic
+		{"къинт1ера", true},               // "1" typed for palochka
+		{"наьрташ дийцар", true},          // two-word term
+		{"переведи мне это слово", false}, // sentence, not a term
+		{"iphone", false},
+		{"https://t.me/chetoru", false},
+		{"дом2", false},
+		{"123", false},
+		{"а", false}, // single rune
+		{"😀", false}, // no Cyrillic
+		{"", false},
+	}
+	for _, c := range cases {
+		if got := isRecordableMissingWord(c.word); got != c.want {
+			t.Errorf("isRecordableMissingWord(%q) = %v, want %v", c.word, got, c.want)
+		}
+	}
+}
+
 func TestParseMoreCallback(t *testing.T) {
 	cases := []struct {
 		data     string
