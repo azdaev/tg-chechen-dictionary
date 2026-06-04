@@ -36,7 +36,11 @@ func (n *Net) HandleQuiz(ctx context.Context, chat *tgbotapi.Chat) error {
 // The poll's correct option is cached by poll ID so answers can be graded into
 // the leaderboard when poll_answer updates arrive.
 func (n *Net) sendQuizPoll(ctx context.Context, chatID int64, q *models.QuizQuestion) error {
-	poll := tgbotapi.NewPoll(chatID, fmt.Sprintf("🧠 Как переводится на русский: %s?", q.Chechen), q.Options...)
+	question := fmt.Sprintf("🧠 Как переводится на русский: %s?", q.Prompt)
+	if q.Reversed {
+		question = fmt.Sprintf("🧠 Как сказать по-чеченски: %s?", q.Prompt)
+	}
+	poll := tgbotapi.NewPoll(chatID, question, q.Options...)
 	poll.Type = "quiz"
 	poll.CorrectOptionID = int64(q.CorrectIdx)
 	poll.IsAnonymous = false
@@ -142,7 +146,11 @@ func (n *Net) sendQuizButtons(chatID int64, q *models.QuizQuestion) error {
 		))
 	}
 
-	msg := tgbotapi.NewMessage(chatID, fmt.Sprintf(QuizQuestionFormat, tgbotapi.EscapeText(tgbotapi.ModeHTML, q.Chechen)))
+	format := QuizQuestionFormat
+	if q.Reversed {
+		format = QuizQuestionReverseFormat
+	}
+	msg := tgbotapi.NewMessage(chatID, fmt.Sprintf(format, tgbotapi.EscapeText(tgbotapi.ModeHTML, q.Prompt)))
 	msg.ParseMode = "html"
 	msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(rows...)
 	_, err := n.bot.Send(msg)

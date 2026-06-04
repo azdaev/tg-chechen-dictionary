@@ -34,6 +34,7 @@ const (
 	RandomMoreButtonText       = "🎲 Ещё одно"
 	RandomEmptyText            = "Словарь пока пуст. Попробуйте перевести несколько слов, и они появятся здесь!"
 	QuizQuestionFormat         = "🧠 <b>Викторина</b>\n\nКак переводится на русский?\n\n<b>%s</b>"
+	QuizQuestionReverseFormat  = "🧠 <b>Викторина</b>\n\nКак сказать по-чеченски?\n\n<b>%s</b>"
 	QuizNextButtonText         = "➡️ Следующий вопрос"
 	QuizCorrectToast           = "✅ Верно!"
 	QuizWrongToast             = "❌ Неверно"

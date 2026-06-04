@@ -10,22 +10,35 @@ import (
 
 const quizOptionCount = 4
 
-// GenerateQuiz builds a multiple-choice question: a Chechen word with one
-// correct Russian meaning and several plausible distractors. Pairs come from
-// the prefetched word pool — mutually distinct on both sides — so a question
-// usually costs no API call. Active recall practice is far more effective for
-// learning vocabulary than passive lookup — this is the /quiz feature's engine.
+// GenerateQuiz builds a multiple-choice question with one correct option and
+// several plausible distractors. Pairs come from the prefetched word pool —
+// mutually distinct on both sides — so a question usually costs no API call.
+// Half the questions reverse direction (Russian prompt, Chechen options):
+// production recall is harder and more valuable than recognition. Active
+// recall practice is the /quiz feature's engine.
 func (b *Business) GenerateQuiz(ctx context.Context) (*models.QuizQuestion, error) {
 	pairs, err := b.randomCleanWords(ctx, quizOptionCount)
 	if err != nil {
 		return nil, err
 	}
 
+	reversed := rand.IntN(2) == 0
+	side := func(p models.RandomWord) string {
+		if reversed {
+			return p.Chechen
+		}
+		return p.Russian
+	}
+
 	question := pairs[0]
+	prompt := question.Russian
+	if !reversed {
+		prompt = question.Chechen
+	}
+
 	options := make([]string, 0, quizOptionCount)
-	options = append(options, question.Russian)
-	for _, p := range pairs[1:] {
-		options = append(options, p.Russian)
+	for _, p := range pairs {
+		options = append(options, side(p))
 		if len(options) == quizOptionCount {
 			break
 		}
@@ -35,16 +48,17 @@ func (b *Business) GenerateQuiz(ctx context.Context) (*models.QuizQuestion, erro
 
 	correctIdx := 0
 	for i, opt := range options {
-		if opt == question.Russian {
+		if opt == side(question) {
 			correctIdx = i
 			break
 		}
 	}
 
 	return &models.QuizQuestion{
-		Chechen:    question.Chechen,
+		Prompt:     prompt,
 		Options:    options,
 		CorrectIdx: correctIdx,
+		Reversed:   reversed,
 	}, nil
 }
 

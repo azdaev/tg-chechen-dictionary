@@ -61,12 +61,15 @@ type Idiom struct {
 	Russian string
 }
 
-// QuizQuestion is a multiple-choice question for the /quiz feature: a Chechen
-// word and several Russian answer options, one of which (CorrectIdx) is right.
+// QuizQuestion is a multiple-choice question for the /quiz feature: a prompt
+// word and several answer options, one of which (CorrectIdx) is right.
+// Reversed asks for the Chechen word of a Russian prompt — production recall,
+// the harder and more valuable direction for learners.
 type QuizQuestion struct {
-	Chechen    string
+	Prompt     string
 	Options    []string
 	CorrectIdx int
+	Reversed   bool
 }
 
 // QuizScorer is one row of the /top quiz leaderboard.
