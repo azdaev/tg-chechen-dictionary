@@ -20,7 +20,7 @@ func (n *Net) HandleText(ctx context.Context, m *tgbotapi.Message) error {
 
 	// Bookkeeping runs after the reply has been sent — storage writes should
 	// never sit between the user and the translation.
-	defer n.recordTextActivity(ctx, m)
+	defer n.recordActivity(ctx, m.From.ID, m.From.UserName, models.ActivityTypeText)
 
 	result := n.business.TranslateFormatted(m.Text)
 	if len(result.Pairs) == 0 {
@@ -108,17 +108,11 @@ func (n *Net) HandleText(ctx context.Context, m *tgbotapi.Message) error {
 	return nil
 }
 
-// recordTextActivity persists per-user bookkeeping for a text lookup. Failures
-// are logged, not returned — the reply has already been sent.
-func (n *Net) recordTextActivity(ctx context.Context, m *tgbotapi.Message) {
-	if err := n.repo.StoreUser(ctx, int(m.From.ID), m.From.UserName); err != nil {
-		n.log.WithError(err).WithField("user_id", m.From.ID).Warn("StoreUser failed")
-	}
-	if err := n.repo.MarkUserUnblocked(ctx, m.From.ID); err != nil {
-		n.log.WithError(err).WithField("user_id", m.From.ID).Warn("failed to unblock user")
-	}
-	if err := n.repo.StoreActivity(ctx, int(m.From.ID), models.ActivityTypeText); err != nil {
-		n.log.WithError(err).WithField("user_id", m.From.ID).Warn("StoreActivity failed")
+// recordActivity persists per-user bookkeeping for a lookup. Failures are
+// logged, not returned — the reply has already been sent.
+func (n *Net) recordActivity(ctx context.Context, userID int64, username string, activityType models.ActivityType) {
+	if err := n.repo.RecordUserActivity(ctx, userID, username, activityType); err != nil {
+		n.log.WithError(err).WithField("user_id", userID).Warn("failed to record activity")
 	}
 }
 
@@ -170,16 +164,7 @@ func (n *Net) HandleInline(ctx context.Context, iq *tgbotapi.InlineQuery) error 
 		return fmt.Errorf("bot.Request: %s", resp.Description)
 	}
 
-	if err := n.repo.StoreUser(ctx, int(iq.From.ID), iq.From.UserName); err != nil {
-		return fmt.Errorf("repo.StoreUser: %w", err)
-	}
-	if err := n.repo.MarkUserUnblocked(ctx, iq.From.ID); err != nil {
-		n.log.WithError(err).WithField("user_id", iq.From.ID).Warn("failed to unblock user")
-	}
-	if err := n.repo.StoreActivity(ctx, int(iq.From.ID), models.ActivityTypeInline); err != nil {
-		return fmt.Errorf("repo.StoreActivity: %w", err)
-	}
-
+	n.recordActivity(ctx, iq.From.ID, iq.From.UserName, models.ActivityTypeInline)
 	return nil
 }
 

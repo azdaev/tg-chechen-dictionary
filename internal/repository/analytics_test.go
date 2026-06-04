@@ -1,6 +1,7 @@
 package repository
 
 import (
+	entities "chetoru/internal/models"
 	"context"
 	"database/sql"
 	"testing"
@@ -22,6 +23,9 @@ func newActivityTestRepo(t *testing.T) (*Repository, *sql.DB) {
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
 		user_id INTEGER NOT NULL UNIQUE,
 		username TEXT,
+		is_blocked INTEGER NOT NULL DEFAULT 0,
+		blocked_at DATETIME,
+		blocked_reason TEXT,
 		created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 	);
 	CREATE TABLE activity (
@@ -93,6 +97,43 @@ func TestMonthlyAnalytics_LocalMonthBounds(t *testing.T) {
 	}
 	if d := daily[1]; d.ActiveUsers != 0 || d.Calls != 0 {
 		t.Fatalf("day 2 = %d users / %d calls, want 0/0", d.ActiveUsers, d.Calls)
+	}
+}
+
+func TestRecordUserActivity_BookkeepingInOneCall(t *testing.T) {
+	r, db := newActivityTestRepo(t)
+	ctx := context.Background()
+
+	if err := r.RecordUserActivity(ctx, 7, "amadi", entities.ActivityTypeText); err != nil {
+		t.Fatalf("RecordUserActivity: %v", err)
+	}
+
+	var users, activities int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM users WHERE user_id = 7`).Scan(&users); err != nil || users != 1 {
+		t.Fatalf("users = %d (err %v), want 1", users, err)
+	}
+	if err := db.QueryRow(`SELECT COUNT(*) FROM activity WHERE user_id = 7`).Scan(&activities); err != nil || activities != 1 {
+		t.Fatalf("activities = %d (err %v), want 1", activities, err)
+	}
+
+	// A blocked user interacting again must come back unblocked, and the
+	// duplicate user insert must be ignored.
+	if err := r.MarkUserBlocked(ctx, 7, "bot blocked"); err != nil {
+		t.Fatalf("MarkUserBlocked: %v", err)
+	}
+	if err := r.RecordUserActivity(ctx, 7, "amadi", entities.ActivityTypeInline); err != nil {
+		t.Fatalf("RecordUserActivity (repeat): %v", err)
+	}
+
+	var blocked int
+	if err := db.QueryRow(`SELECT is_blocked FROM users WHERE user_id = 7`).Scan(&blocked); err != nil || blocked != 0 {
+		t.Fatalf("is_blocked = %d (err %v), want 0", blocked, err)
+	}
+	if err := db.QueryRow(`SELECT COUNT(*) FROM users WHERE user_id = 7`).Scan(&users); err != nil || users != 1 {
+		t.Fatalf("users after repeat = %d (err %v), want 1", users, err)
+	}
+	if err := db.QueryRow(`SELECT COUNT(*) FROM activity WHERE user_id = 7`).Scan(&activities); err != nil || activities != 2 {
+		t.Fatalf("activities after repeat = %d (err %v), want 2", activities, err)
 	}
 }
 

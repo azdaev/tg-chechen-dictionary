@@ -93,10 +93,9 @@ type Repository interface {
 // UserStore tracks users, their activity, block state, and donation prompts.
 type UserStore interface {
 	StoreUser(ctx context.Context, userID int, username string) error
-	StoreActivity(ctx context.Context, userID int, activityType models.ActivityType) error
+	RecordUserActivity(ctx context.Context, userID int64, username string, activityType models.ActivityType) error
 	ListUserIDs(ctx context.Context) ([]int64, error)
 	MarkUserBlocked(ctx context.Context, userID int64, reason string) error
-	MarkUserUnblocked(ctx context.Context, userID int64) error
 	ShouldSendDonationMessage(ctx context.Context, userID int) (bool, error)
 	StoreDonationMessage(ctx context.Context, userID int) error
 }

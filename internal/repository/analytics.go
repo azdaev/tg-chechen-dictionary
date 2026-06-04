@@ -17,22 +17,39 @@ func NewRepository(db *sql.DB) *Repository {
 	}
 }
 
+const (
+	insertUserQuery     = "INSERT OR IGNORE INTO users (user_id, username) VALUES (?, ?);"
+	insertActivityQuery = "INSERT INTO activity (user_id, activity_type) VALUES (?, ?);"
+	// The is_blocked guard keeps the unblock a no-op for the (vast) unblocked
+	// majority: SQLite rewrites the row even when nothing changes otherwise.
+	unblockUserQuery = "UPDATE users SET is_blocked = 0, blocked_at = null, blocked_reason = null WHERE user_id = ? AND is_blocked = 1;"
+)
+
 func (r *Repository) StoreUser(ctx context.Context, userID int, username string) error {
-	_, err := r.db.ExecContext(
-		ctx,
-		"INSERT OR IGNORE INTO users (user_id, username) VALUES (?, ?);",
-		userID, username,
-	)
+	_, err := r.db.ExecContext(ctx, insertUserQuery, userID, username)
 	return err
 }
 
-func (r *Repository) StoreActivity(ctx context.Context, userID int, activityType entities.ActivityType) error {
-	_, err := r.db.ExecContext(
-		ctx,
-		"INSERT INTO activity (user_id, activity_type) VALUES (?, ?);",
-		userID, activityType,
-	)
-	return err
+// RecordUserActivity runs the per-interaction bookkeeping (user row, unblock
+// flag, activity row) in one transaction: it fires on every message and inline
+// keystroke, and three separate commits meant three WAL syncs where one does.
+func (r *Repository) RecordUserActivity(ctx context.Context, userID int64, username string, activityType entities.ActivityType) error {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.ExecContext(ctx, insertUserQuery, userID, username); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, unblockUserQuery, userID); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, insertActivityQuery, userID, activityType); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func (r *Repository) ListUserIDs(ctx context.Context) ([]int64, error) {
@@ -66,15 +83,8 @@ func (r *Repository) MarkUserBlocked(ctx context.Context, userID int64, reason s
 	return err
 }
 
-// MarkUserUnblocked runs on every user interaction, so it must be a no-op for
-// the (vast) unblocked majority: SQLite rewrites the row even when nothing
-// changes, and the is_blocked guard keeps those commits from touching disk.
 func (r *Repository) MarkUserUnblocked(ctx context.Context, userID int64) error {
-	_, err := r.db.ExecContext(
-		ctx,
-		"UPDATE users SET is_blocked = 0, blocked_at = null, blocked_reason = null WHERE user_id = ? AND is_blocked = 1;",
-		userID,
-	)
+	_, err := r.db.ExecContext(ctx, unblockUserQuery, userID)
 	return err
 }
 
