@@ -5,6 +5,7 @@ import (
 	"chetoru/internal/cache"
 	"chetoru/internal/models"
 	"chetoru/internal/repository"
+	"sync"
 
 	"context"
 	"os"
@@ -159,12 +160,14 @@ type WordOfDayStore interface {
 }
 
 type Net struct {
-	log               *logrus.Logger
-	repo              Repository
-	business          Business
-	ai                AI
-	bot               *tgbotapi.BotAPI
-	cache             *cache.Cache
+	log      *logrus.Logger
+	repo     Repository
+	business Business
+	ai       AI
+	bot      *tgbotapi.BotAPI
+	cache    *cache.Cache
+
+	broadcastMu       sync.Mutex
 	awaitingBroadcast bool
 	pendingBroadcast  *broadcastPayload
 }
@@ -180,6 +183,11 @@ func NewNet(log *logrus.Logger, repo Repository, bot *tgbotapi.BotAPI, business 
 	}
 }
 
+// maxConcurrentUpdates bounds how many updates are handled at once. Handlers
+// used to run strictly sequentially, so one slow API lookup stalled every
+// other user's message.
+const maxConcurrentUpdates = 8
+
 func (n *Net) Start(ctx context.Context) {
 	n.log.Info("starting service")
 
@@ -190,14 +198,32 @@ func (n *Net) Start(ctx context.Context) {
 
 	updates := n.bot.GetUpdatesChan(u)
 
+	// dispatch runs a handler concurrently, bounded by the semaphore — when all
+	// slots are busy the loop applies backpressure instead of spawning unbounded
+	// goroutines. A panicking handler is logged, not fatal.
+	sem := make(chan struct{}, maxConcurrentUpdates)
+	dispatch := func(fn func()) {
+		sem <- struct{}{}
+		go func() {
+			defer func() {
+				if r := recover(); r != nil {
+					n.log.WithField("panic", r).Error("update handler panicked")
+				}
+				<-sem
+			}()
+			fn()
+		}()
+	}
+
 	for update := range updates {
 		// Callbacks
 		if update.CallbackQuery != nil {
-			n.routeCallback(ctx, update.CallbackQuery)
+			cq := update.CallbackQuery
+			dispatch(func() { n.routeCallback(ctx, cq) })
 			continue
 		}
 
-		// Poll answers (group quiz scoring)
+		// Poll answers (group quiz scoring) — cheap DB write, kept in-loop.
 		if update.PollAnswer != nil {
 			if err := n.HandlePollAnswer(ctx, update.PollAnswer); err != nil {
 				n.log.WithError(err).Error("service.HandlePollAnswer")
@@ -205,7 +231,8 @@ func (n *Net) Start(ctx context.Context) {
 			continue
 		}
 
-		// Pre-checkout query (Telegram Payments)
+		// Pre-checkout query (Telegram Payments) — must be answered fast and in
+		// order, kept in-loop.
 		if update.PreCheckoutQuery != nil {
 			if err := n.HandlePreCheckout(update.PreCheckoutQuery); err != nil {
 				n.log.WithError(err).Error("service.HandlePreCheckout")
@@ -215,20 +242,22 @@ func (n *Net) Start(ctx context.Context) {
 
 		// Messages
 		if update.Message != nil {
-			// Successful payment
+			// Successful payment — ordering matters, kept in-loop.
 			if update.Message.SuccessfulPayment != nil {
 				if err := n.HandleSuccessfulPayment(ctx, update.Message); err != nil {
 					n.log.WithError(err).Error("service.HandleSuccessfulPayment")
 				}
 				continue
 			}
-			n.routeMessage(ctx, update.Message)
+			m := update.Message
+			dispatch(func() { n.routeMessage(ctx, m) })
 			continue
 		}
 
 		// Inline queries
 		if update.InlineQuery != nil && update.InlineQuery.Query != "" {
-			n.routeInline(ctx, update.InlineQuery)
+			iq := update.InlineQuery
+			dispatch(func() { n.routeInline(ctx, iq) })
 			continue
 		}
 	}

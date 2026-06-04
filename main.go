@@ -29,7 +29,10 @@ func main() {
 		dbPath = "./database.db"
 	}
 
-	db, err := sql.Open("sqlite", dbPath)
+	// WAL lets reads proceed during writes; busy_timeout makes a second writer
+	// wait instead of failing with SQLITE_BUSY — updates are handled
+	// concurrently and background goroutines (AI formatting) write too.
+	db, err := sql.Open("sqlite", "file:"+dbPath+"?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)")
 	if err != nil {
 		panic(err)
 	}

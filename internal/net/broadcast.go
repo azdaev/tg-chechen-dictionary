@@ -21,8 +21,7 @@ func (n *Net) HandleBroadcast(ctx context.Context, m *tgbotapi.Message) error {
 		return nil
 	}
 
-	n.awaitingBroadcast = true
-	n.pendingBroadcast = nil
+	n.setBroadcastState(true, nil)
 	msg := tgbotapi.NewMessage(m.Chat.ID, "Отправьте текст или фото с подписью. Я покажу превью перед рассылкой.")
 	_, err := n.bot.Send(msg)
 	return err
@@ -33,8 +32,7 @@ func (n *Net) HandleBroadcastCancel(m *tgbotapi.Message) error {
 		return nil
 	}
 
-	n.awaitingBroadcast = false
-	n.pendingBroadcast = nil
+	n.setBroadcastState(false, nil)
 	msg := tgbotapi.NewMessage(m.Chat.ID, "Рассылка отменена.")
 	_, err := n.bot.Send(msg)
 	return err
@@ -52,8 +50,7 @@ func (n *Net) HandleBroadcastContent(m *tgbotapi.Message) error {
 		return sendErr
 	}
 
-	n.awaitingBroadcast = false
-	n.pendingBroadcast = payload
+	n.setBroadcastState(false, payload)
 	preview, err := n.sendBroadcastPreview(m.Chat.ID, payload)
 	if err != nil {
 		return err
@@ -80,7 +77,7 @@ func (n *Net) HandleBroadcastCallback(ctx context.Context, cq *tgbotapi.Callback
 		}()
 		return nil
 	case "broadcast_cancel":
-		n.pendingBroadcast = nil
+		n.setBroadcastState(false, nil)
 		callback := tgbotapi.NewCallback(cq.ID, "Отменено")
 		if _, err := n.bot.Request(callback); err != nil {
 			return fmt.Errorf("bot.Request: %w", err)
@@ -94,11 +91,33 @@ func (n *Net) HandleBroadcastCallback(ctx context.Context, cq *tgbotapi.Callback
 }
 
 func (n *Net) isAwaitingBroadcastContent(m *tgbotapi.Message) bool {
-	return m != nil && n.awaitingBroadcast && n.isAdmin(m.From.ID)
+	if m == nil || !n.isAdmin(m.From.ID) {
+		return false
+	}
+	n.broadcastMu.Lock()
+	defer n.broadcastMu.Unlock()
+	return n.awaitingBroadcast
+}
+
+func (n *Net) setBroadcastState(awaiting bool, payload *broadcastPayload) {
+	n.broadcastMu.Lock()
+	defer n.broadcastMu.Unlock()
+	n.awaitingBroadcast = awaiting
+	n.pendingBroadcast = payload
+}
+
+// takePendingBroadcast atomically claims the pending payload, so a double tap
+// on the send button cannot start two broadcasts.
+func (n *Net) takePendingBroadcast() *broadcastPayload {
+	n.broadcastMu.Lock()
+	defer n.broadcastMu.Unlock()
+	p := n.pendingBroadcast
+	n.pendingBroadcast = nil
+	return p
 }
 
 func (n *Net) sendBroadcast(ctx context.Context, cq *tgbotapi.CallbackQuery) error {
-	payload := n.pendingBroadcast
+	payload := n.takePendingBroadcast()
 	if payload == nil {
 		callback := tgbotapi.NewCallback(cq.ID, "Нет данных для рассылки")
 		_, err := n.bot.Request(callback)
@@ -127,8 +146,6 @@ func (n *Net) sendBroadcast(ctx context.Context, cq *tgbotapi.CallbackQuery) err
 		}
 		time.Sleep(BroadcastSendDelay)
 	}
-
-	n.pendingBroadcast = nil
 
 	summary := fmt.Sprintf("Рассылка завершена. Всего: %d, отправлено: %d, ошибки: %d, заблокировано: %d", len(userIDs), sent, failed, blocked)
 	msg := tgbotapi.NewMessage(cq.Message.Chat.ID, summary)
