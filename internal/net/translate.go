@@ -84,28 +84,38 @@ func (n *Net) HandleText(ctx context.Context, m *tgbotapi.Message) error {
 	// update loop processes messages synchronously and this makes a live API call.
 	go n.sendGrammarCard(context.Background(), m.Chat.ID, m.Text)
 
-	// Check if we should send a donation message
-	shouldSend, err := n.repo.ShouldSendDonationMessage(ctx, int(m.From.ID))
-	if err != nil {
-		return fmt.Errorf("failed to check donation message status: %w", err)
-	}
-
-	if shouldSend {
-		donationMsg := tgbotapi.NewMessage(m.Chat.ID, DonationMessageFormat)
-		donationMsg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(
-			tgbotapi.NewInlineKeyboardRow(
-				tgbotapi.NewInlineKeyboardButtonURL("🚀 Поддержать нас", os.Getenv("DONATION_LINK")),
-			),
-		)
-		if _, err = n.bot.Send(donationMsg); err != nil {
-			return fmt.Errorf("failed to send donation message: %w", err)
-		}
-		if err = n.repo.StoreDonationMessage(ctx, int(m.From.ID)); err != nil {
-			return fmt.Errorf("failed to store donation message: %w", err)
-		}
-	}
+	// Donation nudge runs detached: it is a DB check plus an extra Telegram
+	// message per lookup, and was the last synchronous roundtrip in this tail.
+	go n.maybeSendDonation(context.Background(), m.Chat.ID, int(m.From.ID))
 
 	return nil
+}
+
+// maybeSendDonation sends the periodic donation ask if the user is due one.
+// Failures are logged, not returned — the translation is already delivered.
+func (n *Net) maybeSendDonation(ctx context.Context, chatID int64, userID int) {
+	shouldSend, err := n.repo.ShouldSendDonationMessage(ctx, userID)
+	if err != nil {
+		n.log.WithError(err).WithField("user_id", userID).Warn("failed to check donation message status")
+		return
+	}
+	if !shouldSend {
+		return
+	}
+
+	donationMsg := tgbotapi.NewMessage(chatID, DonationMessageFormat)
+	donationMsg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonURL("🚀 Поддержать нас", os.Getenv("DONATION_LINK")),
+		),
+	)
+	if _, err := n.bot.Send(donationMsg); err != nil {
+		n.log.WithError(err).WithField("user_id", userID).Warn("failed to send donation message")
+		return
+	}
+	if err := n.repo.StoreDonationMessage(ctx, userID); err != nil {
+		n.log.WithError(err).WithField("user_id", userID).Warn("failed to store donation message")
+	}
 }
 
 // recordActivity persists per-user bookkeeping for a lookup. Failures are
