@@ -57,7 +57,7 @@ func (r *Repository) CountQuizStats(ctx context.Context) (players, totalAnswers,
 func (r *Repository) TopQuizScorers(ctx context.Context, limit int) ([]models.QuizScorer, error) {
 	rows, err := r.db.QueryContext(
 		ctx,
-		`SELECT user_id, COALESCE(username, ''), COALESCE(first_name, ''), correct_count, total_count
+		`SELECT user_id, COALESCE(username, ''), COALESCE(first_name, ''), correct_count, total_count, streak_days, COALESCE(last_answer_date, '')
 		 FROM quiz_stats
 		 WHERE total_count >= 3
 		 ORDER BY correct_count DESC, total_count ASC
@@ -69,11 +69,19 @@ func (r *Repository) TopQuizScorers(ctx context.Context, limit int) ([]models.Qu
 	}
 	defer rows.Close()
 
+	now := time.Now()
+	today := now.Format(time.DateOnly)
+	yesterday := now.AddDate(0, 0, -1).Format(time.DateOnly)
+
 	var scorers []models.QuizScorer
 	for rows.Next() {
 		var s models.QuizScorer
-		if err := rows.Scan(&s.UserID, &s.Username, &s.FirstName, &s.Correct, &s.Total); err != nil {
+		var lastDate string
+		if err := rows.Scan(&s.UserID, &s.Username, &s.FirstName, &s.Correct, &s.Total, &s.Streak, &lastDate); err != nil {
 			return nil, err
+		}
+		if lastDate != today && lastDate != yesterday {
+			s.Streak = 0 // lapsed
 		}
 		scorers = append(scorers, s)
 	}

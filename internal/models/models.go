@@ -72,13 +72,15 @@ type QuizQuestion struct {
 	Reversed   bool
 }
 
-// QuizScorer is one row of the /top quiz leaderboard.
+// QuizScorer is one row of the /top quiz leaderboard. Streak is the current
+// run of consecutive practice days (0 when lapsed).
 type QuizScorer struct {
 	UserID    int64
 	Username  string
 	FirstName string
 	Correct   int
 	Total     int
+	Streak    int
 }
 
 // GraphQL specific types (dosham.app /gql schema)

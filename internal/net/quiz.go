@@ -93,7 +93,11 @@ func (n *Net) HandleTop(ctx context.Context, chatID int64) error {
 		if s.Total > 0 {
 			pct = s.Correct * 100 / s.Total
 		}
-		fmt.Fprintf(&b, "%s <b>%s</b> — %d/%d (%d%%)\n", quizMedal(i), tgbotapi.EscapeText(tgbotapi.ModeHTML, name), s.Correct, s.Total, pct)
+		fmt.Fprintf(&b, "%s <b>%s</b> — %d/%d (%d%%)", quizMedal(i), tgbotapi.EscapeText(tgbotapi.ModeHTML, name), s.Correct, s.Total, pct)
+		if s.Streak >= 2 {
+			fmt.Fprintf(&b, " 🔥%d", s.Streak)
+		}
+		b.WriteByte('\n')
 	}
 
 	msg := tgbotapi.NewMessage(chatID, b.String())

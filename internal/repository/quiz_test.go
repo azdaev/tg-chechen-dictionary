@@ -94,6 +94,18 @@ func TestTopQuizScorers(t *testing.T) {
 	if board[1].Username != "" || board[1].FirstName != "Боб" || board[1].Correct != 2 {
 		t.Fatalf("runner-up = %q/%q %d, want \"\"/Боб 2", board[1].Username, board[1].FirstName, board[1].Correct)
 	}
+
+	// Today's answers carry a live 1-day streak; a backdated record lapses to 0.
+	if board[0].Streak != 1 {
+		t.Fatalf("leader streak = %d, want 1", board[0].Streak)
+	}
+	if _, err := r.db.Exec(`UPDATE quiz_stats SET last_answer_date = '2020-01-01' WHERE user_id = 1`); err != nil {
+		t.Fatalf("backdate: %v", err)
+	}
+	board, err = r.TopQuizScorers(ctx, 10)
+	if err != nil || board[0].Streak != 0 {
+		t.Fatalf("lapsed leader streak = %d (err %v), want 0", board[0].Streak, err)
+	}
 }
 
 func TestCountQuizStats(t *testing.T) {
