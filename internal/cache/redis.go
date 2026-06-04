@@ -15,6 +15,14 @@ import (
 // corrupt entry), which should be logged rather than silently swallowed.
 var ErrMiss = errors.New("cache: miss")
 
+const (
+	translationTTL = 30 * 24 * time.Hour
+	// negativeTTL keeps "no results" answers briefly: dead-end queries are the
+	// most expensive path (ё-variant fallbacks plus suggestion retries), but
+	// new words do get added to dosham, so misses must expire quickly.
+	negativeTTL = 24 * time.Hour
+)
+
 type Cache struct {
 	client *redis.Client
 }
@@ -54,7 +62,11 @@ func (c *Cache) Set(ctx context.Context, key string, translations []models.Trans
 		return err
 	}
 
-	return c.client.Set(ctx, key, data, 24*30*time.Hour).Err()
+	ttl := translationTTL
+	if len(translations) == 0 {
+		ttl = negativeTTL
+	}
+	return c.client.Set(ctx, key, data, ttl).Err()
 }
 
 func (c *Cache) GetTranslationResult(ctx context.Context, key string) (*models.TranslationResult, error) {
@@ -81,7 +93,7 @@ func (c *Cache) SetTranslationResult(ctx context.Context, key string, result *mo
 		return err
 	}
 
-	return c.client.Set(ctx, "formatted_"+key, data, 24*30*time.Hour).Err()
+	return c.client.Set(ctx, "formatted_"+key, data, translationTTL).Err()
 }
 
 // SetQuizPoll remembers the correct option for a sent quiz poll so the answer
@@ -129,7 +141,7 @@ func (c *Cache) SetGrammar(ctx context.Context, key string, g *models.WordGramma
 	if err != nil {
 		return err
 	}
-	return c.client.Set(ctx, "grammar_"+key, data, 24*30*time.Hour).Err()
+	return c.client.Set(ctx, "grammar_"+key, data, translationTTL).Err()
 }
 
 func (c *Cache) Delete(ctx context.Context, key string) error {

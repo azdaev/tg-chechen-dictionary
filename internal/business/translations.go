@@ -67,7 +67,7 @@ func (b *Business) AIFormattingEnabled() bool {
 func (b *Business) Translate(word string) []models.TranslationPairs {
 	ctx := context.Background()
 	cacheKey := normalizeCacheKey(word)
-	if translations := b.loadCachedTranslations(ctx, cacheKey); len(translations) > 0 {
+	if translations, ok := b.loadCachedTranslations(ctx, cacheKey); ok {
 		return translations
 	}
 
@@ -76,8 +76,11 @@ func (b *Business) Translate(word string) []models.TranslationPairs {
 		return translations
 	}
 
+	// nil means the API errored and is not cached; an empty non-nil slice is a
+	// real "no results" answer and is negative-cached so repeating a dead-end
+	// query doesn't redo the whole fallback cascade.
 	translations := b.fetchTranslationsWithFallback(word)
-	if len(translations) > 0 {
+	if translations != nil {
 		b.cacheTranslationsAsync(ctx, cacheKey, translations)
 	}
 
@@ -335,24 +338,18 @@ func normalizeCacheKey(word string) string {
 	return tools.NormalizeSearch(word)
 }
 
-func (b *Business) loadCachedTranslations(ctx context.Context, cacheKey string) []models.TranslationPairs {
+func (b *Business) loadCachedTranslations(ctx context.Context, cacheKey string) ([]models.TranslationPairs, bool) {
 	translations, err := b.cache.Get(ctx, cacheKey)
 	if err != nil {
 		if !errors.Is(err, cache.ErrMiss) {
 			b.log.Printf("cache get failed for %q: %v\n", cacheKey, err)
 		}
-		return nil
+		return nil, false
 	}
-	if len(translations) == 0 {
-		return nil
-	}
-	return translations
+	return translations, true
 }
 
 func (b *Business) cacheTranslationsAsync(ctx context.Context, cacheKey string, translations []models.TranslationPairs) {
-	if len(translations) == 0 {
-		return
-	}
 	go func() {
 		if err := b.cache.Set(ctx, cacheKey, translations); err != nil {
 			b.log.Printf("failed to cache translation: %v\n", err)

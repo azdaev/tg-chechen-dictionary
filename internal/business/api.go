@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
+	"io"
 	"net/http"
 	"time"
 )
@@ -39,5 +41,27 @@ func doDoshamQuery(ctx context.Context, query string, variables map[string]any, 
 	}
 	defer resp.Body.Close()
 
-	return json.NewDecoder(resp.Body).Decode(out)
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("dosham API: status %d", resp.StatusCode)
+	}
+
+	// A failed GraphQL query still decodes cleanly into an empty result, which
+	// callers would mistake for a real "no results" answer (and cache it).
+	raw, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return err
+	}
+	var gqlErrs struct {
+		Errors []struct {
+			Message string `json:"message"`
+		} `json:"errors"`
+	}
+	if err := json.Unmarshal(raw, &gqlErrs); err != nil {
+		return err
+	}
+	if len(gqlErrs.Errors) > 0 {
+		return fmt.Errorf("dosham API: %s", gqlErrs.Errors[0].Message)
+	}
+
+	return json.Unmarshal(raw, out)
 }
