@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
@@ -70,12 +71,54 @@ func (n *Net) HandleCheck(ctx context.Context, m *tgbotapi.Message) error {
 	return err
 }
 
-func (n *Net) HandleInlineSpellcheck(ctx context.Context, iq *tgbotapi.InlineQuery) error {
-	text := strings.TrimPrefix(iq.Query, ". ")
+// spellcheckDebounceDelay is how long an inline spellcheck query must stay the
+// user's latest before it is processed. Telegram fires inline queries while
+// the user is still typing; without settling, every intermediate prefix would
+// cost an AI call and burn a unit of the free quota.
+const spellcheckDebounceDelay = 1500 * time.Millisecond
 
+func (n *Net) HandleInlineSpellcheck(ctx context.Context, iq *tgbotapi.InlineQuery) error {
 	if n.ai == nil {
 		return nil
 	}
+
+	n.noteInlineSpellQuery(iq.From.ID, iq.ID)
+	// AfterFunc runs outside the update dispatcher, so a debouncing typer never
+	// occupies one of its slots.
+	time.AfterFunc(spellcheckDebounceDelay, func() {
+		defer func() {
+			if r := recover(); r != nil {
+				n.log.WithField("panic", r).Error("inline spellcheck panicked")
+			}
+		}()
+		if !n.isLatestInlineSpellQuery(iq.From.ID, iq.ID) {
+			return // superseded — the user kept typing
+		}
+		if err := n.runInlineSpellcheck(ctx, iq); err != nil {
+			n.log.WithError(err).WithField("user_id", iq.From.ID).Error("inline spellcheck failed")
+		}
+	})
+	return nil
+}
+
+func (n *Net) noteInlineSpellQuery(userID int64, queryID string) {
+	n.inlineSpellMu.Lock()
+	defer n.inlineSpellMu.Unlock()
+	n.inlineSpellLatest[userID] = queryID
+}
+
+func (n *Net) isLatestInlineSpellQuery(userID int64, queryID string) bool {
+	n.inlineSpellMu.Lock()
+	defer n.inlineSpellMu.Unlock()
+	if n.inlineSpellLatest[userID] != queryID {
+		return false
+	}
+	delete(n.inlineSpellLatest, userID) // settled; stop tracking
+	return true
+}
+
+func (n *Net) runInlineSpellcheck(ctx context.Context, iq *tgbotapi.InlineQuery) error {
+	text := strings.TrimPrefix(iq.Query, ". ")
 
 	// Check usage limits
 	allowed, err := n.canUseSpellcheck(ctx, iq.From.ID)

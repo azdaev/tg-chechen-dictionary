@@ -170,16 +170,20 @@ type Net struct {
 	broadcastMu       sync.Mutex
 	awaitingBroadcast bool
 	pendingBroadcast  *broadcastPayload
+
+	inlineSpellMu     sync.Mutex
+	inlineSpellLatest map[int64]string
 }
 
 func NewNet(log *logrus.Logger, repo Repository, bot *tgbotapi.BotAPI, business Business, cache *cache.Cache, aiClient AI) *Net {
 	return &Net{
-		log:      log,
-		repo:     repo,
-		bot:      bot,
-		business: business,
-		ai:       aiClient,
-		cache:    cache,
+		log:               log,
+		repo:              repo,
+		bot:               bot,
+		business:          business,
+		ai:                aiClient,
+		cache:             cache,
+		inlineSpellLatest: make(map[int64]string),
 	}
 }
 
