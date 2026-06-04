@@ -119,6 +119,26 @@ func TestFormatTranslationLite_VerbGloss(t *testing.T) {
 	}
 }
 
+func TestFormatTranslationLite_HomonymAndEndings(t *testing.T) {
+	// «Губа»: palochka homonym number plus gender marker ("ӏ ж 1) балда")
+	// must not become the header translation.
+	got := FormatTranslationLite("**Губа** - ӏ ж 1) балда; кусать губы - церга балда леца", "Губа")
+	if !strings.HasPrefix(got, "Губа — балда") {
+		t.Errorf("header = %q, want it to start with %q", got, "Губа — балда")
+	}
+
+	// Ending list with its dash intact after the separator ("- -ая, -ое ...").
+	got = FormatTranslationLite("**Оглушительный** - -ая, -ое къорден; ~о кричать - мохь хьакха", "Оглушительный")
+	if !strings.HasPrefix(got, "Оглушительный — къорден") {
+		t.Errorf("header = %q, want it to start with %q", got, "Оглушительный — къорден")
+	}
+	// ~о on an adjective inflects from the base: "оглушительно", not the
+	// full headword.
+	if !strings.Contains(got, "оглушительно кричать") {
+		t.Errorf("adjective ~о not inflected:\n%s", got)
+	}
+}
+
 func TestCleanTranslation(t *testing.T) {
 	tests := []struct {
 		name     string

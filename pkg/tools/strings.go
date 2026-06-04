@@ -10,11 +10,12 @@ import (
 var (
 	tagRe  = regexp.MustCompile(`<[^>]*>`)
 	boldRe = regexp.MustCompile(`\*\*([^*]+)\*\*`)
-	// grammarRe strips single-letter gender/number markers ("м цӏа");
-	// endingsRe strips adjective ending lists ("-яя, -ее цӏера") — the comma
+	// grammarRe strips leading single-letter markers, possibly chained: gender
+	// ("м цӏа"), and the palochka numbering homonyms ("ӏ ж балда" in «Губа»).
+	// endingsRe strips adjective ending lists ("-ая, -ое къорден") — the comma
 	// plus dash continuation keeps real words safe.
-	grammarRe = regexp.MustCompile(`^[а-яё]\s+`)
-	endingsRe = regexp.MustCompile(`^[а-яё]{1,3}(,\s*-[а-яё]{1,3})+\s*`)
+	grammarRe = regexp.MustCompile(`^([а-яёӏ]\s+)+`)
+	endingsRe = regexp.MustCompile(`^-?[а-яё]{1,3}(,\s*-[а-яё]{1,3})+\s*`)
 	// verbLabelRe strips the aspect/government labels heading verb glosses
 	// ("сов., кому 1) …", "несов. дала") — grammar metadata, not translation,
 	// and otherwise it becomes the card's header.
@@ -297,10 +298,6 @@ func replaceTildeWithWord(text, word string) string {
 
 	result := tildeRe.ReplaceAllStringFunc(text, func(match string) string {
 		ending := match[1:]
-		// Винительный ед.ч. для слов типа «слово»: полная форма, не основа.
-		if ending == "о" {
-			return lowerWord
-		}
 		// Русские грамматические окончания не длиннее 3 букв. Более длинный
 		// «хвост» — это отдельное слово, склеенное в источнике с заглавным
 		// (например «~культуры» для слова «дом» значит «дом культуры»).
