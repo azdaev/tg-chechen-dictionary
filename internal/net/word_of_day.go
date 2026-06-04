@@ -1,8 +1,10 @@
 package net
 
 import (
+	"chetoru/internal/models"
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
@@ -115,6 +117,34 @@ func nextWordOfDayTime(now time.Time, hour int) time.Time {
 	return next
 }
 
+// wotdDrawAttempts bounds how many redraws the picker spends avoiding a
+// recently sent word before settling for a repeat.
+const wotdDrawAttempts = 5
+
+// pickFresh draws words until one is not in recent, falling back to the first
+// draw — a repeat beats skipping the day entirely.
+func pickFresh(recent []string, draw func() *models.RandomWord) *models.RandomWord {
+	seen := make(map[string]bool, len(recent))
+	for _, w := range recent {
+		seen[strings.ToLower(w)] = true
+	}
+
+	var fallback *models.RandomWord
+	for range wotdDrawAttempts {
+		word := draw()
+		if word == nil {
+			break
+		}
+		if !seen[strings.ToLower(word.Chechen)] {
+			return word
+		}
+		if fallback == nil {
+			fallback = word
+		}
+	}
+	return fallback
+}
+
 // sendWordOfDay fetches one random word and broadcasts it to every subscriber.
 func (n *Net) sendWordOfDay(ctx context.Context) {
 	subscribers, err := n.repo.ListWordOfDaySubscribers(ctx)
@@ -126,10 +156,27 @@ func (n *Net) sendWordOfDay(ctx context.Context) {
 		return
 	}
 
-	word, err := n.business.RandomWordFromAPI(ctx)
-	if err != nil || word == nil {
-		n.log.WithError(err).Warn("word of the day: no word available, skipping")
+	var recent []string
+	if n.cache != nil {
+		if r, err := n.cache.RecentWordsOfDay(ctx); err == nil {
+			recent = r
+		}
+	}
+	word := pickFresh(recent, func() *models.RandomWord {
+		w, err := n.business.RandomWordFromAPI(ctx)
+		if err != nil {
+			return nil
+		}
+		return w
+	})
+	if word == nil {
+		n.log.Warn("word of the day: no word available, skipping")
 		return
+	}
+	if n.cache != nil {
+		if err := n.cache.RememberWordOfDay(ctx, word.Chechen); err != nil {
+			n.log.WithError(err).Warn("word of the day: remember recent word")
+		}
 	}
 
 	text := fmt.Sprintf(

@@ -1,9 +1,41 @@
 package net
 
 import (
+	"chetoru/internal/models"
 	"testing"
 	"time"
 )
+
+func TestPickFresh(t *testing.T) {
+	words := []string{"дитт", "цӏа", "ӏаж"}
+	i := 0
+	draw := func() *models.RandomWord {
+		if i >= len(words) {
+			return nil
+		}
+		w := &models.RandomWord{Chechen: words[i]}
+		i++
+		return w
+	}
+
+	// First two were sent recently (case-insensitively); the third wins.
+	got := pickFresh([]string{"Дитт", "ЦӀа"}, draw)
+	if got == nil || got.Chechen != "ӏаж" {
+		t.Fatalf("pickFresh = %+v, want ӏаж", got)
+	}
+
+	// Everything is recent: settle for the first draw, never skip the day.
+	i = 0
+	got = pickFresh([]string{"дитт", "цӏа", "ӏаж"}, draw)
+	if got == nil || got.Chechen != "дитт" {
+		t.Fatalf("pickFresh fallback = %+v, want дитт", got)
+	}
+
+	// No words at all.
+	if got := pickFresh(nil, func() *models.RandomWord { return nil }); got != nil {
+		t.Fatalf("pickFresh with no draws = %+v, want nil", got)
+	}
+}
 
 func TestWordOfDayDue(t *testing.T) {
 	morning := time.Date(2026, 6, 4, 8, 0, 0, 0, time.UTC)

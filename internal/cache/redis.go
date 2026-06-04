@@ -95,6 +95,25 @@ func (c *Cache) SetWordOfDayLastSent(ctx context.Context, date string) error {
 	return c.client.Set(ctx, wordOfDayKey, date, 48*time.Hour).Err()
 }
 
+const (
+	wotdRecentKey   = "wotd_recent"
+	wotdRecentLimit = 30
+)
+
+// RecentWordsOfDay returns the last broadcast word-of-day headwords, newest
+// first, so the picker can avoid repeating a word subscribers just saw.
+func (c *Cache) RecentWordsOfDay(ctx context.Context) ([]string, error) {
+	return c.client.LRange(ctx, wotdRecentKey, 0, -1).Result()
+}
+
+func (c *Cache) RememberWordOfDay(ctx context.Context, word string) error {
+	pipe := c.client.TxPipeline()
+	pipe.LPush(ctx, wotdRecentKey, word)
+	pipe.LTrim(ctx, wotdRecentKey, 0, wotdRecentLimit-1)
+	_, err := pipe.Exec(ctx)
+	return err
+}
+
 // SetQuizPoll remembers the correct option for a sent quiz poll so the answer
 // can be graded when a poll_answer update arrives. Short-lived — polls are
 // answered within minutes.
