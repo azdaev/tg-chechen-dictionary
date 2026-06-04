@@ -1,8 +1,11 @@
 package cache
 
 import (
+	"chetoru/internal/ai"
 	"chetoru/internal/models"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"time"
@@ -21,6 +24,9 @@ const (
 	// most expensive path (ё-variant fallbacks plus suggestion retries), but
 	// new words do get added to dosham, so misses must expire quickly.
 	negativeTTL = 24 * time.Hour
+	// spellcheckTTL is shorter than translationTTL: the checker prompt evolves,
+	// and stale verdicts should pick up improvements within a week.
+	spellcheckTTL = 7 * 24 * time.Hour
 )
 
 type Cache struct {
@@ -142,6 +148,37 @@ func (c *Cache) SetGrammar(ctx context.Context, key string, g *models.WordGramma
 		return err
 	}
 	return c.client.Set(ctx, "grammar_"+key, data, translationTTL).Err()
+}
+
+// spellcheckKey hashes the checked text: spellcheck inputs are whole sentences,
+// and raw multi-line keys are awkward in Redis.
+func spellcheckKey(text string) string {
+	sum := sha256.Sum256([]byte(text))
+	return "spellcheck_" + hex.EncodeToString(sum[:])
+}
+
+func (c *Cache) GetSpellcheck(ctx context.Context, text string) (*ai.SpellCheckResult, error) {
+	val, err := c.client.Get(ctx, spellcheckKey(text)).Result()
+	if errors.Is(err, redis.Nil) {
+		return nil, ErrMiss
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	var result ai.SpellCheckResult
+	if err := json.Unmarshal([]byte(val), &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+func (c *Cache) SetSpellcheck(ctx context.Context, text string, result *ai.SpellCheckResult) error {
+	data, err := json.Marshal(result)
+	if err != nil {
+		return err
+	}
+	return c.client.Set(ctx, spellcheckKey(text), data, spellcheckTTL).Err()
 }
 
 func (c *Cache) Delete(ctx context.Context, key string) error {

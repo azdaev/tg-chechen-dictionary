@@ -1,13 +1,38 @@
 package net
 
 import (
+	"chetoru/internal/ai"
+	"chetoru/internal/cache"
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
+
+// spellcheck runs an AI check through the Redis cache. Verdicts are
+// deterministic for a given text, and identical texts recur (shared phrases,
+// re-checks after edits elsewhere), so a hit skips the OpenRouter call.
+func (n *Net) spellcheck(ctx context.Context, text string) (*ai.SpellCheckResult, error) {
+	cached, err := n.cache.GetSpellcheck(ctx, text)
+	if err == nil {
+		return cached, nil
+	}
+	if !errors.Is(err, cache.ErrMiss) {
+		n.log.WithError(err).Warn("spellcheck cache read failed")
+	}
+
+	result, err := n.ai.SpellCheck(ctx, text)
+	if err != nil {
+		return nil, err
+	}
+	if err := n.cache.SetSpellcheck(ctx, text, result); err != nil {
+		n.log.WithError(err).Warn("spellcheck cache write failed")
+	}
+	return result, nil
+}
 
 func (n *Net) HandleCheck(ctx context.Context, m *tgbotapi.Message) error {
 	// Try command arguments first, then raw message text (for dot-prefix mode)
@@ -30,7 +55,7 @@ func (n *Net) HandleCheck(ctx context.Context, m *tgbotapi.Message) error {
 
 	n.bot.Send(tgbotapi.NewChatAction(m.Chat.ID, tgbotapi.ChatTyping))
 
-	result, err := n.ai.SpellCheck(ctx, text)
+	result, err := n.spellcheck(ctx, text)
 	if err != nil {
 		n.log.WithError(err).Error("ai.SpellCheck")
 		msg := tgbotapi.NewMessage(m.Chat.ID, "⚠️ Не удалось проверить текст, попробуйте позже")
@@ -145,7 +170,7 @@ func (n *Net) runInlineSpellcheck(ctx context.Context, iq *tgbotapi.InlineQuery)
 		return nil
 	}
 
-	result, err := n.ai.SpellCheck(ctx, text)
+	result, err := n.spellcheck(ctx, text)
 	if err != nil {
 		n.log.WithError(err).Error("ai.SpellCheck inline")
 		return nil
