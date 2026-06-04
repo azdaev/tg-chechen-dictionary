@@ -134,34 +134,15 @@ func toNullString(v string) sql.NullString {
 	return sql.NullString{String: v, Valid: true}
 }
 
-// TranslateFormatted возвращает переводы с отформатированным текстом, используя кэширование
+// TranslateFormatted возвращает переводы вместе с отформатированным текстом.
+// Форматирование — чистая функция от пар, поэтому отдельно не кэшируется:
+// Translate уже отдаёт пары из кэша.
 func (b *Business) TranslateFormatted(word string) *models.TranslationResult {
-	ctx := context.Background()
-	cacheKey := normalizeCacheKey(word)
-	result := b.loadCachedFormatted(ctx, cacheKey)
-	if result != nil {
-		return result
-	}
-
-	// Если в кэше нет, получаем переводы обычным способом
 	translations := b.Translate(word)
-	if len(translations) == 0 {
-		return &models.TranslationResult{
-			Pairs:     []models.TranslationPairs{},
-			Formatted: "",
-		}
-	}
-
-	result = &models.TranslationResult{
+	return &models.TranslationResult{
 		Pairs:     translations,
 		Formatted: tools.FormatPairs(translations),
 	}
-
-	if len(result.Pairs) > 0 {
-		b.cacheFormattedAsync(ctx, cacheKey, result)
-	}
-
-	return result
 }
 
 // fetchTranslationsWithFallback queries the API for word and, when the results
@@ -425,31 +406,6 @@ func (b *Business) loadLocalTranslations(ctx context.Context, word string) []mod
 		return nil
 	}
 	return translations
-}
-
-func (b *Business) loadCachedFormatted(ctx context.Context, cacheKey string) *models.TranslationResult {
-	result, err := b.cache.GetTranslationResult(ctx, cacheKey)
-	if err != nil {
-		if !errors.Is(err, cache.ErrMiss) {
-			b.log.Printf("cache get failed for %q: %v\n", "formatted_"+cacheKey, err)
-		}
-		return nil
-	}
-	if len(result.Pairs) == 0 {
-		return nil
-	}
-	return result
-}
-
-func (b *Business) cacheFormattedAsync(ctx context.Context, cacheKey string, result *models.TranslationResult) {
-	if result == nil || len(result.Pairs) == 0 {
-		return
-	}
-	go func() {
-		if err := b.cache.SetTranslationResult(ctx, cacheKey, result); err != nil {
-			b.log.Printf("failed to cache formatted translation: %v\n", err)
-		}
-	}()
 }
 
 func (b *Business) storeTranslationPair(entry models.Entry, translation models.Translation) {

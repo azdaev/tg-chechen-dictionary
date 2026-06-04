@@ -75,33 +75,6 @@ func (c *Cache) Set(ctx context.Context, key string, translations []models.Trans
 	return c.client.Set(ctx, key, data, ttl).Err()
 }
 
-func (c *Cache) GetTranslationResult(ctx context.Context, key string) (*models.TranslationResult, error) {
-	val, err := c.client.Get(ctx, "formatted_"+key).Result()
-	if errors.Is(err, redis.Nil) {
-		return nil, ErrMiss
-	}
-	if err != nil {
-		return nil, err
-	}
-
-	var result models.TranslationResult
-	err = json.Unmarshal([]byte(val), &result)
-	if err != nil {
-		return nil, err
-	}
-
-	return &result, nil
-}
-
-func (c *Cache) SetTranslationResult(ctx context.Context, key string, result *models.TranslationResult) error {
-	data, err := json.Marshal(result)
-	if err != nil {
-		return err
-	}
-
-	return c.client.Set(ctx, "formatted_"+key, data, translationTTL).Err()
-}
-
 // SetQuizPoll remembers the correct option for a sent quiz poll so the answer
 // can be graded when a poll_answer update arrives. Short-lived — polls are
 // answered within minutes.

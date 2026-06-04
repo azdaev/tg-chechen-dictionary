@@ -133,7 +133,6 @@ func (n *Net) invalidateCacheForPair(ctx context.Context, pairID int64) {
 			continue
 		}
 		_ = n.cache.Delete(ctx, word)
-		_ = n.cache.Delete(ctx, "formatted_"+word)
 	}
 }
 
