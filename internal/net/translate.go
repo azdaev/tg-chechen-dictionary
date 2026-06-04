@@ -24,11 +24,14 @@ func (n *Net) HandleText(ctx context.Context, m *tgbotapi.Message) error {
 
 	result := n.business.TranslateFormatted(m.Text)
 	if len(result.Pairs) == 0 {
-		// Record the vocabulary gap so maintainers know what to add next.
-		cleanWord := tools.NormalizeSearch(m.Text)
-		if err := n.repo.RecordMissingWord(ctx, cleanWord, strings.TrimSpace(m.Text)); err != nil {
-			n.log.WithError(err).WithField("word", cleanWord).Warn("failed to record missing word")
-		}
+		// Record the vocabulary gap so maintainers know what to add next —
+		// detached, so the write never delays the reply the user is waiting on.
+		go func() {
+			cleanWord := tools.NormalizeSearch(m.Text)
+			if err := n.repo.RecordMissingWord(ctx, cleanWord, strings.TrimSpace(m.Text)); err != nil {
+				n.log.WithError(err).WithField("word", cleanWord).Warn("failed to record missing word")
+			}
+		}()
 		text := NoTranslationText
 		if suggestions := n.business.SuggestTranslations(m.Text); len(suggestions) > 0 {
 			text += "\n\n" + SuggestionsHeaderText + "\n\n" + tools.FormatPairs(suggestions)

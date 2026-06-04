@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -231,9 +232,27 @@ const (
 // the dictionary stores lemmas ("Яблоко") that a substring search cannot
 // match. Only pairs where one side actually starts with the tried prefix are
 // returned, so unrelated substring hits don't surface as suggestions.
+// Prefixes are looked up concurrently — the user is already waiting on a
+// failed search, so this can't afford to chain API round trips — but the
+// longest matching prefix still wins.
 func (b *Business) SuggestTranslations(word string) []models.TranslationPairs {
-	for _, prefix := range prefixCandidates(word) {
-		matches := filterPrefixMatches(b.Translate(prefix), prefix)
+	prefixes := prefixCandidates(word)
+	if len(prefixes) == 0 {
+		return nil
+	}
+
+	results := make([][]models.TranslationPairs, len(prefixes))
+	var wg sync.WaitGroup
+	for i, prefix := range prefixes {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			results[i] = filterPrefixMatches(b.Translate(prefix), prefix)
+		}()
+	}
+	wg.Wait()
+
+	for _, matches := range results {
 		if len(matches) > maxSuggestions {
 			matches = matches[:maxSuggestions]
 		}

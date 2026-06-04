@@ -1,6 +1,9 @@
 package business
 
 import (
+	"chetoru/internal/cache"
+	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -37,6 +40,49 @@ func TestFetchTranslations_HTTPErrorIsNil(t *testing.T) {
 
 	if got := b.fetchTranslationsWithFallback("яблоками"); got != nil {
 		t.Fatalf("HTTP failure must return nil so it is not cached, got %#v", got)
+	}
+}
+
+// stubDoshamFind serves find() responses keyed by the searched word; unknown
+// words get an empty result.
+func stubDoshamFind(t *testing.T, entries map[string]string) {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			Variables struct {
+				InputText string `json:"inputText"`
+			} `json:"variables"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		find := "[]"
+		if headword, ok := entries[req.Variables.InputText]; ok {
+			find = fmt.Sprintf(`[{"entryId":"e1","content":%q,"type":"WORD","translations":[{"translationId":"t1","content":"Ӏаж","languageCode":"che"}]}]`, headword)
+		}
+		fmt.Fprintf(w, `{"data":{"find":%s}}`, find)
+	}))
+	t.Cleanup(srv.Close)
+	t.Setenv("DOSHAM_API_URL", srv.URL)
+}
+
+func TestSuggestTranslations_LongestPrefixWins(t *testing.T) {
+	// "яблоками" misses; prefixes "яблок" and "ябло" both have matches. The
+	// longest one must win even though lookups run concurrently.
+	stubDoshamFind(t, map[string]string{
+		"яблок": "Яблоко",
+		"ябло":  "Яблоня",
+	})
+	b := &Business{log: logrus.New(), cache: cache.NewCache("127.0.0.1:1", "")}
+
+	got := b.SuggestTranslations("яблоками")
+	if len(got) != 1 || got[0].Original != "Яблоко" {
+		t.Fatalf("suggestions = %+v, want exactly [Яблоко] from the longest prefix", got)
+	}
+
+	if got := b.SuggestTranslations("слово из фразы"); got != nil {
+		t.Fatalf("phrases must not produce suggestions, got %+v", got)
 	}
 }
 
