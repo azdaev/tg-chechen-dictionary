@@ -9,46 +9,17 @@ import (
 	"strings"
 )
 
-// RandomWordFromAPI fetches a batch of random entries from the dosham API and
-// returns one oriented as Chechen → Russian. It draws from the full dictionary
-// (130K+ entries), so /random works even when the local moderated table is
-// empty. Single-word ("WORD") entries are preferred over phrase ("TEXT")
-// entries for a cleaner learning card. Returns nil if nothing usable was found.
+// RandomWordFromAPI returns one clean Chechen → Russian pair drawn from the
+// full dictionary (130K+ entries), so /random works even when the local
+// moderated table is empty. Pairs come from the prefetched word pool, so the
+// common case costs no API call. On error the caller falls back to the local
+// moderated table.
 func (b *Business) RandomWordFromAPI(ctx context.Context) (*models.RandomWord, error) {
-	// A random batch can happen to contain only phrases or Russian-headword
-	// glosses (whose Chechen "translation" is a multi-clause dictionary entry,
-	// not a word). Retry a few batches to reliably surface a clean single word;
-	// if none turns up, return nil so the caller falls back to the local
-	// moderated table rather than showing a messy gloss.
-	const attempts = 3
-	var lastErr error
-	for range attempts {
-		entries, err := b.fetchRandomEntries(ctx, 20)
-		if err != nil {
-			lastErr = err
-			continue
-		}
-		if word := pickLearnableWord(entries); word != nil {
-			return word, nil
-		}
+	words, err := b.randomCleanWords(ctx, 1)
+	if err != nil {
+		return nil, err
 	}
-	return nil, lastErr
-}
-
-// pickLearnableWord returns the first entry in the batch that yields a clean,
-// learnable Chechen → Russian card, or nil if none qualifies.
-func pickLearnableWord(entries []models.Entry) *models.RandomWord {
-	for _, entry := range entries {
-		if entry.Type != "WORD" {
-			continue
-		}
-		// Require both sides to be clean: a learnable Chechen word and a concise
-		// Russian meaning (not a derivational cross-reference or long gloss).
-		if word := orientEntry(entry); word != nil && isLearnableWord(word.Chechen) && isCleanMeaning(word.Russian) {
-			return word
-		}
-	}
-	return nil
+	return &words[0], nil
 }
 
 // orientEntry turns a dictionary entry into a Chechen → Russian pair. An entry's

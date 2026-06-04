@@ -31,6 +31,7 @@ type Business struct {
 	aiFormattingEnabled bool
 	log                 *logrus.Logger
 	onPairReady         OnPairReady
+	pool                wordPool
 }
 
 type DictionaryRepository interface {
