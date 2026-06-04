@@ -134,17 +134,6 @@ func toNullString(v string) sql.NullString {
 	return sql.NullString{String: v, Valid: true}
 }
 
-// TranslateFormatted возвращает переводы вместе с отформатированным текстом.
-// Форматирование — чистая функция от пар, поэтому отдельно не кэшируется:
-// Translate уже отдаёт пары из кэша.
-func (b *Business) TranslateFormatted(word string) *models.TranslationResult {
-	translations := b.Translate(word)
-	return &models.TranslationResult{
-		Pairs:     translations,
-		Formatted: tools.FormatPairs(translations),
-	}
-}
-
 // fetchTranslationsWithFallback queries the API for word and, when the results
 // lack an exact headword match for a ё/е-ambiguous query, retries with the
 // candidate respellings and puts those results first. The dosham search is a

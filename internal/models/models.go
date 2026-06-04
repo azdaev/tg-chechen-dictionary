@@ -15,12 +15,6 @@ type TranslationPairs struct {
 	FormattedChosen string `json:"formatted_chosen,omitempty"`
 }
 
-// TranslationResult содержит переводы и отформатированный текст
-type TranslationResult struct {
-	Pairs     []TranslationPairs `json:"pairs"`
-	Formatted string             `json:"formatted"`
-}
-
 type ActivityType int8
 
 const (

@@ -12,8 +12,7 @@ import (
 // "original — translation" line. The joined result is trimmed.
 //
 // It is the single source of truth for translation formatting, shared by the
-// business layer (TranslateFormatted) and the net handlers (HandleText,
-// HandleMoreTranslations).
+// net handlers (HandleText, HandleMoreTranslations).
 func FormatPairs(pairs []models.TranslationPairs) string {
 	var b strings.Builder
 	for _, t := range pairs {

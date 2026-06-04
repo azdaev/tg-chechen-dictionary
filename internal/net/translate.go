@@ -22,8 +22,8 @@ func (n *Net) HandleText(ctx context.Context, m *tgbotapi.Message) error {
 	// never sit between the user and the translation.
 	defer n.recordActivity(ctx, m.From.ID, m.From.UserName, models.ActivityTypeText)
 
-	result := n.business.TranslateFormatted(m.Text)
-	if len(result.Pairs) == 0 {
+	translations := n.business.Translate(m.Text)
+	if len(translations) == 0 {
 		// Record the vocabulary gap so maintainers know what to add next —
 		// detached, so the write never delays the reply the user is waiting on.
 		go func() {
@@ -42,23 +42,16 @@ func (n *Net) HandleText(ctx context.Context, m *tgbotapi.Message) error {
 		return err
 	}
 
-	firstTranslations := result.Pairs
-	if len(result.Pairs) > MaxTranslations {
-		firstTranslations = result.Pairs[:MaxTranslations]
+	firstTranslations := translations
+	if len(translations) > MaxTranslations {
+		firstTranslations = translations[:MaxTranslations]
 	}
 
-	var messageText string
-	if len(result.Pairs) <= MaxTranslations {
-		messageText = result.Formatted
-	} else {
-		messageText = tools.FormatPairs(firstTranslations)
-	}
-
-	msg := tgbotapi.NewMessage(m.Chat.ID, messageText)
+	msg := tgbotapi.NewMessage(m.Chat.ID, tools.FormatPairs(firstTranslations))
 	msg.ParseMode = "html"
 
-	if len(result.Pairs) > MaxTranslations {
-		remainingCount := len(result.Pairs) - MaxTranslations
+	if len(translations) > MaxTranslations {
+		remainingCount := len(translations) - MaxTranslations
 		// Only attach the "More" button when its callback data fits Telegram's
 		// 64-byte limit; otherwise sending the whole message would fail. The
 		// inline-mode hint below still tells users how to see all translations.

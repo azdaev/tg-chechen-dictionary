@@ -66,7 +66,6 @@ type AI interface {
 
 type Business interface {
 	Translate(word string) []models.TranslationPairs
-	TranslateFormatted(word string) *models.TranslationResult
 	SuggestTranslations(word string) []models.TranslationPairs
 	SetAIFormatting(enabled bool)
 	AIFormattingEnabled() bool
