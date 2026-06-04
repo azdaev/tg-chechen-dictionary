@@ -4,6 +4,7 @@ import (
 	"chetoru/internal/models"
 	"context"
 	"database/sql"
+	"errors"
 )
 
 type TranslationPair struct {
@@ -22,9 +23,37 @@ type TranslationPair struct {
 	FormatVersion       sql.NullString
 }
 
+const selectPairIDQuery = `select id from dictionary_pairs
+	where original_clean = ? and original_lang = ?
+	  and translation_clean = ? and translation_lang = ?
+	limit 1;`
+
+func (r *Repository) lookupPairID(ctx context.Context, pair TranslationPair) (int64, error) {
+	var id int64
+	err := r.db.QueryRowContext(
+		ctx,
+		selectPairIDQuery,
+		pair.OriginalClean,
+		pair.OriginalLang,
+		pair.TranslationClean,
+		pair.TranslationLang,
+	).Scan(&id)
+	return id, err
+}
+
 // InsertTranslationPair stores a pair, reporting whether it was newly inserted
-// or already existed so callers can skip re-processing duplicates.
+// or already existed so callers can skip re-processing duplicates. Duplicates
+// are the common case — API fetches keep re-seeing stored pairs — so it checks
+// read-only first instead of opening a write transaction per pair.
 func (r *Repository) InsertTranslationPair(ctx context.Context, pair TranslationPair) (int64, bool, error) {
+	existingID, err := r.lookupPairID(ctx, pair)
+	if err == nil {
+		return existingID, false, nil
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return 0, false, err
+	}
+
 	result, err := r.db.ExecContext(
 		ctx,
 		`insert or ignore into dictionary_pairs (
@@ -67,18 +96,8 @@ func (r *Repository) InsertTranslationPair(ctx context.Context, pair Translation
 		return id, true, nil
 	}
 
-	var existingID int64
-	err = r.db.QueryRowContext(
-		ctx,
-		`select id from dictionary_pairs
-		where original_clean = ? and original_lang = ?
-		  and translation_clean = ? and translation_lang = ?
-		limit 1;`,
-		pair.OriginalClean,
-		pair.OriginalLang,
-		pair.TranslationClean,
-		pair.TranslationLang,
-	).Scan(&existingID)
+	// Lost an insert race with a concurrent writer; the row exists now.
+	existingID, err = r.lookupPairID(ctx, pair)
 	if err != nil {
 		return 0, false, err
 	}
