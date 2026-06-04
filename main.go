@@ -12,6 +12,7 @@ import (
 	"database/sql"
 	"os"
 	"os/signal"
+	"syscall"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 	"github.com/sirupsen/logrus"
@@ -19,7 +20,9 @@ import (
 )
 
 func main() {
-	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
+	// Docker stops containers with SIGTERM; without handling it every redeploy
+	// kills the process mid-write instead of letting handlers drain.
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
 	log := logrus.New()

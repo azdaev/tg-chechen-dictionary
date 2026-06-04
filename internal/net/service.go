@@ -211,6 +211,9 @@ func (n *Net) Start(ctx context.Context) {
 	// goroutines. A panicking handler is logged, not fatal. Slow handlers are
 	// logged with their kind so optimization targets come from live data.
 	sem := make(chan struct{}, maxConcurrentUpdates)
+	// Handlers run on a context that survives shutdown: draining is pointless
+	// if cancellation makes their remaining DB writes fail.
+	handlerCtx := context.WithoutCancel(ctx)
 	dispatch := func(kind string, fn func()) {
 		sem <- struct{}{}
 		go func() {
@@ -228,17 +231,35 @@ func (n *Net) Start(ctx context.Context) {
 		}()
 	}
 
-	for update := range updates {
+	for {
+		var update tgbotapi.Update
+		select {
+		case <-ctx.Done():
+			// Let in-flight handlers finish before main closes the DB: holding
+			// every semaphore slot means none are still running.
+			n.log.Info("shutting down, draining in-flight handlers")
+			for range maxConcurrentUpdates {
+				sem <- struct{}{}
+			}
+			n.log.Info("service stopped")
+			return
+		case u, ok := <-updates:
+			if !ok {
+				return
+			}
+			update = u
+		}
+
 		// Callbacks
 		if update.CallbackQuery != nil {
 			cq := update.CallbackQuery
-			dispatch("callback", func() { n.routeCallback(ctx, cq) })
+			dispatch("callback", func() { n.routeCallback(handlerCtx, cq) })
 			continue
 		}
 
 		// Poll answers (group quiz scoring) — cheap DB write, kept in-loop.
 		if update.PollAnswer != nil {
-			if err := n.HandlePollAnswer(ctx, update.PollAnswer); err != nil {
+			if err := n.HandlePollAnswer(handlerCtx, update.PollAnswer); err != nil {
 				n.log.WithError(err).Error("service.HandlePollAnswer")
 			}
 			continue
@@ -257,20 +278,20 @@ func (n *Net) Start(ctx context.Context) {
 		if update.Message != nil {
 			// Successful payment — ordering matters, kept in-loop.
 			if update.Message.SuccessfulPayment != nil {
-				if err := n.HandleSuccessfulPayment(ctx, update.Message); err != nil {
+				if err := n.HandleSuccessfulPayment(handlerCtx, update.Message); err != nil {
 					n.log.WithError(err).Error("service.HandleSuccessfulPayment")
 				}
 				continue
 			}
 			m := update.Message
-			dispatch("message", func() { n.routeMessage(ctx, m) })
+			dispatch("message", func() { n.routeMessage(handlerCtx, m) })
 			continue
 		}
 
 		// Inline queries
 		if update.InlineQuery != nil && update.InlineQuery.Query != "" {
 			iq := update.InlineQuery
-			dispatch("inline", func() { n.routeInline(ctx, iq) })
+			dispatch("inline", func() { n.routeInline(handlerCtx, iq) })
 			continue
 		}
 	}
