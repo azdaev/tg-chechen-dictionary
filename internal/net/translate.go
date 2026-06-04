@@ -189,12 +189,15 @@ func (n *Net) HandleInline(ctx context.Context, iq *tgbotapi.InlineQuery) error 
 		if suggested {
 			title = "🔍 " + title
 		}
+		// The sent message gets the same card the text path produces, instead
+		// of dumping the raw gloss ("м 1) цӏа; деревянный ~- …"). The picker
+		// description shows the card minus its headword, condensed to one line.
+		formatted := tools.FormatPairs(translations[i : i+1])
 		article := tgbotapi.NewInlineQueryResultArticle(iq.ID+strconv.Itoa(i), title, "")
-		article.Description = tools.Clean(translations[i].Translate)
+		article.Description = strings.ReplaceAll(
+			strings.TrimPrefix(formatted, tools.Clean(translations[i].Original)+" — "), "\n", " · ")
 		article.InputMessageContent = tgbotapi.InputTextMessageContent{
-			Text: fmt.Sprintf("<b>%s</b> - %s",
-				tgbotapi.EscapeText(tgbotapi.ModeHTML, tools.Clean(translations[i].Original)),
-				tgbotapi.EscapeText(tgbotapi.ModeHTML, tools.Clean(translations[i].Translate))),
+			Text:      formatted,
 			ParseMode: "html",
 		}
 		articles = append(articles, article)
