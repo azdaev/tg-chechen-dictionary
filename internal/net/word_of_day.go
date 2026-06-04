@@ -71,6 +71,38 @@ func wotdButton(subscribed bool) tgbotapi.InlineKeyboardMarkup {
 	)
 }
 
+// maybeSuggestWordOfDay sends the one-time subscription suggestion to engaged
+// users (WotdNudgeMinLookups+ searches) who never opted in. Marked as sent
+// before sending so a failure can never turn it into repeat nudging.
+func (n *Net) maybeSuggestWordOfDay(ctx context.Context, chatID, userID int64) {
+	nudged, err := n.repo.WasWordOfDayNudged(ctx, userID)
+	if err != nil {
+		n.log.WithError(err).WithField("user_id", userID).Warn("wotd nudge: check failed")
+		return
+	}
+	if nudged {
+		return
+	}
+	subscribed, err := n.repo.IsWordOfDaySubscribed(ctx, userID)
+	if err != nil || subscribed {
+		return
+	}
+	lookups, err := n.repo.CountUserActivity(ctx, userID)
+	if err != nil || lookups < WotdNudgeMinLookups {
+		return
+	}
+
+	if err := n.repo.MarkWordOfDayNudged(ctx, userID); err != nil {
+		n.log.WithError(err).WithField("user_id", userID).Warn("wotd nudge: mark failed")
+		return
+	}
+	msg := tgbotapi.NewMessage(chatID, WotdNudgeText)
+	msg.ReplyMarkup = wotdButton(false)
+	if _, err := n.bot.Send(msg); err != nil {
+		n.log.WithError(err).WithField("user_id", userID).Warn("wotd nudge: send failed")
+	}
+}
+
 // StartWordOfDayScheduler launches a background goroutine that pushes a random
 // Chechen word to all subscribers once a day at WordOfDayHour (local time).
 // It stops when ctx is cancelled.

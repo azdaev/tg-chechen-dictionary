@@ -52,6 +52,8 @@ const (
 	WotdUnsubscribeButton      = "🔕 Отписаться"
 	WotdSubscribedToast        = "Вы подписались на слово дня! 🔔"
 	WotdUnsubscribedToast      = "Вы отписались от слова дня"
+	WotdNudgeText              = "📖 Кстати! Каждое утро бот может присылать вам одно чеченское слово с переводом — маленький шаг к языку каждый день."
+	WotdNudgeMinLookups        = 5
 	DonationMessageFormat      = "🌱 Чтобы наш проект мог продолжить работать, вы можете помочь нам"
 	DefaultModerationChat      = int64(-5204234916)
 	BroadcastParseMode         = "html"
@@ -162,6 +164,8 @@ type WordOfDayStore interface {
 	IsWordOfDaySubscribed(ctx context.Context, userID int64) (bool, error)
 	ListWordOfDaySubscribers(ctx context.Context) ([]int64, error)
 	CountWordOfDaySubscribers(ctx context.Context) (int, error)
+	WasWordOfDayNudged(ctx context.Context, userID int64) (bool, error)
+	MarkWordOfDayNudged(ctx context.Context, userID int64) error
 }
 
 type Net struct {

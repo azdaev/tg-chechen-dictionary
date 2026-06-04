@@ -95,6 +95,10 @@ func (n *Net) HandleText(ctx context.Context, m *tgbotapi.Message) error {
 	// message per lookup, and was the last synchronous roundtrip in this tail.
 	n.bg.Go(func() { n.maybeSendDonation(context.Background(), m.Chat.ID, int(m.From.ID)) })
 
+	if m.Chat.Type == "private" {
+		n.bg.Go(func() { n.maybeSuggestWordOfDay(context.Background(), m.Chat.ID, m.From.ID) })
+	}
+
 	return nil
 }
 

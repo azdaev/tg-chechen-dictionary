@@ -34,6 +34,31 @@ func (r *Repository) IsWordOfDaySubscribed(ctx context.Context, userID int64) (b
 	return v == 1, err
 }
 
+// WasWordOfDayNudged reports whether the one-time subscription suggestion was
+// already sent. Unknown users read as nudged so they are never messaged.
+func (r *Repository) WasWordOfDayNudged(ctx context.Context, userID int64) (bool, error) {
+	var v int
+	err := r.db.QueryRowContext(
+		ctx,
+		`SELECT wotd_nudged FROM users WHERE user_id = ?;`,
+		userID,
+	).Scan(&v)
+	if err == sql.ErrNoRows {
+		return true, nil
+	}
+	return v == 1, err
+}
+
+// MarkWordOfDayNudged records that the one-time subscription suggestion went out.
+func (r *Repository) MarkWordOfDayNudged(ctx context.Context, userID int64) error {
+	_, err := r.db.ExecContext(
+		ctx,
+		`UPDATE users SET wotd_nudged = 1 WHERE user_id = ?;`,
+		userID,
+	)
+	return err
+}
+
 // CountWordOfDaySubscribers returns how many reachable (non-blocked) users are
 // opted in to the daily push.
 func (r *Repository) CountWordOfDaySubscribers(ctx context.Context) (int, error) {

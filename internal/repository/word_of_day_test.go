@@ -23,7 +23,8 @@ func newUsersTestRepo(t *testing.T) *Repository {
 		is_blocked INTEGER NOT NULL DEFAULT 0,
 		blocked_at DATETIME,
 		blocked_reason TEXT,
-		word_of_day_subscribed INTEGER NOT NULL DEFAULT 0
+		word_of_day_subscribed INTEGER NOT NULL DEFAULT 0,
+		wotd_nudged INTEGER NOT NULL DEFAULT 0
 	);`)
 	if err != nil {
 		t.Fatalf("create table: %v", err)
@@ -92,5 +93,28 @@ func TestListWordOfDaySubscribers(t *testing.T) {
 	}
 	if n != 1 {
 		t.Fatalf("count = %d, want 1", n)
+	}
+}
+
+func TestWordOfDayNudge(t *testing.T) {
+	r := newUsersTestRepo(t)
+	ctx := context.Background()
+
+	// Unknown users read as already nudged — never message them.
+	nudged, err := r.WasWordOfDayNudged(ctx, 99)
+	if err != nil || !nudged {
+		t.Fatalf("unknown user nudged = %v (err %v), want true", nudged, err)
+	}
+
+	_ = r.StoreUser(ctx, 1, "alice")
+	if nudged, _ = r.WasWordOfDayNudged(ctx, 1); nudged {
+		t.Fatal("fresh user must not read as nudged")
+	}
+
+	if err := r.MarkWordOfDayNudged(ctx, 1); err != nil {
+		t.Fatalf("MarkWordOfDayNudged: %v", err)
+	}
+	if nudged, _ = r.WasWordOfDayNudged(ctx, 1); !nudged {
+		t.Fatal("marked user must read as nudged")
 	}
 }
