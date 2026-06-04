@@ -16,6 +16,10 @@ var (
 )
 
 func Clean(text string) string {
+	// Most dictionary strings carry no markup at all; skip the regex for them.
+	if !strings.ContainsAny(text, "<\n") {
+		return text
+	}
 	output := tagRe.ReplaceAllString(text, "")
 	output = strings.ReplaceAll(output, "<>", ";")
 	output = strings.ReplaceAll(output, "<br />", " ")
@@ -69,6 +73,10 @@ func YoVariants(text string) []string {
 }
 
 func EscapeUnclosedTags(text string) string {
+	// No angle brackets means no tags to balance.
+	if !strings.ContainsAny(text, "<>") {
+		return text
+	}
 	matches := tagRe.FindAllString(text, -1)
 	count := 0
 	for _, match := range matches {
