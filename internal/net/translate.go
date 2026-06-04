@@ -13,28 +13,14 @@ import (
 )
 
 func (n *Net) HandleText(ctx context.Context, m *tgbotapi.Message) error {
-	loaderMessage, err := n.bot.Send(tgbotapi.NewMessage(m.Chat.ID, "⌛️"))
-	if err != nil {
-		return fmt.Errorf("bot.Send: %w", err)
-	}
+	// A typing indicator instead of the old ⌛️ loader message: the loader cost
+	// two blocking Telegram round trips (send + delete) on every lookup before
+	// any work started. Fire-and-forget so even this one doesn't delay the answer.
+	go n.bot.Send(tgbotapi.NewChatAction(m.Chat.ID, tgbotapi.ChatTyping))
 
-	defer func() {
-		n.bot.Send(tgbotapi.NewDeleteMessage(m.Chat.ID, loaderMessage.MessageID))
-	}()
-
-	n.bot.Send(tgbotapi.NewChatAction(m.Chat.ID, tgbotapi.ChatTyping))
-
-	if err := n.repo.StoreUser(ctx, int(m.From.ID), m.From.UserName); err != nil {
-		return fmt.Errorf("repo.StoreUser: %w", err)
-	}
-
-	if err := n.repo.MarkUserUnblocked(ctx, m.From.ID); err != nil {
-		n.log.WithError(err).WithField("user_id", m.From.ID).Warn("failed to unblock user")
-	}
-
-	if err := n.repo.StoreActivity(ctx, int(m.From.ID), models.ActivityTypeText); err != nil {
-		return fmt.Errorf("repo.StoreActivity: %w", err)
-	}
+	// Bookkeeping runs after the reply has been sent — storage writes should
+	// never sit between the user and the translation.
+	defer n.recordTextActivity(ctx, m)
 
 	result := n.business.TranslateFormatted(m.Text)
 	if len(result.Pairs) == 0 {
@@ -49,7 +35,7 @@ func (n *Net) HandleText(ctx context.Context, m *tgbotapi.Message) error {
 		}
 		msg := tgbotapi.NewMessage(m.Chat.ID, text)
 		msg.ParseMode = "html"
-		_, err = n.bot.Send(msg)
+		_, err := n.bot.Send(msg)
 		return err
 	}
 
@@ -86,7 +72,7 @@ func (n *Net) HandleText(ctx context.Context, m *tgbotapi.Message) error {
 		msg.Text += "\n\n" + MoreTranslationsHelpText
 	}
 
-	if _, err = n.bot.Send(msg); err != nil {
+	if _, err := n.bot.Send(msg); err != nil {
 		return fmt.Errorf("bot.Send: %w", err)
 	}
 
@@ -117,6 +103,20 @@ func (n *Net) HandleText(ctx context.Context, m *tgbotapi.Message) error {
 	}
 
 	return nil
+}
+
+// recordTextActivity persists per-user bookkeeping for a text lookup. Failures
+// are logged, not returned — the reply has already been sent.
+func (n *Net) recordTextActivity(ctx context.Context, m *tgbotapi.Message) {
+	if err := n.repo.StoreUser(ctx, int(m.From.ID), m.From.UserName); err != nil {
+		n.log.WithError(err).WithField("user_id", m.From.ID).Warn("StoreUser failed")
+	}
+	if err := n.repo.MarkUserUnblocked(ctx, m.From.ID); err != nil {
+		n.log.WithError(err).WithField("user_id", m.From.ID).Warn("failed to unblock user")
+	}
+	if err := n.repo.StoreActivity(ctx, int(m.From.ID), models.ActivityTypeText); err != nil {
+		n.log.WithError(err).WithField("user_id", m.From.ID).Warn("StoreActivity failed")
+	}
 }
 
 func (n *Net) HandleInline(ctx context.Context, iq *tgbotapi.InlineQuery) error {
