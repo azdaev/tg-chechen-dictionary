@@ -32,8 +32,9 @@ func (n *Net) HandleStart(m *tgbotapi.Message) error {
 	return nil
 }
 
-// HandleMe shows the user their own progress: lookups, quiz score, streak.
-// Visible progress is its own motivator for daily practice.
+// HandleMe shows the user their own progress: lookups, quiz score, streak,
+// Word of the Day subscription. Visible progress is its own motivator for
+// daily practice.
 func (n *Net) HandleMe(ctx context.Context, m *tgbotapi.Message) error {
 	lookups, err := n.repo.CountUserActivity(ctx, m.From.ID)
 	if err != nil {
@@ -43,7 +44,18 @@ func (n *Net) HandleMe(ctx context.Context, m *tgbotapi.Message) error {
 	if err != nil {
 		return fmt.Errorf("repo.GetQuizScore: %w", err)
 	}
+	wotdSubscribed, err := n.repo.IsWordOfDaySubscribed(ctx, m.From.ID)
+	if err != nil {
+		return fmt.Errorf("repo.IsWordOfDaySubscribed: %w", err)
+	}
 
+	msg := tgbotapi.NewMessage(m.Chat.ID, buildMeMessage(lookups, correct, total, streak, wotdSubscribed))
+	msg.ParseMode = "html"
+	_, err = n.bot.Send(msg)
+	return err
+}
+
+func buildMeMessage(lookups, correct, total, streak int, wotdSubscribed bool) string {
 	var b strings.Builder
 	b.WriteString("👤 <b>Ваш прогресс</b>\n\n")
 	fmt.Fprintf(&b, "🔎 Поисков в словаре: <b>%s</b>\n", formatThousands(lookups))
@@ -55,11 +67,12 @@ func (n *Net) HandleMe(ctx context.Context, m *tgbotapi.Message) error {
 	} else {
 		b.WriteString("🧠 Викторина: попробуйте /quiz!\n")
 	}
-
-	msg := tgbotapi.NewMessage(m.Chat.ID, strings.TrimRight(b.String(), "\n"))
-	msg.ParseMode = "html"
-	_, err = n.bot.Send(msg)
-	return err
+	if wotdSubscribed {
+		b.WriteString("📖 Слово дня: <b>включено</b>\n")
+	} else {
+		b.WriteString("📖 Слово дня: выключено — включить через /wotd\n")
+	}
+	return strings.TrimRight(b.String(), "\n")
 }
 
 func (n *Net) HandleStats(ctx context.Context, m *tgbotapi.Message) error {
