@@ -75,6 +75,26 @@ func (c *Cache) Set(ctx context.Context, key string, translations []models.Trans
 	return c.client.Set(ctx, key, data, ttl).Err()
 }
 
+// wordOfDayKey records the date of the last word-of-day broadcast so a
+// restart can tell a missed send from one that already happened. The TTL only
+// needs to outlive the catch-up window.
+const wordOfDayKey = "wotd_last_sent"
+
+func (c *Cache) GetWordOfDayLastSent(ctx context.Context) (string, error) {
+	val, err := c.client.Get(ctx, wordOfDayKey).Result()
+	if errors.Is(err, redis.Nil) {
+		return "", ErrMiss
+	}
+	if err != nil {
+		return "", err
+	}
+	return val, nil
+}
+
+func (c *Cache) SetWordOfDayLastSent(ctx context.Context, date string) error {
+	return c.client.Set(ctx, wordOfDayKey, date, 48*time.Hour).Err()
+}
+
 // SetQuizPoll remembers the correct option for a sent quiz poll so the answer
 // can be graded when a poll_answer update arrives. Short-lived — polls are
 // answered within minutes.

@@ -74,6 +74,15 @@ func wotdButton(subscribed bool) tgbotapi.InlineKeyboardMarkup {
 // It stops when ctx is cancelled.
 func (n *Net) StartWordOfDayScheduler(ctx context.Context) {
 	go func() {
+		// A deploy around the send hour kills the in-memory timer; if the last
+		// recorded broadcast is from an earlier day, today's was missed. An
+		// absent record stays conservative — better to skip once than spam.
+		if n.cache != nil {
+			if last, err := n.cache.GetWordOfDayLastSent(ctx); err == nil && wordOfDayDue(time.Now(), last, WordOfDayHour) {
+				n.log.Info("word of the day: missed today's send, catching up")
+				n.sendWordOfDay(ctx)
+			}
+		}
 		for {
 			next := nextWordOfDayTime(time.Now(), WordOfDayHour)
 			n.log.Infof("word of the day: next send at %s", next.Format(time.RFC3339))
@@ -88,6 +97,12 @@ func (n *Net) StartWordOfDayScheduler(ctx context.Context) {
 			}
 		}
 	}()
+}
+
+// wordOfDayDue reports whether today's broadcast was missed: the send hour
+// has passed and the last recorded send happened on an earlier day.
+func wordOfDayDue(now time.Time, lastSent string, hour int) bool {
+	return now.Hour() >= hour && lastSent != now.Format(time.DateOnly)
 }
 
 // nextWordOfDayTime returns the next occurrence of hour:00 in now's location,
@@ -129,7 +144,21 @@ func (n *Net) sendWordOfDay(ctx context.Context) {
 	text += "\n\n" + WordOfDayFooter
 	n.log.Infof("word of the day: sending %q to %d subscribers", word.Chechen, len(subscribers))
 
+	// Recorded before the sends: if the broadcast is cut partway, at-most-once
+	// beats greeting the survivors twice tomorrow.
+	if n.cache != nil {
+		if err := n.cache.SetWordOfDayLastSent(ctx, time.Now().Format(time.DateOnly)); err != nil {
+			n.log.WithError(err).Warn("word of the day: record last sent")
+		}
+	}
+
 	for _, id := range subscribers {
+		select {
+		case <-ctx.Done():
+			n.log.Info("word of the day: broadcast interrupted by shutdown")
+			return
+		default:
+		}
 		out := tgbotapi.NewMessage(id, text)
 		out.ParseMode = "html"
 		if _, err := n.bot.Send(out); err != nil {

@@ -5,6 +5,21 @@ import (
 	"time"
 )
 
+func TestWordOfDayDue(t *testing.T) {
+	morning := time.Date(2026, 6, 4, 8, 0, 0, 0, time.UTC)
+	afternoon := time.Date(2026, 6, 4, 14, 0, 0, 0, time.UTC)
+
+	if wordOfDayDue(morning, "2026-06-03", 9) {
+		t.Error("before the send hour nothing is due yet")
+	}
+	if !wordOfDayDue(afternoon, "2026-06-03", 9) {
+		t.Error("past the send hour with yesterday's record: due")
+	}
+	if wordOfDayDue(afternoon, "2026-06-04", 9) {
+		t.Error("already sent today: not due")
+	}
+}
+
 func TestNextWordOfDayTime(t *testing.T) {
 	loc := time.UTC
 
