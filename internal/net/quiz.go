@@ -125,6 +125,15 @@ func scorerName(s models.QuizScorer) string {
 	}
 }
 
+// quizPromptFromMessage recovers the quizzed word from the question message:
+// both question formats put the prompt alone on the last line.
+func quizPromptFromMessage(text string) string {
+	if i := strings.LastIndexByte(text, '\n'); i >= 0 {
+		text = text[i+1:]
+	}
+	return strings.TrimSpace(text)
+}
+
 func quizMedal(rank int) string {
 	switch rank {
 	case 0:
@@ -238,6 +247,13 @@ func (n *Net) HandleQuizCallback(ctx context.Context, cq *tgbotapi.CallbackQuery
 		}
 		newRows = append(newRows, tgbotapi.NewInlineKeyboardRow(
 			tgbotapi.NewInlineKeyboardButtonData(label, "quiz_done"),
+		))
+	}
+	// Once answered, the word is worth a closer look — open its full
+	// dictionary card via an inline query pre-filled with the prompt.
+	if word := quizPromptFromMessage(cq.Message.Text); word != "" {
+		newRows = append(newRows, tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.InlineKeyboardButton{Text: QuizLookupButtonText, SwitchInlineQueryCurrentChat: &word},
 		))
 	}
 	newRows = append(newRows, tgbotapi.NewInlineKeyboardRow(

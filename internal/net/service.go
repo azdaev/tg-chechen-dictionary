@@ -36,6 +36,7 @@ const (
 	QuizQuestionFormat         = "🧠 <b>Викторина</b>\n\nКак переводится на русский?\n\n<b>%s</b>"
 	QuizQuestionReverseFormat  = "🧠 <b>Викторина</b>\n\nКак сказать по-чеченски?\n\n<b>%s</b>"
 	QuizNextButtonText         = "➡️ Следующий вопрос"
+	QuizLookupButtonText       = "📖 Открыть в словаре"
 	QuizCorrectToast           = "✅ Верно!"
 	QuizWrongToast             = "❌ Неверно"
 	QuizErrorText              = "Не удалось составить вопрос. Попробуйте /quiz ещё раз."
