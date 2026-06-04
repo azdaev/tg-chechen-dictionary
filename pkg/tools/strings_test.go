@@ -53,6 +53,20 @@ func TestFormatTranslationLite_AdjectiveGloss(t *testing.T) {
 	}
 }
 
+func TestFormatTranslationLite_VerbGloss(t *testing.T) {
+	// Verb glosses open with aspect/government labels ("сов., кому", "несов.")
+	// that must not become the card header.
+	got := FormatTranslationLite("**Давать** - несов. 1) дала; ~ книгу - книга яла 2) (позволить) дита", "Давать")
+	if !strings.HasPrefix(got, "Давать — дала") {
+		t.Errorf("header = %q, want it to start with %q", got, "Давать — дала")
+	}
+
+	got = FormatTranslationLite("**Даться** - сов., кому 1) не ~ в обман - ӏеха ца вайта", "Даться")
+	if strings.Contains(got, "сов.") || strings.Contains(got, "кому") {
+		t.Errorf("aspect/government labels leaked into output:\n%s", got)
+	}
+}
+
 func TestCleanTranslation(t *testing.T) {
 	tests := []struct {
 		name     string
