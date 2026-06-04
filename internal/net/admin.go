@@ -32,6 +32,36 @@ func (n *Net) HandleStart(m *tgbotapi.Message) error {
 	return nil
 }
 
+// HandleMe shows the user their own progress: lookups, quiz score, streak.
+// Visible progress is its own motivator for daily practice.
+func (n *Net) HandleMe(ctx context.Context, m *tgbotapi.Message) error {
+	lookups, err := n.repo.CountUserActivity(ctx, m.From.ID)
+	if err != nil {
+		return fmt.Errorf("repo.CountUserActivity: %w", err)
+	}
+	correct, total, streak, err := n.repo.GetQuizScore(ctx, m.From.ID)
+	if err != nil {
+		return fmt.Errorf("repo.GetQuizScore: %w", err)
+	}
+
+	var b strings.Builder
+	b.WriteString("👤 <b>Ваш прогресс</b>\n\n")
+	fmt.Fprintf(&b, "🔎 Поисков в словаре: <b>%s</b>\n", formatThousands(lookups))
+	if total > 0 {
+		fmt.Fprintf(&b, "🧠 Викторина: <b>%d/%d</b> (%d%%)\n", correct, total, correct*100/total)
+		if streak >= 2 {
+			fmt.Fprintf(&b, "🔥 Серия: <b>%d дн.</b>\n", streak)
+		}
+	} else {
+		b.WriteString("🧠 Викторина: попробуйте /quiz!\n")
+	}
+
+	msg := tgbotapi.NewMessage(m.Chat.ID, strings.TrimRight(b.String(), "\n"))
+	msg.ParseMode = "html"
+	_, err = n.bot.Send(msg)
+	return err
+}
+
 func (n *Net) HandleStats(ctx context.Context, m *tgbotapi.Message) error {
 	if !n.isAdmin(m.From.ID) {
 		return nil

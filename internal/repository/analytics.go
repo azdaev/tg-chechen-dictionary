@@ -52,6 +52,13 @@ func (r *Repository) RecordUserActivity(ctx context.Context, userID int64, usern
 	return tx.Commit()
 }
 
+// CountUserActivity returns how many lookups (text and inline) a user has made.
+func (r *Repository) CountUserActivity(ctx context.Context, userID int64) (int, error) {
+	var count int
+	err := r.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM activity WHERE user_id = ?;", userID).Scan(&count)
+	return count, err
+}
+
 func (r *Repository) ListUserIDs(ctx context.Context) ([]int64, error) {
 	rows, err := r.db.QueryContext(
 		ctx,

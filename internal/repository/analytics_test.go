@@ -137,6 +137,22 @@ func TestRecordUserActivity_BookkeepingInOneCall(t *testing.T) {
 	}
 }
 
+func TestCountUserActivity(t *testing.T) {
+	r, _ := newActivityTestRepo(t)
+	ctx := context.Background()
+
+	if n, err := r.CountUserActivity(ctx, 7); err != nil || n != 0 {
+		t.Fatalf("fresh user activity = %d (err %v), want 0", n, err)
+	}
+	_ = r.RecordUserActivity(ctx, 7, "amadi", entities.ActivityTypeText)
+	_ = r.RecordUserActivity(ctx, 7, "amadi", entities.ActivityTypeInline)
+	_ = r.RecordUserActivity(ctx, 8, "other", entities.ActivityTypeText)
+
+	if n, err := r.CountUserActivity(ctx, 7); err != nil || n != 2 {
+		t.Fatalf("activity = %d (err %v), want 2 (other users excluded)", n, err)
+	}
+}
+
 func TestMarkUserUnblocked_RestoresBlockedUser(t *testing.T) {
 	r := newUsersTestRepo(t)
 	ctx := context.Background()

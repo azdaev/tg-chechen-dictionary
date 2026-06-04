@@ -96,6 +96,7 @@ type Repository interface {
 type UserStore interface {
 	StoreUser(ctx context.Context, userID int, username string) error
 	RecordUserActivity(ctx context.Context, userID int64, username string, activityType models.ActivityType) error
+	CountUserActivity(ctx context.Context, userID int64) (int, error)
 	ListUserIDs(ctx context.Context) ([]int64, error)
 	MarkUserBlocked(ctx context.Context, userID int64, reason string) error
 	ShouldSendDonationMessage(ctx context.Context, userID int) (bool, error)
@@ -317,6 +318,7 @@ func (n *Net) registerBotCommands() {
 		tgbotapi.BotCommand{Command: "random", Description: "🎲 Случайное чеченское слово"},
 		tgbotapi.BotCommand{Command: "quiz", Description: "🧠 Викторина по чеченскому"},
 		tgbotapi.BotCommand{Command: "top", Description: "🏆 Рейтинг знатоков"},
+		tgbotapi.BotCommand{Command: "me", Description: "👤 Мой прогресс"},
 		tgbotapi.BotCommand{Command: "wotd", Description: "📖 Слово дня"},
 		tgbotapi.BotCommand{Command: "check", Description: "✍️ Проверить орфографию"},
 		tgbotapi.BotCommand{Command: "subscribe", Description: "⭐ Подписка на безлимит"},
@@ -368,6 +370,8 @@ func (n *Net) routeMessage(ctx context.Context, m *tgbotapi.Message) {
 		err = n.HandleQuiz(ctx, m.Chat)
 	case "top":
 		err = n.HandleTop(ctx, m.Chat.ID)
+	case "me":
+		err = n.HandleMe(ctx, m)
 	case "wotd":
 		err = n.HandleWordOfDay(ctx, m)
 	case "moderate":
