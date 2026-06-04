@@ -45,6 +45,7 @@ const (
 	QuizTopEmptyText           = "Пока никто не набрал очков в /quiz. Стань первым! 🧠"
 	WordOfDayHour              = 9 // local hour (container TZ is Europe/Moscow)
 	WordOfDayFormat            = "📖 <b>Слово дня</b>\n\n<b>%s</b> — %s"
+	WordOfDayExampleFormat     = "✍️ <i>%s</i>"
 	WordOfDayFooter            = "<i>Учите чеченский каждый день! 🇨🇪</i>"
 	WotdStatusOnText           = "📖 <b>Слово дня</b>\n\nВы подписаны ✅ — каждый день в 9:00 будете получать новое чеченское слово."
 	WotdStatusOffText          = "📖 <b>Слово дня</b>\n\nПодпишитесь, чтобы каждое утро получать новое чеченское слово и пополнять словарный запас."

@@ -2,6 +2,7 @@ package net
 
 import (
 	"chetoru/internal/models"
+	"chetoru/pkg/tools"
 	"context"
 	"fmt"
 	"strings"
@@ -212,6 +213,19 @@ func pickFresh(recent []string, draw func() *models.RandomWord) *models.RandomWo
 	return fallback
 }
 
+// wordOfDayExample mines the word's dictionary glosses for a usage example.
+func (n *Net) wordOfDayExample(chechen string) (string, bool) {
+	for i, p := range n.business.Translate(chechen) {
+		if i == 5 {
+			break
+		}
+		if ex, ok := tools.FirstExample(p.Translate, chechen); ok {
+			return ex, true
+		}
+	}
+	return "", false
+}
+
 // sendWordOfDay fetches one random word and broadcasts it to every subscriber.
 func (n *Net) sendWordOfDay(ctx context.Context) {
 	subscribers, err := n.repo.ListWordOfDaySubscribers(ctx)
@@ -251,7 +265,11 @@ func (n *Net) sendWordOfDay(ctx context.Context) {
 		tgbotapi.EscapeText(tgbotapi.ModeHTML, word.Chechen),
 		tgbotapi.EscapeText(tgbotapi.ModeHTML, word.Russian),
 	)
-	// One grammar lookup for the whole broadcast, not one per subscriber.
+	// One dictionary and one grammar lookup for the whole broadcast, not per
+	// subscriber: a real usage example turns the card from vocabulary into language.
+	if ex, ok := n.wordOfDayExample(word.Chechen); ok {
+		text += "\n\n" + fmt.Sprintf(WordOfDayExampleFormat, tgbotapi.EscapeText(tgbotapi.ModeHTML, ex))
+	}
 	if line := grammarSummaryLine(n.business.GrammarFor(ctx, word.Chechen)); line != "" {
 		text += "\n\n" + line
 	}

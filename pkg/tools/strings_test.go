@@ -383,3 +383,22 @@ func TestExpandAbbreviations(t *testing.T) {
 		})
 	}
 }
+
+func TestFirstExample(t *testing.T) {
+	cases := []struct {
+		name, gloss, word, want string
+		ok                      bool
+	}{
+		{"simple", "**дика** - хороший; дика стаг — хороший человек", "дика", "дика стаг → хороший человек", true},
+		{"tilde", "хороший; ~ стаг — хороший человек", "дика", "дика стаг → хороший человек", true},
+		{"second sense", "1) первый смысл 2) второй; масала цхьаъ — например один", "", "масала цхьаъ → например один", true},
+		{"no example", "просто перевод без примеров", "слово", "", false},
+		{"empty", "", "", "", false},
+	}
+	for _, c := range cases {
+		got, ok := FirstExample(c.gloss, c.word)
+		if got != c.want || ok != c.ok {
+			t.Errorf("%s: FirstExample = %q/%v, want %q/%v", c.name, got, ok, c.want, c.ok)
+		}
+	}
+}

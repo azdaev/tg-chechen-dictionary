@@ -211,6 +211,35 @@ func FormatTranslationLite(text string, originalWord string) string {
 	return strings.TrimSpace(strings.Join(lines, "\n"))
 }
 
+// FirstExample mines a raw dictionary gloss for its first usage example and
+// renders it as "phrase → translation" in the gloss's own order. ok is false
+// when no sense carries a splittable example.
+func FirstExample(gloss, word string) (string, bool) {
+	gloss = boldRe.ReplaceAllString(gloss, "")
+	for _, sense := range meaningRe.Split(gloss, -1) {
+		idx := findMainSemicolon(sense)
+		if idx == -1 {
+			continue
+		}
+		for part := range strings.SplitSeq(sense[idx+1:], ";") {
+			part = strings.TrimSpace(part)
+			if part == "" {
+				continue
+			}
+			left, right, ok := splitExample(part)
+			if !ok || left == "" || right == "" {
+				continue
+			}
+			ex := fmt.Sprintf("%s → %s", left, right)
+			if word != "" {
+				ex = replaceTildeWithWord(ex, word)
+			}
+			return expandAbbreviations(ex), true
+		}
+	}
+	return "", false
+}
+
 // findMainSemicolon returns the index of the semicolon that separates the main
 // translation from its examples: the first one followed by a dash (the example
 // marker), falling back to the first semicolon, or -1 if there is none.
