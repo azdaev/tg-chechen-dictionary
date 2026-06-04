@@ -1,6 +1,7 @@
 package tools
 
 import (
+	"chetoru/internal/models"
 	"strings"
 	"testing"
 )
@@ -50,6 +51,32 @@ func TestFormatTranslationLite_AdjectiveGloss(t *testing.T) {
 	}
 	if !strings.Contains(got, "домашний адрес → цӏера адрес") {
 		t.Errorf("example not rendered:\n%s", got)
+	}
+}
+
+func TestEscapeUnclosedTags(t *testing.T) {
+	cases := []struct {
+		name, in, want string
+	}{
+		{"plain text untouched", "цӏа дитт", "цӏа дитт"},
+		{"balanced tags untouched", "<b>дитт</b>", "<b>дитт</b>"},
+		{"unclosed tag cleaned", "<b>дитт", "дитт"},
+		{"stray opening bracket dropped", "цӏа < дитт", "цӏа  дитт"},
+		{"stray closing bracket dropped", "цӏа > дитт", "цӏа  дитт"},
+	}
+	for _, c := range cases {
+		if got := EscapeUnclosedTags(c.in); got != c.want {
+			t.Errorf("%s: EscapeUnclosedTags(%q) = %q, want %q", c.name, c.in, got, c.want)
+		}
+	}
+}
+
+func TestFormatPairs_TamesRawBrackets(t *testing.T) {
+	// Local DB pairs carry raw content; a stray bracket must not survive into
+	// the HTML-mode message.
+	got := FormatPairs([]models.TranslationPairs{{Original: "цӏа <", Translate: "дом"}})
+	if strings.ContainsAny(got, "<>") {
+		t.Errorf("stray bracket leaked into formatted card: %q", got)
 	}
 }
 

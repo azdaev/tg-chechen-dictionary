@@ -111,6 +111,13 @@ func EscapeUnclosedTags(text string) string {
 	if !strings.ContainsAny(text, "<>") {
 		return text
 	}
+	// A stray bracket ("цӏа < дитт") survives tag matching but breaks
+	// Telegram's HTML parser, which rejects the whole message.
+	if strings.Count(text, "<") != strings.Count(text, ">") {
+		text = Clean(text)
+		text = strings.ReplaceAll(text, "<", "")
+		return strings.ReplaceAll(text, ">", "")
+	}
 	matches := tagRe.FindAllString(text, -1)
 	count := 0
 	for _, match := range matches {

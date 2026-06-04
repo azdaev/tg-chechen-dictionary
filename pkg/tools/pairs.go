@@ -26,6 +26,11 @@ func formatPair(t models.TranslationPairs) string {
 	if t.FormattedChosen == "ai" && t.FormattedAI != "" {
 		return t.FormattedAI + "\n\n"
 	}
+	// Locally stored pairs carry raw content; tame brackets here so a stray
+	// "<" can't break the HTML-mode send. (AI formatting above is trusted —
+	// it intentionally emits Telegram HTML.)
+	t.Original = EscapeUnclosedTags(t.Original)
+	t.Translate = EscapeUnclosedTags(t.Translate)
 	// A dictionary-structured side becomes the gloss; the other side is its
 	// headword. Telegram-side checks Translate first to match historical output.
 	if hasDictionaryMarkup(t.Translate) {
