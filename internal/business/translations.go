@@ -56,6 +56,7 @@ func (b *Business) TranslationCacheStats() (hits, misses int64) {
 
 type DictionaryRepository interface {
 	FindTranslationPairs(ctx context.Context, cleanWord string, limit int) ([]models.TranslationPairs, error)
+	FindTranslationPairsByPrefix(ctx context.Context, prefix string, limit int) ([]models.TranslationPairs, error)
 	InsertTranslationPair(ctx context.Context, pair repository.TranslationPair) (int64, bool, error)
 	UpdateTranslationPairFormatting(ctx context.Context, id int64, formattedAI, formattedChosen string) error
 	SetTranslationPairFormattingChoice(ctx context.Context, id int64, choice string) error
@@ -242,6 +243,23 @@ func (b *Business) SuggestTranslations(word string) []models.TranslationPairs {
 	prefixes := prefixCandidates(word)
 	if len(prefixes) == 0 {
 		return nil
+	}
+
+	// The local table reaches lemmas that dosham's substring search can't
+	// ("яблоко" from "яблок"), is indexed, and works offline — so it gets the
+	// first shot, longest prefix first.
+	if b.dictRepo != nil {
+		ctx := context.Background()
+		for _, prefix := range prefixes {
+			local, err := b.dictRepo.FindTranslationPairsByPrefix(ctx, tools.NormalizeSearch(prefix), maxSuggestions)
+			if err != nil {
+				b.log.Printf("prefix lookup failed for %q: %v\n", prefix, err)
+				break
+			}
+			if len(local) > 0 {
+				return local
+			}
+		}
 	}
 
 	results := make([][]models.TranslationPairs, len(prefixes))

@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"strings"
 )
 
 type TranslationPair struct {
@@ -310,6 +311,60 @@ func (r *Repository) FindTranslationPairs(ctx context.Context, cleanWord string,
 				FormattedChosen: chosenText,
 			})
 		}
+	}
+
+	return results, rows.Err()
+}
+
+// FindTranslationPairsByPrefix returns pairs where either side starts with
+// prefix, shortest matches first (closest to a lemma). It backs suggestions
+// for failed searches: the local table holds lemmas ("яблоко") that dosham's
+// substring search cannot reach from an inflected query ("яблоками"). Range
+// comparisons keep the clean-word indexes usable, unlike LIKE.
+func (r *Repository) FindTranslationPairsByPrefix(ctx context.Context, prefix string, limit int) ([]models.TranslationPairs, error) {
+	if prefix == "" || limit <= 0 {
+		return nil, nil
+	}
+	hi := prefix + "\uffff"
+	rows, err := r.db.QueryContext(
+		ctx,
+		`select
+			original_raw,
+			original_clean,
+			translation_raw,
+			translation_clean,
+			formatted_ai,
+			formatted_chosen
+		from dictionary_pairs
+		where (formatted_chosen is null or formatted_chosen != 'deleted')
+		  and ((original_clean >= ? and original_clean < ?) or (translation_clean >= ? and translation_clean < ?))
+		order by min(length(original_clean), length(translation_clean))
+		limit ?;`,
+		prefix, hi, prefix, hi, limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	results := make([]models.TranslationPairs, 0, limit)
+	for rows.Next() {
+		var originalRaw, originalClean, translationRaw, translationClean string
+		var formattedAI, formattedChosen sql.NullString
+		if err := rows.Scan(&originalRaw, &originalClean, &translationRaw, &translationClean, &formattedAI, &formattedChosen); err != nil {
+			return nil, err
+		}
+
+		pair := models.TranslationPairs{
+			Original:        originalRaw,
+			Translate:       translationRaw,
+			FormattedAI:     formattedAI.String,
+			FormattedChosen: formattedChosen.String,
+		}
+		if !strings.HasPrefix(originalClean, prefix) {
+			pair.Original, pair.Translate = pair.Translate, pair.Original
+		}
+		results = append(results, pair)
 	}
 
 	return results, rows.Err()

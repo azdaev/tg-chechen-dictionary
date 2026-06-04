@@ -109,6 +109,10 @@ func (r *recordingDictRepo) FindTranslationPairs(context.Context, string, int) (
 	return nil, nil
 }
 
+func (r *recordingDictRepo) FindTranslationPairsByPrefix(context.Context, string, int) ([]models.TranslationPairs, error) {
+	return nil, nil
+}
+
 func (r *recordingDictRepo) InsertTranslationPair(_ context.Context, pair repository.TranslationPair) (int64, bool, error) {
 	r.inserted <- pair
 	return 1, true, nil
@@ -140,6 +144,31 @@ func TestFetchTranslations_StoresPairsDetached(t *testing.T) {
 		}
 	default:
 		t.Fatal("pair was never persisted")
+	}
+}
+
+type prefixDictRepo struct {
+	recordingDictRepo
+	byPrefix map[string][]models.TranslationPairs
+}
+
+func (r *prefixDictRepo) FindTranslationPairsByPrefix(_ context.Context, prefix string, _ int) ([]models.TranslationPairs, error) {
+	return r.byPrefix[prefix], nil
+}
+
+func TestSuggestTranslations_LocalDictionaryFirst(t *testing.T) {
+	// The API is down; the local dictionary alone must still produce
+	// suggestions, and the longest matching prefix wins.
+	stubDoshamAPI(t, http.StatusInternalServerError, ``)
+	repo := &prefixDictRepo{byPrefix: map[string][]models.TranslationPairs{
+		"яблок": {{Original: "Яблоко", Translate: "Ӏаж"}},
+		"ябло":  {{Original: "Яблоня", Translate: "Ӏаж дитт"}},
+	}}
+	b := &Business{log: logrus.New(), dictRepo: repo, cache: cache.NewCache("127.0.0.1:1", "")}
+
+	got := b.SuggestTranslations("Яблоками")
+	if len(got) != 1 || got[0].Original != "Яблоко" {
+		t.Fatalf("suggestions = %+v, want [Яблоко] from the local dictionary", got)
 	}
 }
 

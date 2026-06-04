@@ -75,6 +75,41 @@ func TestFindTranslationPairs_IncludesUnmoderated(t *testing.T) {
 	}
 }
 
+func TestFindTranslationPairsByPrefix(t *testing.T) {
+	r := newDictionaryTestRepo(t)
+	ctx := context.Background()
+
+	insert := func(origRaw, origClean, trRaw, trClean string) {
+		t.Helper()
+		_, _, err := r.InsertTranslationPair(ctx, TranslationPair{
+			OriginalRaw: origRaw, OriginalClean: origClean, OriginalLang: "RUS",
+			TranslationRaw: trRaw, TranslationClean: trClean, TranslationLang: "CHE",
+			Source: "api",
+		})
+		if err != nil {
+			t.Fatalf("insert %s: %v", origClean, err)
+		}
+	}
+	insert("Яблоко", "яблоко", "Ӏаж", "ӏаж")
+	insert("Яблоня", "яблоня", "Ӏаж дитт", "ӏаж дитт")
+	insert("Груша", "груша", "Кхор", "кхор")
+
+	found, err := r.FindTranslationPairsByPrefix(ctx, "яблок", 10)
+	if err != nil || len(found) != 1 || found[0].Original != "Яблоко" {
+		t.Fatalf("prefix яблок = %+v (err %v), want [Яблоко]", found, err)
+	}
+
+	// Chechen side matches too, with the sides swapped so the matched word leads.
+	found, err = r.FindTranslationPairsByPrefix(ctx, "кхор", 10)
+	if err != nil || len(found) != 1 || found[0].Original != "Кхор" {
+		t.Fatalf("prefix кхор = %+v (err %v), want [Кхор] (swapped)", found, err)
+	}
+
+	if found, err = r.FindTranslationPairsByPrefix(ctx, "слон", 10); err != nil || len(found) != 0 {
+		t.Fatalf("prefix слон = %+v (err %v), want none", found, err)
+	}
+}
+
 func TestInsertTranslationPair_ReportsInserted(t *testing.T) {
 	r := newDictionaryTestRepo(t)
 	ctx := context.Background()
