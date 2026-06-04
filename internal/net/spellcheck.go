@@ -225,10 +225,10 @@ func (n *Net) HandleSpellcheckFeedback(ctx context.Context, cq *tgbotapi.Callbac
 	msgText := cq.Message.Text
 
 	var corrected string
-	for _, line := range strings.Split(msgText, "\n") {
+	for line := range strings.SplitSeq(msgText, "\n") {
 		line = strings.TrimSpace(line)
-		if strings.HasPrefix(line, "✏️ ") {
-			corrected = strings.TrimPrefix(line, "✏️ ")
+		if rest, ok := strings.CutPrefix(line, "✏️ "); ok {
+			corrected = rest
 			break
 		}
 	}

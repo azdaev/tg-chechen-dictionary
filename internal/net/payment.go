@@ -81,10 +81,7 @@ func (n *Net) HandleSubscribe(ctx context.Context, m *tgbotapi.Message) error {
 	// Show remaining free uses
 	now := time.Now()
 	usage, _ := n.repo.GetSpellcheckUsage(ctx, userID, int(now.Month()), now.Year())
-	remaining := FreeSpellcheckLimit - usage
-	if remaining < 0 {
-		remaining = 0
-	}
+	remaining := max(FreeSpellcheckLimit-usage, 0)
 
 	providerToken := os.Getenv("PAYMENT_PROVIDER_TOKEN")
 

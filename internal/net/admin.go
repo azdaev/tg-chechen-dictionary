@@ -115,16 +115,17 @@ func (n *Net) HandleMissingWords(ctx context.Context, m *tgbotapi.Message) error
 		return err
 	}
 
-	text := MissingWordsHeader
+	var sb strings.Builder
+	sb.WriteString(MissingWordsHeader)
 	for i, w := range words {
 		display := w.RawWord
 		if display == "" {
 			display = w.CleanWord
 		}
-		text += fmt.Sprintf(MissingWordRowFormat, i+1, tgbotapi.EscapeText(tgbotapi.ModeHTML, display), w.SearchCount)
+		fmt.Fprintf(&sb, MissingWordRowFormat, i+1, tgbotapi.EscapeText(tgbotapi.ModeHTML, display), w.SearchCount)
 	}
 
-	msg := tgbotapi.NewMessage(m.Chat.ID, text)
+	msg := tgbotapi.NewMessage(m.Chat.ID, sb.String())
 	msg.ParseMode = "html"
 	_, err = n.bot.Send(msg)
 	return err

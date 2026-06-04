@@ -186,7 +186,7 @@ func buildBroadcastPayload(message *tgbotapi.Message) (*broadcastPayload, error)
 	if message == nil {
 		return nil, fmt.Errorf("Нет сообщения для рассылки")
 	}
-	if message.Photo != nil && len(message.Photo) > 0 {
+	if len(message.Photo) > 0 {
 		photo := message.Photo[len(message.Photo)-1]
 		return &broadcastPayload{
 			PhotoID:  photo.FileID,

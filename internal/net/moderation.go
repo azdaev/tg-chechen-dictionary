@@ -164,12 +164,12 @@ func moderationKeyboard(pair repository.TranslationPair) tgbotapi.InlineKeyboard
 func formatModerationMessage(pair repository.TranslationPair) string {
 	var sb strings.Builder
 
-	sb.WriteString(fmt.Sprintf("ID: %d\n", pair.ID))
-	sb.WriteString(fmt.Sprintf("%s → %s\n",
+	fmt.Fprintf(&sb, "ID: %d\n", pair.ID)
+	fmt.Fprintf(&sb, "%s → %s\n",
 		pair.OriginalClean+" ("+pair.OriginalLang+")",
-		pair.TranslationClean+" ("+pair.TranslationLang+")"))
-	sb.WriteString(fmt.Sprintf("raw: %s → %s\n", pair.OriginalRaw, pair.TranslationRaw))
-	sb.WriteString(fmt.Sprintf("source: %s\n\n", pair.Source))
+		pair.TranslationClean+" ("+pair.TranslationLang+")")
+	fmt.Fprintf(&sb, "raw: %s → %s\n", pair.OriginalRaw, pair.TranslationRaw)
+	fmt.Fprintf(&sb, "source: %s\n\n", pair.Source)
 
 	legacyFormat := tools.FormatTranslationLite(
 		fmt.Sprintf("**%s** - %s", pair.OriginalRaw, pair.TranslationRaw),
