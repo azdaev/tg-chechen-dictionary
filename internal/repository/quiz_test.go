@@ -20,6 +20,7 @@ func newQuizTestRepo(t *testing.T) *Repository {
 	_, err = db.Exec(`CREATE TABLE quiz_stats (
 		user_id INTEGER PRIMARY KEY,
 		username TEXT,
+		first_name TEXT,
 		correct_count INTEGER NOT NULL DEFAULT 0,
 		total_count INTEGER NOT NULL DEFAULT 0,
 		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
@@ -46,7 +47,7 @@ func TestQuizScore_AccumulatesAnswers(t *testing.T) {
 	ctx := context.Background()
 
 	for _, correct := range []bool{true, false, true, true, false} {
-		if err := r.RecordQuizAnswer(ctx, 7, "tester", correct); err != nil {
+		if err := r.RecordQuizAnswer(ctx, 7, "tester", "Тестер", correct); err != nil {
 			t.Fatalf("RecordQuizAnswer: %v", err)
 		}
 	}
@@ -64,18 +65,18 @@ func TestTopQuizScorers(t *testing.T) {
 	r := newQuizTestRepo(t)
 	ctx := context.Background()
 
-	record := func(userID int64, name string, correct, wrong int) {
+	record := func(userID int64, name, firstName string, correct, wrong int) {
 		for range correct {
-			_ = r.RecordQuizAnswer(ctx, userID, name, true)
+			_ = r.RecordQuizAnswer(ctx, userID, name, firstName, true)
 		}
 		for range wrong {
-			_ = r.RecordQuizAnswer(ctx, userID, name, false)
+			_ = r.RecordQuizAnswer(ctx, userID, name, firstName, false)
 		}
 	}
 
-	record(1, "alice", 5, 1) // 5/6 — leader
-	record(2, "bob", 2, 3)   // 2/5
-	record(3, "carol", 1, 1) // 1/2 — below the 3-attempt threshold, excluded
+	record(1, "alice", "Alice", 5, 1) // 5/6 — leader
+	record(2, "", "Боб", 2, 3)        // 2/5 — no username, first name only
+	record(3, "carol", "Carol", 1, 1) // 1/2 — below the 3-attempt threshold, excluded
 
 	board, err := r.TopQuizScorers(ctx, 10)
 	if err != nil {
@@ -87,8 +88,8 @@ func TestTopQuizScorers(t *testing.T) {
 	if board[0].Username != "alice" || board[0].Correct != 5 {
 		t.Fatalf("leader = %q %d, want alice 5", board[0].Username, board[0].Correct)
 	}
-	if board[1].Username != "bob" || board[1].Correct != 2 {
-		t.Fatalf("runner-up = %q %d, want bob 2", board[1].Username, board[1].Correct)
+	if board[1].Username != "" || board[1].FirstName != "Боб" || board[1].Correct != 2 {
+		t.Fatalf("runner-up = %q/%q %d, want \"\"/Боб 2", board[1].Username, board[1].FirstName, board[1].Correct)
 	}
 }
 
@@ -107,10 +108,10 @@ func TestCountQuizStats(t *testing.T) {
 
 	// alice: 3 correct of 4; bob: 0 correct of 2.
 	for _, c := range []bool{true, true, true, false} {
-		_ = r.RecordQuizAnswer(ctx, 1, "alice", c)
+		_ = r.RecordQuizAnswer(ctx, 1, "alice", "Alice", c)
 	}
 	for range 2 {
-		_ = r.RecordQuizAnswer(ctx, 2, "bob", false)
+		_ = r.RecordQuizAnswer(ctx, 2, "bob", "Bob", false)
 	}
 
 	players, total, correct, err = r.CountQuizStats(ctx)
@@ -126,8 +127,8 @@ func TestQuizScore_IsolatedPerUser(t *testing.T) {
 	r := newQuizTestRepo(t)
 	ctx := context.Background()
 
-	_ = r.RecordQuizAnswer(ctx, 1, "alice", true)
-	_ = r.RecordQuizAnswer(ctx, 2, "bob", false)
+	_ = r.RecordQuizAnswer(ctx, 1, "alice", "Alice", true)
+	_ = r.RecordQuizAnswer(ctx, 2, "bob", "Bob", false)
 
 	c1, t1, _ := r.GetQuizScore(ctx, 1)
 	c2, t2, _ := r.GetQuizScore(ctx, 2)

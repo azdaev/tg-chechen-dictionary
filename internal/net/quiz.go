@@ -63,7 +63,7 @@ func (n *Net) HandlePollAnswer(ctx context.Context, pa *tgbotapi.PollAnswer) err
 		return nil // not one of our quiz polls, or it expired
 	}
 	correct := pa.OptionIDs[0] == correctOption
-	if err := n.repo.RecordQuizAnswer(ctx, pa.User.ID, pa.User.UserName, correct); err != nil {
+	if err := n.repo.RecordQuizAnswer(ctx, pa.User.ID, pa.User.UserName, pa.User.FirstName, correct); err != nil {
 		return fmt.Errorf("RecordQuizAnswer (poll): %w", err)
 	}
 	return nil
@@ -84,10 +84,7 @@ func (n *Net) HandleTop(ctx context.Context, chatID int64) error {
 	var b strings.Builder
 	b.WriteString(QuizTopHeader)
 	for i, s := range scorers {
-		name := s.Username
-		if name == "" {
-			name = "Аноним"
-		}
+		name := scorerName(s)
 		pct := 0
 		if s.Total > 0 {
 			pct = s.Correct * 100 / s.Total
@@ -99,6 +96,19 @@ func (n *Net) HandleTop(ctx context.Context, chatID int64) error {
 	msg.ParseMode = "html"
 	_, err = n.bot.Send(msg)
 	return err
+}
+
+// scorerName picks the leaderboard display name: @username, then first name,
+// then an anonymous placeholder.
+func scorerName(s models.QuizScorer) string {
+	switch {
+	case s.Username != "":
+		return s.Username
+	case s.FirstName != "":
+		return s.FirstName
+	default:
+		return "Аноним"
+	}
 }
 
 func quizMedal(rank int) string {
@@ -173,7 +183,7 @@ func (n *Net) HandleQuizCallback(ctx context.Context, cq *tgbotapi.CallbackQuery
 
 	// Record the answer and fetch the running score for motivating feedback.
 	userID := cq.From.ID
-	if err := n.repo.RecordQuizAnswer(ctx, userID, cq.From.UserName, correct); err != nil {
+	if err := n.repo.RecordQuizAnswer(ctx, userID, cq.From.UserName, cq.From.FirstName, correct); err != nil {
 		n.log.WithError(err).WithField("user_id", userID).Warn("RecordQuizAnswer failed")
 	}
 
