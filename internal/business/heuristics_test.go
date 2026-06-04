@@ -167,6 +167,10 @@ func TestMakeRandomWord(t *testing.T) {
 	if w := makeRandomWord("дитт", "   "); w != nil {
 		t.Errorf("makeRandomWord(_, blank) = %+v, want nil", w)
 	}
+	// Combining stress accents (U+0301) are dictionary metadata, not spelling.
+	if w := makeRandomWord("кхеташо", "совеща́ние"); w == nil || w.Russian != "совещание" {
+		t.Errorf("makeRandomWord stress mark = %+v, want Russian %q", w, "совещание")
+	}
 }
 
 func TestHasExactOriginal(t *testing.T) {

@@ -74,7 +74,17 @@ func makeRandomWord(chechen, russian string) *models.RandomWord {
 	if chechen == "" || russian == "" {
 		return nil
 	}
-	return &models.RandomWord{Chechen: chechen, Russian: russian}
+	return &models.RandomWord{Chechen: stripStressMarks(chechen), Russian: stripStressMarks(russian)}
+}
+
+// stripStressMarks drops combining acute accents ("совеща́ние") — dictionary
+// stress metadata that renders unevenly in chat clients and makes accented
+// and plain spellings look like different words to dedup and answer matching.
+func stripStressMarks(s string) string {
+	if !strings.ContainsRune(s, '\u0301') {
+		return s
+	}
+	return strings.ReplaceAll(s, "\u0301", "")
 }
 
 // genderMarkers are the Russian grammatical-gender/number abbreviations that can
