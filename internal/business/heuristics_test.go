@@ -2,6 +2,7 @@ package business
 
 import (
 	"chetoru/internal/models"
+	"slices"
 	"testing"
 )
 
@@ -201,5 +202,35 @@ func TestMergePairs(t *testing.T) {
 	}
 	if got[0].Original != "Ёлка" || got[1].Original != "Белка" {
 		t.Errorf("alternate results must come first, got %+v", got)
+	}
+}
+
+func TestPrefixCandidates(t *testing.T) {
+	cases := map[string][]string{
+		"яблоками":  {"яблокам", "яблока", "яблок", "ябло"},
+		"воды":      {"вод"}, // stops at minSuggestPrefix
+		"дом":       nil,     // too short to trim
+		"два слова": nil,     // phrases are not trimmed
+		"":          nil,
+	}
+	for in, want := range cases {
+		if got := prefixCandidates(in); !slices.Equal(got, want) {
+			t.Errorf("prefixCandidates(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+func TestFilterPrefixMatches(t *testing.T) {
+	pairs := []models.TranslationPairs{
+		{Original: "Яблоко", Translate: "Ӏаж"},
+		{Original: "Дозревать", Translate: "кхиа"},  // substring hit, not a prefix
+		{Original: "Ӏаж", Translate: "яблоко"}, // prefix on the translate side
+	}
+	got := filterPrefixMatches(pairs, "яблок")
+	if len(got) != 2 || got[0].Original != "Яблоко" || got[1].Translate != "яблоко" {
+		t.Errorf("filterPrefixMatches = %+v, want Яблоко and яблоко", got)
+	}
+	if got := filterPrefixMatches(pairs, "груш"); len(got) != 0 {
+		t.Errorf("expected no matches for груш, got %+v", got)
 	}
 }

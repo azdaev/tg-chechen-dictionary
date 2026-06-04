@@ -43,7 +43,13 @@ func (n *Net) HandleText(ctx context.Context, m *tgbotapi.Message) error {
 		if err := n.repo.RecordMissingWord(ctx, cleanWord, strings.TrimSpace(m.Text)); err != nil {
 			n.log.WithError(err).WithField("word", cleanWord).Warn("failed to record missing word")
 		}
-		_, err = n.bot.Send(tgbotapi.NewMessage(m.Chat.ID, NoTranslationText))
+		text := NoTranslationText
+		if suggestions := n.business.SuggestTranslations(m.Text); len(suggestions) > 0 {
+			text += "\n\n" + SuggestionsHeaderText + "\n\n" + tools.FormatPairs(suggestions)
+		}
+		msg := tgbotapi.NewMessage(m.Chat.ID, text)
+		msg.ParseMode = "html"
+		_, err = n.bot.Send(msg)
 		return err
 	}
 

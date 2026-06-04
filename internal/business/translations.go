@@ -216,6 +216,61 @@ func mergePairs(first, second []models.TranslationPairs) []models.TranslationPai
 	return merged
 }
 
+const (
+	maxSuggestTrims  = 4
+	minSuggestPrefix = 3
+	maxSuggestions   = 3
+)
+
+// SuggestTranslations rescues a dead-end query by retrying progressively
+// shorter prefixes — Russians often type inflected forms ("яблоками") while
+// the dictionary stores lemmas ("Яблоко") that a substring search cannot
+// match. Only pairs where one side actually starts with the tried prefix are
+// returned, so unrelated substring hits don't surface as suggestions.
+func (b *Business) SuggestTranslations(word string) []models.TranslationPairs {
+	for _, prefix := range prefixCandidates(word) {
+		matches := filterPrefixMatches(b.Translate(prefix), prefix)
+		if len(matches) > maxSuggestions {
+			matches = matches[:maxSuggestions]
+		}
+		if len(matches) > 0 {
+			return matches
+		}
+	}
+	return nil
+}
+
+// prefixCandidates returns the query with 1..maxSuggestTrims trailing runes
+// removed, longest first. Single words only — trimming a phrase is meaningless.
+func prefixCandidates(word string) []string {
+	word = strings.TrimSpace(word)
+	if strings.ContainsAny(word, " \t\n") {
+		return nil
+	}
+	runes := []rune(word)
+	var out []string
+	for range maxSuggestTrims {
+		if len(runes)-1 < minSuggestPrefix {
+			break
+		}
+		runes = runes[:len(runes)-1]
+		out = append(out, string(runes))
+	}
+	return out
+}
+
+func filterPrefixMatches(pairs []models.TranslationPairs, prefix string) []models.TranslationPairs {
+	key := tools.NormalizeSearch(prefix)
+	var out []models.TranslationPairs
+	for _, p := range pairs {
+		if strings.HasPrefix(tools.NormalizeSearch(p.Original), key) ||
+			strings.HasPrefix(tools.NormalizeSearch(p.Translate), key) {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
 func (b *Business) fetchTranslationsFromAPI(word string) []models.TranslationPairs {
 	query := `
 		query Find($inputText: String!) {
