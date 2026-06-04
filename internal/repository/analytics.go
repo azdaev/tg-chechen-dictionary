@@ -4,7 +4,7 @@ import (
 	entities "chetoru/internal/models"
 	"context"
 	"database/sql"
-	"fmt"
+	"time"
 )
 
 type Repository struct {
@@ -78,12 +78,23 @@ func (r *Repository) MarkUserUnblocked(ctx context.Context, userID int64) error 
 	return err
 }
 
+// monthRangeUTC returns the UTC half-open [start, end) bounds of a local
+// calendar month, formatted like SQLite's current_timestamp. Range predicates
+// on created_at can use its index, unlike the strftime('%m', ...) comparisons
+// they replace, which scanned every row.
+func monthRangeUTC(month, year int) (string, string) {
+	const layout = "2006-01-02 15:04:05"
+	start := time.Date(year, time.Month(month), 1, 0, 0, 0, 0, time.Local)
+	return start.UTC().Format(layout), start.AddDate(0, 1, 0).UTC().Format(layout)
+}
+
 func (r *Repository) CountNewMonthlyUsers(ctx context.Context, month int, year int) (int, error) {
+	start, end := monthRangeUTC(month, year)
 	count := 0
 	row := r.db.QueryRowContext(
 		ctx,
-		"SELECT COUNT(id) FROM users WHERE strftime('%m', created_at, 'localtime') = ? AND strftime('%Y', created_at, 'localtime') = ?;",
-		fmt.Sprintf("%02d", month), fmt.Sprintf("%04d", year),
+		"SELECT COUNT(id) FROM users WHERE created_at >= ? AND created_at < ?;",
+		start, end,
 	)
 	err := row.Scan(&count)
 	if err != nil {
@@ -94,11 +105,12 @@ func (r *Repository) CountNewMonthlyUsers(ctx context.Context, month int, year i
 }
 
 func (r *Repository) DailyActiveUsersInMonth(ctx context.Context, month int, year int, days int) ([]entities.DailyActivity, error) {
+	start, end := monthRangeUTC(month, year)
 	result := make([]entities.DailyActivity, days)
 	rows, err := r.db.QueryContext(
 		ctx,
-		"SELECT day, COUNT(DISTINCT user_id) as \"dau\", COUNT(*) as \"calls\" FROM (SELECT user_id, strftime('%d', created_at, 'localtime') as \"day\"  FROM activity WHERE strftime('%m', created_at, 'localtime') = ? AND strftime('%Y', created_at, 'localtime') = ?) GROUP BY day;",
-		fmt.Sprintf("%02d", month), fmt.Sprintf("%04d", year),
+		"SELECT day, COUNT(DISTINCT user_id) as \"dau\", COUNT(*) as \"calls\" FROM (SELECT user_id, strftime('%d', created_at, 'localtime') as \"day\" FROM activity WHERE created_at >= ? AND created_at < ?) GROUP BY day;",
+		start, end,
 	)
 	if err != nil {
 		return nil, err
@@ -124,11 +136,12 @@ func (r *Repository) DailyActiveUsersInMonth(ctx context.Context, month int, yea
 }
 
 func (r *Repository) MonthlyActiveUsers(ctx context.Context, month int, year int) (int, error) {
+	start, end := monthRangeUTC(month, year)
 	count := 0
 	row := r.db.QueryRowContext(
 		ctx,
-		"SELECT COUNT(DISTINCT user_id) FROM activity WHERE strftime('%m', created_at, 'localtime') = ? AND strftime('%Y', created_at, 'localtime') = ?;",
-		fmt.Sprintf("%02d", month), fmt.Sprintf("%04d", year),
+		"SELECT COUNT(DISTINCT user_id) FROM activity WHERE created_at >= ? AND created_at < ?;",
+		start, end,
 	)
 
 	err := row.Scan(&count)
