@@ -42,7 +42,31 @@ func NormalizeSearch(text string) string {
 	clean = strings.TrimSpace(clean)
 	clean = strings.ToLower(clean)
 	clean = strings.ReplaceAll(clean, "ё", "е")
-	return clean
+	return foldPalochka(clean)
+}
+
+// foldPalochka replaces the digit-1 and Latin i/l stand-ins for the Chechen
+// palochka with the real letter ("г1ала" → "гӏала") so all spellings share
+// one cache key and match locally stored words. Only characters with a
+// Cyrillic neighbor fold, which keeps Latin words and numbers intact.
+func foldPalochka(s string) string {
+	if !strings.ContainsAny(s, "1il") {
+		return s
+	}
+	runes := []rune(s)
+	isCyr := func(i int) bool {
+		if i < 0 || i >= len(runes) {
+			return false
+		}
+		r := runes[i]
+		return r >= 'а' && r <= 'я' || r == 'ё' || r == 'ӏ'
+	}
+	for i, r := range runes {
+		if (r == '1' || r == 'i' || r == 'l') && (isCyr(i-1) || isCyr(i+1)) {
+			runes[i] = 'ӏ'
+		}
+	}
+	return string(runes)
 }
 
 // maxYoVariants caps how many respellings YoVariants generates, since each

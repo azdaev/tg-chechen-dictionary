@@ -53,6 +53,31 @@ func TestFormatTranslationLite_AdjectiveGloss(t *testing.T) {
 	}
 }
 
+func TestNormalizeSearch_FoldsPalochka(t *testing.T) {
+	// All common ways to type the palochka must normalize identically: the
+	// real letter (both cases), digit 1, and Latin i/l.
+	want := NormalizeSearch("гӏала")
+	for _, v := range []string{"г1ала", "гӀала", "гIала", "гlала"} {
+		if got := NormalizeSearch(v); got != want {
+			t.Errorf("NormalizeSearch(%q) = %q, want %q", v, got, want)
+		}
+	}
+
+	// Standalone Latin words and numbers stay untouched.
+	for _, v := range []string{"iphone", "123", "telegram"} {
+		if got := NormalizeSearch(v); got != v {
+			t.Errorf("NormalizeSearch(%q) = %q, want unchanged", v, got)
+		}
+	}
+
+	if got := NormalizeSearch("1аж"); got != "ӏаж" {
+		t.Errorf("NormalizeSearch(1аж) = %q, want ӏаж (leading stand-in folds)", got)
+	}
+	if got := NormalizeSearch("дег1"); got != "дегӏ" {
+		t.Errorf("NormalizeSearch(дег1) = %q, want дегӏ (trailing stand-in folds)", got)
+	}
+}
+
 func TestFormatTranslationLite_VerbGloss(t *testing.T) {
 	// Verb glosses open with aspect/government labels ("сов., кому", "несов.")
 	// that must not become the card header.
