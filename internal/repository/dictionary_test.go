@@ -27,7 +27,9 @@ func newDictionaryTestRepo(t *testing.T) *Repository {
 		translation_lang TEXT NOT NULL,
 		source TEXT NOT NULL,
 		source_entry_id TEXT,
-		source_translation_id TEXT
+		source_translation_id TEXT,
+		formatted_ai TEXT,
+		formatted_chosen TEXT
 	);
 	CREATE UNIQUE INDEX idx_dictionary_pairs_unique
 		ON dictionary_pairs (original_clean, original_lang, translation_clean, translation_lang);`)
@@ -35,6 +37,42 @@ func newDictionaryTestRepo(t *testing.T) *Repository {
 		t.Fatalf("create table: %v", err)
 	}
 	return NewRepository(db)
+}
+
+func TestFindTranslationPairs_IncludesUnmoderated(t *testing.T) {
+	r := newDictionaryTestRepo(t)
+	ctx := context.Background()
+
+	pair := TranslationPair{
+		OriginalRaw: "Дитт", OriginalClean: "дитт", OriginalLang: "CHE",
+		TranslationRaw: "Дерево", TranslationClean: "дерево", TranslationLang: "RUS",
+		Source: "api",
+	}
+	id, _, err := r.InsertTranslationPair(ctx, pair)
+	if err != nil {
+		t.Fatalf("insert: %v", err)
+	}
+
+	// Fresh pairs have formatted_chosen NULL; NULL != 'deleted' is not true in
+	// SQL, so a naive filter hides the entire unmoderated dictionary.
+	found, err := r.FindTranslationPairs(ctx, "дитт", 10)
+	if err != nil || len(found) != 1 {
+		t.Fatalf("FindTranslationPairs(дитт) = %+v (err %v), want the unmoderated pair", found, err)
+	}
+
+	// Reverse direction matches on translation_clean and swaps the sides.
+	found, err = r.FindTranslationPairs(ctx, "дерево", 10)
+	if err != nil || len(found) != 1 || found[0].Original != "Дерево" {
+		t.Fatalf("FindTranslationPairs(дерево) = %+v (err %v), want swapped pair", found, err)
+	}
+
+	// Deleted pairs stay hidden.
+	if err := r.SetTranslationPairFormattingChoice(ctx, id, "deleted"); err != nil {
+		t.Fatalf("mark deleted: %v", err)
+	}
+	if found, err := r.FindTranslationPairs(ctx, "дитт", 10); err != nil || len(found) != 0 {
+		t.Fatalf("FindTranslationPairs after delete = %+v (err %v), want none", found, err)
+	}
 }
 
 func TestInsertTranslationPair_ReportsInserted(t *testing.T) {

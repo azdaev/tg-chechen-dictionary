@@ -266,7 +266,8 @@ func (r *Repository) FindTranslationPairs(ctx context.Context, cleanWord string,
 			formatted_ai,
 			formatted_chosen
 		from dictionary_pairs
-		where formatted_chosen != 'deleted' and (original_clean = ? or translation_clean = ?)
+		where (formatted_chosen is null or formatted_chosen != 'deleted')
+		  and (original_clean = ? or translation_clean = ?)
 		limit ?;`,
 		cleanWord, cleanWord, limit,
 	)
