@@ -18,7 +18,8 @@ import (
 
 const (
 	MaxTranslations            = 4
-	InlineResultsLimit         = 50 // Telegram's hard cap on answerInlineQuery results
+	InlineResultsLimit         = 50   // Telegram's hard cap on answerInlineQuery results
+	InlineCacheTimeSeconds     = 3600 // Telegram-side cache for non-personal inline answers
 	MoreTranslationsHelpText   = `<i>Чтобы просмотреть все доступные переводы, нажмите на кнопку «Еще» или воспользуйтесь инлайн-режимом: введите @chetoru_bot и слово, которое хотите перевести. Это позволит вам увидеть все варианты.</i>`
 	StartMessageText           = "Отправь мне слово на русском или чеченском, а я скину перевод. Ещё ты можешь пользоваться ботом в других переписках, как на видео.\n\n🎲 /random — случайное чеченское слово.\n🧠 /quiz — викторина: проверь, как хорошо ты знаешь чеченский.\n🏆 /top — рейтинг знатоков.\n📖 /wotd — слово дня каждое утро.\n✍️ /check — проверить орфографию (или начни сообщение с точки).\n\nСловарные данные предоставлены проектом dosham.app"
 	NoTranslationText          = "К сожалению, нет перевода"

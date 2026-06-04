@@ -148,10 +148,14 @@ func (n *Net) HandleInline(ctx context.Context, iq *tgbotapi.InlineQuery) error 
 		articles = append(articles, article)
 	}
 
+	// Dictionary results are identical for everyone and effectively static, so
+	// let Telegram cache them on its edge: repeated queries (every keystroke
+	// counts as one) are then answered without reaching the bot at all. The
+	// spellcheck inline path stays personal — it has per-user quotas.
 	inlineConf := tgbotapi.InlineConfig{
 		InlineQueryID: iq.ID,
-		IsPersonal:    true,
-		CacheTime:     0,
+		IsPersonal:    false,
+		CacheTime:     InlineCacheTimeSeconds,
 		Results:       articles,
 	}
 
