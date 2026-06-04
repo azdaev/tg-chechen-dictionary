@@ -53,15 +53,23 @@ func (c *Client) FormatDictionaryEntry(ctx context.Context, rawEntry string) (st
 		return "", fmt.Errorf("ai format failed: %w", err)
 	}
 
-	// Clean up the response
-	formatted := strings.TrimSpace(content)
+	return stripCodeFence(content), nil
+}
 
-	// Remove markdown code blocks if present
-	formatted = strings.TrimPrefix(formatted, "```")
-	formatted = strings.TrimSuffix(formatted, "```")
-	formatted = strings.TrimSpace(formatted)
-
-	return formatted, nil
+// stripCodeFence unwraps a response the model wrapped in a markdown code
+// fence, including language-tagged fences ("```text").
+func stripCodeFence(s string) string {
+	s = strings.TrimSpace(s)
+	if !strings.HasPrefix(s, "```") {
+		return s
+	}
+	if i := strings.IndexByte(s, '\n'); i != -1 {
+		s = s[i+1:]
+	} else {
+		s = strings.TrimPrefix(s, "```")
+	}
+	s = strings.TrimSuffix(strings.TrimSpace(s), "```")
+	return strings.TrimSpace(s)
 }
 
 // SpellCheckResult contains the structured result of a spellcheck.
@@ -98,22 +106,25 @@ CHANGES:
 		return nil, fmt.Errorf("ai spellcheck failed: %w", err)
 	}
 
-	raw := strings.TrimSpace(content)
+	return parseSpellCheck(content), nil
+}
+
+// parseSpellCheck decodes the NO_ERRORS / CORRECTED: / CHANGES: response
+// format the spellcheck prompt requests.
+func parseSpellCheck(raw string) *SpellCheckResult {
+	raw = stripCodeFence(raw)
 
 	if strings.Contains(raw, "NO_ERRORS") {
-		return &SpellCheckResult{NoErrors: true}, nil
+		return &SpellCheckResult{NoErrors: true}
 	}
 
 	result := &SpellCheckResult{Explanation: raw}
-
-	// Extract corrected text
-	for _, line := range strings.Split(raw, "\n") {
+	for line := range strings.SplitSeq(raw, "\n") {
 		line = strings.TrimSpace(line)
-		if strings.HasPrefix(line, "CORRECTED:") {
-			result.Corrected = strings.TrimSpace(strings.TrimPrefix(line, "CORRECTED:"))
+		if rest, ok := strings.CutPrefix(line, "CORRECTED:"); ok {
+			result.Corrected = strings.TrimSpace(rest)
 			break
 		}
 	}
-
-	return result, nil
+	return result
 }
