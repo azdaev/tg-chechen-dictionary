@@ -8,10 +8,16 @@ import (
 )
 
 var (
-	tagRe     = regexp.MustCompile(`<[^>]*>`)
-	boldRe    = regexp.MustCompile(`\*\*([^*]+)\*\*`)
+	tagRe  = regexp.MustCompile(`<[^>]*>`)
+	boldRe = regexp.MustCompile(`\*\*([^*]+)\*\*`)
+	// grammarRe strips single-letter gender/number markers ("м цӏа");
+	// endingsRe strips adjective ending lists ("-яя, -ее цӏера") — the comma
+	// plus dash continuation keeps real words safe.
 	grammarRe = regexp.MustCompile(`^[а-яё]\s+`)
-	meaningRe = regexp.MustCompile(`(\d+\))`)
+	endingsRe = regexp.MustCompile(`^[а-яё]{1,3}(,\s*-[а-яё]{1,3})+\s*`)
+	// Sense markers come as "1)" but also as "ӏ. " (palochka standing in for
+	// the digit) and "2. " in live dosham glosses.
+	meaningRe = regexp.MustCompile(`(\d+\)|(?:^|\s)[ӏ\d]\.\s)`)
 	tildeRe   = regexp.MustCompile(`~([а-яё]+)`)
 )
 
@@ -108,6 +114,7 @@ func FormatTranslationLite(text string, originalWord string) string {
 	text = strings.TrimPrefix(text, "-")
 	text = strings.TrimSpace(text)
 
+	text = endingsRe.ReplaceAllString(text, "")
 	text = grammarRe.ReplaceAllString(text, "")
 
 	parts := meaningRe.Split(text, -1)
@@ -131,6 +138,9 @@ func FormatTranslationLite(text string, originalWord string) string {
 		}
 
 		main = expandAbbreviations(cleanTranslation(main))
+		if word != "" {
+			main = replaceTildeWithWord(main, word)
+		}
 
 		if !headerWritten {
 			if word != "" && main != "" {

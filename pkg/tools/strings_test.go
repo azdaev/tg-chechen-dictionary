@@ -1,6 +1,7 @@
 package tools
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -28,6 +29,27 @@ func TestFormatDeterminism(t *testing.T) {
 		if got := expandAbbreviations(abbrevInput); got != firstAbbrev {
 			t.Fatalf("expandAbbreviations non-deterministic at iter %d:\n first=%q\n got  =%q", i, firstAbbrev, got)
 		}
+	}
+}
+
+func TestFormatTranslationLite_AdjectiveGloss(t *testing.T) {
+	// Real «Домашний» entry: adjective ending list ("-яя, -ее"), palochka
+	// standing in for the "1." sense marker, dot-style "2." marker, and a
+	// tilde inside a sense line (not just in examples).
+	input := "**Домашний** -яя, -ее ӏ. цӏера; ~ий адрес – цӏера адрес 2. в знач. сущ. ~ие мн. цӏеранаш"
+	got := FormatTranslationLite(input, "Домашний")
+
+	if !strings.HasPrefix(got, "Домашний — цӏера") {
+		t.Errorf("header = %q, want it to start with %q (endings and ӏ. stripped)", got, "Домашний — цӏера")
+	}
+	if strings.Contains(got, "яя") || strings.Contains(got, "ӏ.") {
+		t.Errorf("endings or palochka marker leaked into output:\n%s", got)
+	}
+	if !strings.Contains(got, "в знач. сущ. домашние") {
+		t.Errorf("second sense missing or tilde unreplaced:\n%s", got)
+	}
+	if !strings.Contains(got, "домашний адрес → цӏера адрес") {
+		t.Errorf("example not rendered:\n%s", got)
 	}
 }
 
