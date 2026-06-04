@@ -132,6 +132,14 @@ func (n *Net) recordActivity(ctx context.Context, userID int64, username string,
 func (n *Net) HandleInline(ctx context.Context, iq *tgbotapi.InlineQuery) error {
 	translations := n.business.Translate(iq.Query)
 
+	// A dead-end inline query used to show nothing at all; rescue it the same
+	// way the text path does — with lemma suggestions for the typed prefix.
+	suggested := false
+	if len(translations) == 0 {
+		translations = n.business.SuggestTranslations(iq.Query)
+		suggested = len(translations) > 0
+	}
+
 	// Telegram allows at most 50 results per inline query; sending more makes
 	// answerInlineQuery fail and the user sees nothing. Cap defensively — common
 	// words (e.g. "дать") can have far more than 50 translation pairs.
@@ -146,6 +154,9 @@ func (n *Net) HandleInline(ctx context.Context, iq *tgbotapi.InlineQuery) error 
 			// Telegram rejects the entire answer if any article title is empty,
 			// so one malformed entry would blank out the whole inline response.
 			continue
+		}
+		if suggested {
+			title = "🔍 " + title
 		}
 		article := tgbotapi.NewInlineQueryResultArticle(iq.ID+strconv.Itoa(i), title, "")
 		article.Description = tools.Clean(translations[i].Translate)
