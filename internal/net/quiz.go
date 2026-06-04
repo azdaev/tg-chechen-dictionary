@@ -44,6 +44,12 @@ func (n *Net) sendQuizPoll(ctx context.Context, chatID int64, q *models.QuizQues
 	poll.Type = "quiz"
 	poll.CorrectOptionID = int64(q.CorrectIdx)
 	poll.IsAnonymous = false
+	// Let the group chain questions without retyping /quiz.
+	poll.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData(QuizNextButtonText, "quiz_n"),
+		),
+	)
 	sent, err := n.bot.Send(poll)
 	if err != nil {
 		return err

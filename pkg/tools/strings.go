@@ -18,7 +18,7 @@ var (
 	// verbLabelRe strips the aspect/government labels heading verb glosses
 	// ("сов., кому 1) …", "несов. дала") — grammar metadata, not translation,
 	// and otherwise it becomes the card's header.
-	verbLabelRe = regexp.MustCompile(`^((не)?сов\.|однокр\.|многокр\.|перех\.|неперех\.|безл\.|кому-чему|кого-что|о ком|о чём|кому|чему|кого|кем|чем|ком|что)([,;]?\s+)`)
+	verbLabelRe = regexp.MustCompile(`^((не)?сов\.|однокр\.|многокр\.|перех\.|неперех\.|безл\.|нескл\.|кому-чему|кого-что|о ком|о чём|кому|чему|кого|кем|чем|ком|что)([,;]?\s+)`)
 	// Sense markers come as "1)" but also as "ӏ. " (palochka standing in for
 	// the digit) and "2. " in live dosham glosses.
 	meaningRe = regexp.MustCompile(`(\d+\)|(?:^|\s)[ӏ\d]\.\s)`)
@@ -150,6 +150,8 @@ func FormatTranslationLite(text string, originalWord string) string {
 	text = strings.TrimSpace(text)
 
 	text = endingsRe.ReplaceAllString(text, "")
+	// Gender marker first ("с нескл. амплуа"), then the label loop.
+	text = grammarRe.ReplaceAllString(text, "")
 	for {
 		stripped := verbLabelRe.ReplaceAllString(text, "")
 		if stripped == text {
@@ -157,7 +159,6 @@ func FormatTranslationLite(text string, originalWord string) string {
 		}
 		text = stripped
 	}
-	text = grammarRe.ReplaceAllString(text, "")
 
 	parts := meaningRe.Split(text, -1)
 
