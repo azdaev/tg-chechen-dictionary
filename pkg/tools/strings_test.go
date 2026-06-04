@@ -16,7 +16,7 @@ func TestFormatDeterminism(t *testing.T) {
 	word := "дом"
 
 	first := FormatTranslationLite(input, word)
-	for i := 0; i < 200; i++ {
+	for i := range 200 {
 		if got := FormatTranslationLite(input, word); got != first {
 			t.Fatalf("FormatTranslationLite non-deterministic at iter %d:\n first=%q\n got  =%q", i, first, got)
 		}
@@ -24,7 +24,7 @@ func TestFormatDeterminism(t *testing.T) {
 
 	abbrevInput := "хим. им. род. дат. вин. тв. пр. мн. ед. тех. мед. юр."
 	firstAbbrev := expandAbbreviations(abbrevInput)
-	for i := 0; i < 200; i++ {
+	for i := range 200 {
 		if got := expandAbbreviations(abbrevInput); got != firstAbbrev {
 			t.Fatalf("expandAbbreviations non-deterministic at iter %d:\n first=%q\n got  =%q", i, firstAbbrev, got)
 		}
@@ -84,6 +84,16 @@ func TestParseExamples(t *testing.T) {
 				"самопишущая ~а → ша язден ручка",
 				"шариковая ~а → шарикан ручка",
 				"~а с пером → перо йолу ручка",
+			},
+		},
+		{
+			// Live dosham glosses mix hyphens with en/em dashes as the separator
+			// ("~ отдыха – садаӏаран цӏа" in the real «Дом» entry).
+			name:  "en-dash and em-dash separators",
+			input: "~ отдыха – садаӏаран цӏа; ~ моды — мода цӏа",
+			expected: []string{
+				"~ отдыха → садаӏаран цӏа",
+				"~ моды → мода цӏа",
 			},
 		},
 		{

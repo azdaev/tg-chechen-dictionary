@@ -169,7 +169,7 @@ func findMainSemicolon(text string) int {
 	}
 
 	for _, pos := range semicolons {
-		if strings.Contains(text[pos+1:], "-") {
+		if strings.ContainsAny(text[pos+1:], "-–—") {
 			return pos
 		}
 	}
@@ -199,16 +199,9 @@ func parseExamples(text string) []string {
 			continue
 		}
 
-		if strings.Contains(part, "-") {
-			dashIndex := strings.Index(part, "-")
-			if dashIndex > 0 && dashIndex < len(part)-1 {
-				russian := strings.Trim(strings.TrimSpace(part[:dashIndex]), `"«»""`)
-				chechen := strings.Trim(strings.TrimSpace(part[dashIndex+1:]), `"«»""`)
-				if russian != "" && chechen != "" {
-					examples = append(examples, fmt.Sprintf("%s → %s", russian, chechen))
-				}
-			} else {
-				examples = append(examples, part)
+		if russian, chechen, ok := splitExample(part); ok {
+			if russian != "" && chechen != "" {
+				examples = append(examples, fmt.Sprintf("%s → %s", russian, chechen))
 			}
 		} else {
 			examples = append(examples, part)
@@ -220,6 +213,24 @@ func parseExamples(text string) []string {
 	}
 
 	return examples
+}
+
+// splitExample splits one "russian - chechen" example at its first dash. The
+// source data mixes hyphens with en/em dashes, so all three count. ok is false
+// when there is no inner dash to split on.
+func splitExample(part string) (russian, chechen string, ok bool) {
+	idx, width := -1, 0
+	for _, d := range []string{"-", "–", "—"} {
+		if i := strings.Index(part, d); i != -1 && (idx == -1 || i < idx) {
+			idx, width = i, len(d)
+		}
+	}
+	if idx <= 0 || idx+width >= len(part) {
+		return "", "", false
+	}
+	russian = strings.Trim(strings.TrimSpace(part[:idx]), `"«»""`)
+	chechen = strings.Trim(strings.TrimSpace(part[idx+width:]), `"«»""`)
+	return russian, chechen, true
 }
 
 // replaceTildeWithWord заменяет тильду (~) в тексте на основное слово
