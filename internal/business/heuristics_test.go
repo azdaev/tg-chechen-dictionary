@@ -223,8 +223,8 @@ func TestPrefixCandidates(t *testing.T) {
 func TestFilterPrefixMatches(t *testing.T) {
 	pairs := []models.TranslationPairs{
 		{Original: "Яблоко", Translate: "Ӏаж"},
-		{Original: "Дозревать", Translate: "кхиа"},  // substring hit, not a prefix
-		{Original: "Ӏаж", Translate: "яблоко"}, // prefix on the translate side
+		{Original: "Дозревать", Translate: "кхиа"}, // substring hit, not a prefix
+		{Original: "Ӏаж", Translate: "яблоко"},     // prefix on the translate side
 	}
 	got := filterPrefixMatches(pairs, "яблок")
 	if len(got) != 2 || got[0].Original != "Яблоко" || got[1].Translate != "яблоко" {
