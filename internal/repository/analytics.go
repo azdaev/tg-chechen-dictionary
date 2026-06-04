@@ -66,10 +66,13 @@ func (r *Repository) MarkUserBlocked(ctx context.Context, userID int64, reason s
 	return err
 }
 
+// MarkUserUnblocked runs on every user interaction, so it must be a no-op for
+// the (vast) unblocked majority: SQLite rewrites the row even when nothing
+// changes, and the is_blocked guard keeps those commits from touching disk.
 func (r *Repository) MarkUserUnblocked(ctx context.Context, userID int64) error {
 	_, err := r.db.ExecContext(
 		ctx,
-		"UPDATE users SET is_blocked = 0, blocked_at = null, blocked_reason = null WHERE user_id = ?;",
+		"UPDATE users SET is_blocked = 0, blocked_at = null, blocked_reason = null WHERE user_id = ? AND is_blocked = 1;",
 		userID,
 	)
 	return err

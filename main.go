@@ -32,7 +32,10 @@ func main() {
 	// WAL lets reads proceed during writes; busy_timeout makes a second writer
 	// wait instead of failing with SQLITE_BUSY — updates are handled
 	// concurrently and background goroutines (AI formatting) write too.
-	db, err := sql.Open("sqlite", "file:"+dbPath+"?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)")
+	// synchronous=NORMAL skips the per-commit fsync (WAL syncs at checkpoints
+	// instead): corruption-safe, and losing the last few bookkeeping writes on
+	// an OS crash is acceptable here.
+	db, err := sql.Open("sqlite", "file:"+dbPath+"?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)")
 	if err != nil {
 		panic(err)
 	}
