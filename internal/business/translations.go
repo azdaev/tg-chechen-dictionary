@@ -161,23 +161,28 @@ func (b *Business) TranslateFormatted(word string) *models.TranslationResult {
 
 // fetchTranslationsWithFallback queries the API for word and, when the results
 // lack an exact headword match for a ё/е-ambiguous query, retries with the
-// swapped spelling and puts those results first. The dosham search is a
+// candidate respellings and puts those results first. The dosham search is a
 // substring match that does not fold ё/е — "елка" matches "Белка" but not
-// "Ёлка" — while Russians routinely type е for ё.
+// "Ёлка" — while Russians routinely type е for ё. Variants are tried one ё at
+// a time ("береза" → "бёреза", "берёза"), stopping at the first exact match.
 func (b *Business) fetchTranslationsWithFallback(word string) []models.TranslationPairs {
 	word = strings.TrimSpace(word)
 	translations := b.fetchTranslationsFromAPI(word)
-
-	altWord := tools.AlternateYo(word)
-	if altWord == "" || hasExactOriginal(translations, word) {
+	if hasExactOriginal(translations, word) {
 		return translations
 	}
 
-	alt := b.fetchTranslationsFromAPI(altWord)
-	if len(alt) == 0 {
-		return translations
+	for _, alt := range tools.YoVariants(word) {
+		altPairs := b.fetchTranslationsFromAPI(alt)
+		if len(altPairs) == 0 {
+			continue
+		}
+		translations = mergePairs(altPairs, translations)
+		if hasExactOriginal(translations, word) {
+			break
+		}
 	}
-	return mergePairs(alt, translations)
+	return translations
 }
 
 // hasExactOriginal reports whether any pair's headword is exactly the searched

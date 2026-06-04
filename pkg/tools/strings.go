@@ -24,17 +24,41 @@ func NormalizeSearch(text string) string {
 	return clean
 }
 
-// AlternateYo returns the ё/е-swapped spelling of a Russian query, or "" when
-// there is no alternate. Russians routinely type е for ё, and the dictionary
-// search does not fold the two, so a failed lookup is retried with the swap.
-func AlternateYo(text string) string {
+// maxYoVariants caps how many respellings YoVariants generates, since each
+// one costs an API retry.
+const maxYoVariants = 4
+
+// YoVariants returns candidate respellings of a Russian query for a ё/е retry.
+// Russians routinely type е for ё and the dictionary search does not fold the
+// two. A Russian word carries at most one ё, so an all-е query yields one
+// variant per е position ("береза" → "бёреза", "берёза"), and a query with ё
+// yields the single all-е spelling.
+func YoVariants(text string) []string {
 	if strings.ContainsAny(text, "ёЁ") {
-		return strings.NewReplacer("ё", "е", "Ё", "Е").Replace(text)
+		return []string{strings.NewReplacer("ё", "е", "Ё", "Е").Replace(text)}
 	}
-	if !strings.ContainsAny(text, "еЕ") {
-		return ""
+
+	runes := []rune(text)
+	var variants []string
+	for i, r := range runes {
+		var yo rune
+		switch r {
+		case 'е':
+			yo = 'ё'
+		case 'Е':
+			yo = 'Ё'
+		default:
+			continue
+		}
+		v := make([]rune, len(runes))
+		copy(v, runes)
+		v[i] = yo
+		variants = append(variants, string(v))
+		if len(variants) == maxYoVariants {
+			break
+		}
 	}
-	return strings.NewReplacer("е", "ё", "Е", "Ё").Replace(text)
+	return variants
 }
 
 func EscapeUnclosedTags(text string) string {
@@ -158,8 +182,7 @@ func cleanTranslation(text string) string {
 func parseExamples(text string) []string {
 	var examples []string
 
-	parts := strings.Split(text, ";")
-	for _, part := range parts {
+	for part := range strings.SplitSeq(text, ";") {
 		part = strings.TrimSpace(part)
 		if part == "" {
 			continue
