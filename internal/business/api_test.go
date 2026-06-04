@@ -2,11 +2,15 @@ package business
 
 import (
 	"chetoru/internal/cache"
+	"chetoru/internal/models"
+	"chetoru/internal/repository"
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/sirupsen/logrus"
 )
@@ -83,6 +87,47 @@ func TestSuggestTranslations_LongestPrefixWins(t *testing.T) {
 
 	if got := b.SuggestTranslations("слово из фразы"); got != nil {
 		t.Fatalf("phrases must not produce suggestions, got %+v", got)
+	}
+}
+
+type recordingDictRepo struct {
+	inserted chan repository.TranslationPair
+}
+
+func (r *recordingDictRepo) FindTranslationPairs(context.Context, string, int) ([]models.TranslationPairs, error) {
+	return nil, nil
+}
+
+func (r *recordingDictRepo) InsertTranslationPair(_ context.Context, pair repository.TranslationPair) (int64, bool, error) {
+	r.inserted <- pair
+	return 1, true, nil
+}
+
+func (r *recordingDictRepo) UpdateTranslationPairFormatting(context.Context, int64, string, string) error {
+	return nil
+}
+
+func (r *recordingDictRepo) SetTranslationPairFormattingChoice(context.Context, int64, string) error {
+	return nil
+}
+
+func TestFetchTranslations_StoresPairsDetached(t *testing.T) {
+	stubDoshamFind(t, map[string]string{"яблок": "Яблоко"})
+	repo := &recordingDictRepo{inserted: make(chan repository.TranslationPair, 1)}
+	b := &Business{log: logrus.New(), dictRepo: repo}
+
+	got := b.fetchTranslationsFromAPI("яблок")
+	if len(got) != 1 {
+		t.Fatalf("translations = %+v, want 1 pair", got)
+	}
+
+	select {
+	case pair := <-repo.inserted:
+		if pair.OriginalClean != "яблоко" || pair.TranslationLang != "CHE" {
+			t.Fatalf("stored pair = %+v", pair)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("pair was never persisted")
 	}
 }
 

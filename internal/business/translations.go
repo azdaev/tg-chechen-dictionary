@@ -320,6 +320,12 @@ func (b *Business) fetchTranslationsFromAPI(word string) []models.TranslationPai
 
 	translations := make([]models.TranslationPairs, 0)
 
+	type pendingPair struct {
+		entry       models.Entry
+		translation models.Translation
+	}
+	var toStore []pendingPair
+
 	// The new API returns a flat list of entries. Each entry carries its
 	// translations; we keep only Russian/Chechen ones, normalizing the language
 	// code to the internal CHE/RUS representation.
@@ -337,8 +343,19 @@ func (b *Business) fetchTranslationsFromAPI(word string) []models.TranslationPai
 			}
 			translations = append(translations, translationPair)
 
-			b.storeTranslationPair(entry, translation)
+			toStore = append(toStore, pendingPair{entry, translation})
 		}
+	}
+
+	// Persisting pairs costs a DB lookup each (plus AI formatting for new ones),
+	// and a common word carries dozens of them — run detached so those round
+	// trips never sit between the user and the answer.
+	if len(toStore) > 0 && b.dictRepo != nil {
+		go func() {
+			for _, p := range toStore {
+				b.storeTranslationPair(p.entry, p.translation)
+			}
+		}()
 	}
 
 	if utf8.RuneCountInString(word) <= 3 && len(translations) >= 10 {
