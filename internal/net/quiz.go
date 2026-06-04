@@ -199,10 +199,13 @@ func (n *Net) HandleQuizCallback(ctx context.Context, cq *tgbotapi.CallbackQuery
 	if correct {
 		toast = QuizCorrectToast
 	}
-	if score, total, err := n.repo.GetQuizScore(ctx, userID); err != nil {
+	if score, total, streak, err := n.repo.GetQuizScore(ctx, userID); err != nil {
 		n.log.WithError(err).WithField("user_id", userID).Warn("GetQuizScore failed")
 	} else if total > 0 {
 		toast += fmt.Sprintf("  ·  Счёт: %d/%d (%d%%)", score, total, score*100/total)
+		if streak >= 2 {
+			toast += fmt.Sprintf("  ·  🔥 %d дн.", streak)
+		}
 	}
 
 	if _, err := n.bot.Request(tgbotapi.NewCallback(cq.ID, toast)); err != nil {

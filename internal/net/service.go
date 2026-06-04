@@ -147,7 +147,7 @@ type SubscriptionStore interface {
 // QuizStore records /quiz answers and the leaderboard behind /top.
 type QuizStore interface {
 	RecordQuizAnswer(ctx context.Context, userID int64, username, firstName string, correct bool) error
-	GetQuizScore(ctx context.Context, userID int64) (correct int, total int, err error)
+	GetQuizScore(ctx context.Context, userID int64) (correct, total, streak int, err error)
 	TopQuizScorers(ctx context.Context, limit int) ([]models.QuizScorer, error)
 	CountQuizStats(ctx context.Context) (players, totalAnswers, correctAnswers int, err error)
 }

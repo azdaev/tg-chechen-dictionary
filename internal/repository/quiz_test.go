@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"testing"
+	"time"
 
 	_ "modernc.org/sqlite"
 )
@@ -23,6 +24,8 @@ func newQuizTestRepo(t *testing.T) *Repository {
 		first_name TEXT,
 		correct_count INTEGER NOT NULL DEFAULT 0,
 		total_count INTEGER NOT NULL DEFAULT 0,
+		streak_days INTEGER NOT NULL DEFAULT 0,
+		last_answer_date TEXT,
 		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 	);`)
 	if err != nil {
@@ -33,7 +36,7 @@ func newQuizTestRepo(t *testing.T) *Repository {
 
 func TestQuizScore_NewUserIsZero(t *testing.T) {
 	r := newQuizTestRepo(t)
-	correct, total, err := r.GetQuizScore(context.Background(), 42)
+	correct, total, _, err := r.GetQuizScore(context.Background(), 42)
 	if err != nil {
 		t.Fatalf("GetQuizScore: %v", err)
 	}
@@ -52,7 +55,7 @@ func TestQuizScore_AccumulatesAnswers(t *testing.T) {
 		}
 	}
 
-	correct, total, err := r.GetQuizScore(ctx, 7)
+	correct, total, _, err := r.GetQuizScore(ctx, 7)
 	if err != nil {
 		t.Fatalf("GetQuizScore: %v", err)
 	}
@@ -130,13 +133,47 @@ func TestQuizScore_IsolatedPerUser(t *testing.T) {
 	_ = r.RecordQuizAnswer(ctx, 1, "alice", "Alice", true)
 	_ = r.RecordQuizAnswer(ctx, 2, "bob", "Bob", false)
 
-	c1, t1, _ := r.GetQuizScore(ctx, 1)
-	c2, t2, _ := r.GetQuizScore(ctx, 2)
+	c1, t1, _, _ := r.GetQuizScore(ctx, 1)
+	c2, t2, _, _ := r.GetQuizScore(ctx, 2)
 
 	if c1 != 1 || t1 != 1 {
 		t.Fatalf("user 1 score = %d/%d, want 1/1", c1, t1)
 	}
 	if c2 != 0 || t2 != 1 {
 		t.Fatalf("user 2 score = %d/%d, want 0/1", c2, t2)
+	}
+}
+
+func TestQuizStreak(t *testing.T) {
+	r := newQuizTestRepo(t)
+	ctx := context.Background()
+
+	// Two answers the same day: streak stays at 1.
+	_ = r.RecordQuizAnswer(ctx, 1, "alice", "Alice", true)
+	_ = r.RecordQuizAnswer(ctx, 1, "alice", "Alice", false)
+	if _, _, streak, _ := r.GetQuizScore(ctx, 1); streak != 1 {
+		t.Fatalf("same-day streak = %d, want 1", streak)
+	}
+
+	// An answer recorded yesterday extends to 2 with today's answer.
+	yesterday := time.Now().AddDate(0, 0, -1).Format(time.DateOnly)
+	if _, err := r.db.Exec(`UPDATE quiz_stats SET last_answer_date = ? WHERE user_id = 1`, yesterday); err != nil {
+		t.Fatalf("backdate: %v", err)
+	}
+	_ = r.RecordQuizAnswer(ctx, 1, "alice", "Alice", true)
+	if _, _, streak, _ := r.GetQuizScore(ctx, 1); streak != 2 {
+		t.Fatalf("extended streak = %d, want 2", streak)
+	}
+
+	// A gap (last answer long ago) lapses the reported streak and resets on answer.
+	if _, err := r.db.Exec(`UPDATE quiz_stats SET last_answer_date = '2020-01-01' WHERE user_id = 1`); err != nil {
+		t.Fatalf("backdate: %v", err)
+	}
+	if _, _, streak, _ := r.GetQuizScore(ctx, 1); streak != 0 {
+		t.Fatalf("lapsed streak = %d, want 0", streak)
+	}
+	_ = r.RecordQuizAnswer(ctx, 1, "alice", "Alice", true)
+	if _, _, streak, _ := r.GetQuizScore(ctx, 1); streak != 1 {
+		t.Fatalf("streak after gap = %d, want 1", streak)
 	}
 }
