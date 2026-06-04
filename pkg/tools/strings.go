@@ -7,9 +7,16 @@ import (
 	"strings"
 )
 
+var (
+	tagRe     = regexp.MustCompile(`<[^>]*>`)
+	boldRe    = regexp.MustCompile(`\*\*([^*]+)\*\*`)
+	grammarRe = regexp.MustCompile(`^[а-яё]\s+`)
+	meaningRe = regexp.MustCompile(`(\d+\))`)
+	tildeRe   = regexp.MustCompile(`~([а-яё]+)`)
+)
+
 func Clean(text string) string {
-	re := regexp.MustCompile(`<[^>]*>`)
-	output := re.ReplaceAllString(text, "")
+	output := tagRe.ReplaceAllString(text, "")
 	output = strings.ReplaceAll(output, "<>", ";")
 	output = strings.ReplaceAll(output, "<br />", " ")
 	output = strings.ReplaceAll(output, "\n", " ")
@@ -62,8 +69,7 @@ func YoVariants(text string) []string {
 }
 
 func EscapeUnclosedTags(text string) string {
-	re := regexp.MustCompile(`<[^>]*>`)
-	matches := re.FindAllString(text, -1)
+	matches := tagRe.FindAllString(text, -1)
 	count := 0
 	for _, match := range matches {
 		if strings.HasPrefix(match, "</") {
@@ -88,17 +94,14 @@ func FormatTranslationLite(text string, originalWord string) string {
 	word := strings.TrimSpace(originalWord)
 
 	// Strip the bolded headword; we render it ourselves from originalWord.
-	wordRe := regexp.MustCompile(`\*\*([^*]+)\*\*`)
-	text = wordRe.ReplaceAllString(text, "")
+	text = boldRe.ReplaceAllString(text, "")
 
 	text = strings.TrimSpace(text)
 	text = strings.TrimPrefix(text, "-")
 	text = strings.TrimSpace(text)
 
-	grammarRe := regexp.MustCompile(`^[а-яё]\s+`)
 	text = grammarRe.ReplaceAllString(text, "")
 
-	meaningRe := regexp.MustCompile(`(\d+\))`)
 	parts := meaningRe.Split(text, -1)
 
 	var lines []string
@@ -220,33 +223,11 @@ func replaceTildeWithWord(text, word string) string {
 	wordBase := getWordBase(word)
 	lowerWord := strings.ToLower(word)
 
-	// Словарь популярных окончаний для правильного склонения
-	commonEndings := map[string]string{
-		"а":   wordBase + "а",   // родительный ед.ч.
-		"у":   wordBase + "у",   // дательный ед.ч.
-		"ом":  wordBase + "ом",  // творительный ед.ч.
-		"е":   wordBase + "е",   // предложный ед.ч.
-		"ой":  wordBase + "ой",  // творительный ед.ч. (жен.род)
-		"ах":  wordBase + "ах",  // предложный мн.ч.
-		"ами": wordBase + "ами", // творительный мн.ч.
-		"ы":   wordBase + "ы",   // именительный мн.ч.
-		"и":   wordBase + "и",   // именительный мн.ч. / родительный ед.ч. (жен.род)
-		"ях":  wordBase + "ях",  // предложный мн.ч. (мягкая основа)
-		"ями": wordBase + "ями", // творительный мн.ч. (мягкая основа)
-		"ов":  wordBase + "ов",  // родительный мн.ч. (муж.род)
-		"ев":  wordBase + "ев",  // родительный мн.ч. (мягкая основа)
-		"ам":  wordBase + "ам",  // дательный мн.ч.
-		"ём":  wordBase + "ём",  // творительный ед.ч. (мягкая основа)
-		"о":   lowerWord,        // винительный ед.ч. (для слов типа "слово")
-	}
-
-	result := text
-
-	tildeRe := regexp.MustCompile(`~([а-яё]+)`)
-	result = tildeRe.ReplaceAllStringFunc(result, func(match string) string {
+	result := tildeRe.ReplaceAllStringFunc(text, func(match string) string {
 		ending := match[1:]
-		if replacement, exists := commonEndings[ending]; exists {
-			return replacement
+		// Винительный ед.ч. для слов типа «слово»: полная форма, не основа.
+		if ending == "о" {
+			return lowerWord
 		}
 		// Русские грамматические окончания не длиннее 3 букв. Более длинный
 		// «хвост» — это отдельное слово, склеенное в источнике с заглавным
@@ -255,7 +236,7 @@ func replaceTildeWithWord(text, word string) string {
 		if len([]rune(ending)) >= 4 {
 			return lowerWord + " " + ending
 		}
-		// Иначе считаем это нераспознанным окончанием на основе слова.
+		// Грамматическое окончание, склеиваемое с основой («~а» для «дом» → «дома»).
 		return wordBase + ending
 	})
 
@@ -293,7 +274,17 @@ func getWordBase(word string) string {
 
 // expandAbbreviations заменяет словарные сокращения на полные формы
 func expandAbbreviations(text string) string {
-	// Словарь сокращений и их расшифровок
+	return abbreviationReplacer.Replace(text)
+}
+
+// abbreviationReplacer expands dictionary abbreviations in one pass. Pairs are
+// ordered longest-first (ties alphabetical, so the order is deterministic)
+// because short abbreviations can be substrings of longer ones ("им." inside
+// "хим."). Expansions contain no periods while every abbreviation ends with
+// one, so a single pass cannot create new matches.
+var abbreviationReplacer = newAbbreviationReplacer()
+
+func newAbbreviationReplacer() *strings.Replacer {
 	abbreviations := map[string]string{
 		"тж.":        "также",
 		"вводн. сл.": "(вводное слово)",
@@ -342,12 +333,6 @@ func expandAbbreviations(text string) string {
 		"пр.":        "(предложный)",
 	}
 
-	result := text
-
-	// Заменяем сокращения, начиная с самых длинных. Порядок обхода map в Go
-	// случаен, а короткие сокращения могут быть подстрокой длинных
-	// (например "им." внутри "хим."), поэтому обрабатываем длинные первыми и
-	// детерминированно, чтобы избежать ошибочных частичных замен.
 	keys := make([]string, 0, len(abbreviations))
 	for abbrev := range abbreviations {
 		keys = append(keys, abbrev)
@@ -356,12 +341,12 @@ func expandAbbreviations(text string) string {
 		if len(keys[i]) != len(keys[j]) {
 			return len(keys[i]) > len(keys[j])
 		}
-		return keys[i] < keys[j] // total order: ties are alphabetical, never random
+		return keys[i] < keys[j]
 	})
 
+	pairs := make([]string, 0, len(keys)*2)
 	for _, abbrev := range keys {
-		result = strings.ReplaceAll(result, abbrev, abbreviations[abbrev])
+		pairs = append(pairs, abbrev, abbreviations[abbrev])
 	}
-
-	return result
+	return strings.NewReplacer(pairs...)
 }
