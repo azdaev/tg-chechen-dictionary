@@ -22,7 +22,9 @@ type TranslationPair struct {
 	FormatVersion       sql.NullString
 }
 
-func (r *Repository) InsertTranslationPair(ctx context.Context, pair TranslationPair) (int64, error) {
+// InsertTranslationPair stores a pair, reporting whether it was newly inserted
+// or already existed so callers can skip re-processing duplicates.
+func (r *Repository) InsertTranslationPair(ctx context.Context, pair TranslationPair) (int64, bool, error) {
 	result, err := r.db.ExecContext(
 		ctx,
 		`insert or ignore into dictionary_pairs (
@@ -47,32 +49,40 @@ func (r *Repository) InsertTranslationPair(ctx context.Context, pair Translation
 		pair.SourceTranslationID,
 	)
 	if err != nil {
-		return 0, err
+		return 0, false, err
 	}
 
-	// Try to get last insert ID
-	id, err := result.LastInsertId()
-	if err != nil || id == 0 {
-		// If insert was ignored (duplicate), fetch existing ID
-		var existingID int64
-		err = r.db.QueryRowContext(
-			ctx,
-			`select id from dictionary_pairs
-			where original_clean = ? and original_lang = ?
-			  and translation_clean = ? and translation_lang = ?
-			limit 1;`,
-			pair.OriginalClean,
-			pair.OriginalLang,
-			pair.TranslationClean,
-			pair.TranslationLang,
-		).Scan(&existingID)
+	// An ignored INSERT OR IGNORE must be detected via RowsAffected:
+	// LastInsertId keeps the connection's previous rowid, so with a pooled
+	// sql.DB it can return a stale ID belonging to an unrelated insert.
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return 0, false, err
+	}
+	if affected > 0 {
+		id, err := result.LastInsertId()
 		if err != nil {
-			return 0, err
+			return 0, false, err
 		}
-		return existingID, nil
+		return id, true, nil
 	}
 
-	return id, nil
+	var existingID int64
+	err = r.db.QueryRowContext(
+		ctx,
+		`select id from dictionary_pairs
+		where original_clean = ? and original_lang = ?
+		  and translation_clean = ? and translation_lang = ?
+		limit 1;`,
+		pair.OriginalClean,
+		pair.OriginalLang,
+		pair.TranslationClean,
+		pair.TranslationLang,
+	).Scan(&existingID)
+	if err != nil {
+		return 0, false, err
+	}
+	return existingID, false, nil
 }
 
 func (r *Repository) ListPendingTranslationPairs(ctx context.Context, limit int) ([]TranslationPair, error) {

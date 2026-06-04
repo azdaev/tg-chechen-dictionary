@@ -36,7 +36,7 @@ type Business struct {
 
 type DictionaryRepository interface {
 	FindTranslationPairs(ctx context.Context, cleanWord string, limit int) ([]models.TranslationPairs, error)
-	InsertTranslationPair(ctx context.Context, pair repository.TranslationPair) (int64, error)
+	InsertTranslationPair(ctx context.Context, pair repository.TranslationPair) (int64, bool, error)
 	UpdateTranslationPairFormatting(ctx context.Context, id int64, formattedAI, formattedChosen string) error
 	SetTranslationPairFormattingChoice(ctx context.Context, id int64, choice string) error
 }
@@ -423,15 +423,20 @@ func (b *Business) storeTranslationPair(entry models.Entry, translation models.T
 		return
 	}
 
-	pairID, err := b.dictRepo.InsertTranslationPair(context.Background(), pair)
+	pairID, inserted, err := b.dictRepo.InsertTranslationPair(context.Background(), pair)
 	if err != nil {
 		b.log.Printf("failed to insert dictionary pair: %v\n", err)
 		return
 	}
+	// Duplicates already went through formatting and moderation when first
+	// stored; re-running them would burn AI calls and overwrite the result.
+	if !inserted || pairID == 0 {
+		return
+	}
 
-	if b.aiFormattingEnabled && b.aiClient != nil && pairID > 0 {
+	if b.aiFormattingEnabled && b.aiClient != nil {
 		go b.formatPairWithAI(pairID, pair.OriginalClean, pair.OriginalRaw, pair.TranslationRaw)
-	} else if b.onPairReady != nil && pairID > 0 {
+	} else if b.onPairReady != nil {
 		// No AI client — trigger moderation immediately
 		go b.onPairReady(pairID, pair.OriginalClean)
 	}

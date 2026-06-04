@@ -95,7 +95,7 @@ func main() {
 					SourceTranslationID: toNullString(translation.TranslationID),
 				}
 
-				if _, err := repo.InsertTranslationPair(ctx, pair); err != nil {
+				if _, _, err := repo.InsertTranslationPair(ctx, pair); err != nil {
 					fmt.Fprintf(os.Stderr, "insert failed for %q: %v\n", word, err)
 				}
 			}
