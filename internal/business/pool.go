@@ -99,6 +99,18 @@ func (b *Business) fillPool(ctx context.Context) error {
 	return nil
 }
 
+// WarmWordPool fills the pool ahead of demand, so the first /random or /quiz
+// after a deploy doesn't pay the API round trips.
+func (b *Business) WarmWordPool(ctx context.Context) {
+	if !b.pool.startRefill(poolRefillBelow) {
+		return
+	}
+	defer b.pool.endRefill()
+	if err := b.fillPool(ctx); err != nil {
+		b.log.Printf("word pool warmup failed: %v\n", err)
+	}
+}
+
 // randomCleanWords draws n mutually distinct pairs, filling the pool
 // synchronously only when it cannot cover the request, and kicks off a
 // background refill when the pool runs low.

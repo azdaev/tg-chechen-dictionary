@@ -2,8 +2,33 @@ package business
 
 import (
 	"chetoru/internal/models"
+	"context"
+	"net/http"
 	"testing"
+
+	"github.com/sirupsen/logrus"
 )
+
+func TestWarmWordPool_FillsFromAPI(t *testing.T) {
+	stubDoshamAPI(t, http.StatusOK, `{"data":{"randomEntries":[
+		{"content":"дитт","type":"WORD","translations":[{"content":"дерево","languageCode":"ru"}]},
+		{"content":"цӀа","type":"WORD","translations":[{"content":"дом","languageCode":"ru"}]}
+	]}}`)
+	b := &Business{log: logrus.New()}
+
+	b.WarmWordPool(context.Background())
+	if got := b.pool.size(); got != 2 {
+		t.Fatalf("pool size after warmup = %d, want 2", got)
+	}
+
+	// A failed warmup logs and leaves the pool empty, never panics.
+	b2 := &Business{log: logrus.New()}
+	stubDoshamAPI(t, http.StatusInternalServerError, ``)
+	b2.WarmWordPool(context.Background())
+	if got := b2.pool.size(); got != 0 {
+		t.Fatalf("pool size after failed warmup = %d, want 0", got)
+	}
+}
 
 func TestWordPool_InsertDedupes(t *testing.T) {
 	var p wordPool

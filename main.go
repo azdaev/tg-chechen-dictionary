@@ -95,6 +95,9 @@ func main() {
 		botService.SendAutoModeration(context.Background(), cleanWord)
 	})
 
+	// Warm the word pool so the first /random or /quiz is instant.
+	go translator.WarmWordPool(ctx)
+
 	// Daily "Word of the Day" push to opted-in subscribers.
 	botService.StartWordOfDayScheduler(ctx)
 
