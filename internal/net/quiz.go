@@ -80,8 +80,9 @@ func (n *Net) HandlePollAnswer(ctx context.Context, pa *tgbotapi.PollAnswer) err
 }
 
 // HandleTop renders the quiz leaderboard — friendly competition to encourage
-// sustained vocabulary practice.
-func (n *Net) HandleTop(ctx context.Context, chatID int64) error {
+// sustained vocabulary practice. A requester ranked below the visible top gets
+// their own position appended so progress always feels within reach.
+func (n *Net) HandleTop(ctx context.Context, chatID, userID int64) error {
 	scorers, err := n.repo.TopQuizScorers(ctx, QuizTopLimit)
 	if err != nil {
 		return fmt.Errorf("repo.TopQuizScorers: %w", err)
@@ -93,7 +94,11 @@ func (n *Net) HandleTop(ctx context.Context, chatID int64) error {
 
 	var b strings.Builder
 	b.WriteString(QuizTopHeader)
+	shown := false
 	for i, s := range scorers {
+		if s.UserID == userID {
+			shown = true
+		}
 		name := scorerName(s)
 		pct := 0
 		if s.Total > 0 {
@@ -104,6 +109,16 @@ func (n *Net) HandleTop(ctx context.Context, chatID int64) error {
 			fmt.Fprintf(&b, " 🔥%d", s.Streak)
 		}
 		b.WriteByte('\n')
+	}
+
+	if !shown {
+		if rank, err := n.repo.GetQuizRank(ctx, userID); err != nil {
+			n.log.WithError(err).WithField("user_id", userID).Warn("GetQuizRank failed")
+		} else if rank > 0 {
+			if correct, total, _, err := n.repo.GetQuizScore(ctx, userID); err == nil && total > 0 {
+				fmt.Fprintf(&b, "\n👤 Вы: <b>№%d</b> — %d/%d (%d%%)\n", rank, correct, total, correct*100/total)
+			}
+		}
 	}
 
 	msg := tgbotapi.NewMessage(chatID, b.String())

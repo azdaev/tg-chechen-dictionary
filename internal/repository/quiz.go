@@ -89,6 +89,27 @@ func (r *Repository) TopQuizScorers(ctx context.Context, limit int) ([]models.Qu
 	return scorers, rows.Err()
 }
 
+// GetQuizRank returns the user's leaderboard position using the same ordering
+// and 3-answer eligibility bar as TopQuizScorers. Returns 0 for users not yet
+// on the board.
+func (r *Repository) GetQuizRank(ctx context.Context, userID int64) (int, error) {
+	var rank int
+	err := r.db.QueryRowContext(
+		ctx,
+		`SELECT (SELECT COUNT(*) FROM quiz_stats o
+		         WHERE o.total_count >= 3
+		           AND (o.correct_count > me.correct_count
+		                OR (o.correct_count = me.correct_count AND o.total_count < me.total_count))) + 1
+		 FROM quiz_stats me
+		 WHERE me.user_id = ? AND me.total_count >= 3;`,
+		userID,
+	).Scan(&rank)
+	if err == sql.ErrNoRows {
+		return 0, nil
+	}
+	return rank, err
+}
+
 // GetQuizScore returns a user's lifetime correct/total quiz counts and the
 // current daily streak. Returns zeros for a user who has never answered. A
 // streak whose last answer is older than yesterday has lapsed and reads as 0.

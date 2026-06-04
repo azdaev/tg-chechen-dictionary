@@ -108,6 +108,38 @@ func TestTopQuizScorers(t *testing.T) {
 	}
 }
 
+func TestGetQuizRank(t *testing.T) {
+	r := newQuizTestRepo(t)
+	ctx := context.Background()
+
+	record := func(userID int64, correct, wrong int) {
+		for range correct {
+			_ = r.RecordQuizAnswer(ctx, userID, "u", "U", true)
+		}
+		for range wrong {
+			_ = r.RecordQuizAnswer(ctx, userID, "u", "U", false)
+		}
+	}
+
+	record(1, 5, 1) // 5/6 — first
+	record(2, 2, 3) // 2/5 — third (same correct as user 4 but more attempts)
+	record(3, 1, 1) // 1/2 — below threshold, unranked
+	record(4, 2, 1) // 2/3 — second (fewer attempts win the tie)
+
+	for _, c := range []struct {
+		userID int64
+		want   int
+	}{{1, 1}, {4, 2}, {2, 3}, {3, 0}, {99, 0}} {
+		rank, err := r.GetQuizRank(ctx, c.userID)
+		if err != nil {
+			t.Fatalf("GetQuizRank(%d): %v", c.userID, err)
+		}
+		if rank != c.want {
+			t.Errorf("rank(%d) = %d, want %d", c.userID, rank, c.want)
+		}
+	}
+}
+
 func TestCountQuizStats(t *testing.T) {
 	r := newQuizTestRepo(t)
 	ctx := context.Background()

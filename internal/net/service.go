@@ -152,6 +152,7 @@ type QuizStore interface {
 	RecordQuizAnswer(ctx context.Context, userID int64, username, firstName string, correct bool) error
 	GetQuizScore(ctx context.Context, userID int64) (correct, total, streak int, err error)
 	TopQuizScorers(ctx context.Context, limit int) ([]models.QuizScorer, error)
+	GetQuizRank(ctx context.Context, userID int64) (int, error)
 	CountQuizStats(ctx context.Context) (players, totalAnswers, correctAnswers int, err error)
 }
 
@@ -370,7 +371,7 @@ func (n *Net) routeMessage(ctx context.Context, m *tgbotapi.Message) {
 	case "quiz":
 		err = n.HandleQuiz(ctx, m.Chat)
 	case "top":
-		err = n.HandleTop(ctx, m.Chat.ID)
+		err = n.HandleTop(ctx, m.Chat.ID, m.From.ID)
 	case "me":
 		err = n.HandleMe(ctx, m)
 	case "wotd":
