@@ -124,6 +124,7 @@ type DictionaryStore interface {
 // know what coverage to add next.
 type MissingWordStore interface {
 	RecordMissingWord(ctx context.Context, cleanWord, rawWord string) error
+	ResolveMissingWord(ctx context.Context, cleanWord string) error
 	TopMissingWords(ctx context.Context, limit int) ([]models.MissingWord, error)
 	CountMissingWords(ctx context.Context) (int, error)
 }

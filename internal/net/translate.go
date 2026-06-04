@@ -42,6 +42,16 @@ func (n *Net) HandleText(ctx context.Context, m *tgbotapi.Message) error {
 		return err
 	}
 
+	// A successful lookup proves the word is covered now — clear it from the
+	// missing-words report so the gap list reflects only live gaps. A no-op
+	// delete for the common case (word was never missing) is a btree probe.
+	n.bg.Go(func() {
+		cleanWord := tools.NormalizeSearch(m.Text)
+		if err := n.repo.ResolveMissingWord(ctx, cleanWord); err != nil {
+			n.log.WithError(err).WithField("word", cleanWord).Warn("failed to resolve missing word")
+		}
+	})
+
 	firstTranslations := translations
 	if len(translations) > MaxTranslations {
 		firstTranslations = translations[:MaxTranslations]

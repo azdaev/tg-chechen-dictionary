@@ -24,6 +24,16 @@ func (r *Repository) RecordMissingWord(ctx context.Context, cleanWord, rawWord s
 	return err
 }
 
+// ResolveMissingWord drops a word from the gap list once a search for it
+// succeeds — the dictionary covers it now, so it is no longer missing.
+func (r *Repository) ResolveMissingWord(ctx context.Context, cleanWord string) error {
+	if cleanWord == "" {
+		return nil
+	}
+	_, err := r.db.ExecContext(ctx, `DELETE FROM missing_words WHERE clean_word = ?;`, cleanWord)
+	return err
+}
+
 // CountMissingWords returns how many distinct words users searched for that had
 // no translation — a measure of how much demand the dictionary still can't meet.
 func (r *Repository) CountMissingWords(ctx context.Context) (int, error) {
