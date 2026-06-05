@@ -116,6 +116,19 @@ func (r *Repository) ListLapsingStreaks(ctx context.Context, lastAnswerDate stri
 	return scorers, rows.Err()
 }
 
+// CountActiveStreaks returns how many players hold a live multi-day streak
+// (answered today or yesterday).
+func (r *Repository) CountActiveStreaks(ctx context.Context) (int, error) {
+	now := time.Now()
+	var n int
+	err := r.db.QueryRowContext(
+		ctx,
+		`SELECT COUNT(*) FROM quiz_stats WHERE streak_days >= 2 AND last_answer_date IN (?, ?);`,
+		now.Format(time.DateOnly), now.AddDate(0, 0, -1).Format(time.DateOnly),
+	).Scan(&n)
+	return n, err
+}
+
 // GetQuizRank returns the user's leaderboard position using the same ordering
 // and 3-answer eligibility bar as TopQuizScorers. Returns 0 for users not yet
 // on the board.

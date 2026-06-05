@@ -147,6 +147,16 @@ func TestListLapsingStreaks(t *testing.T) {
 	if len(holders) != 1 || holders[0].UserID != 1 || holders[0].Streak != 5 {
 		t.Fatalf("holders = %+v, want only user 1 with streak 5", holders)
 	}
+
+	// Active streaks: users 1 and 5 (yesterday) plus 2 (today); 3 is below the
+	// bar and 4 lapsed. Blocking does not end a streak, only reachability.
+	streaks, err := r.CountActiveStreaks(ctx)
+	if err != nil {
+		t.Fatalf("CountActiveStreaks: %v", err)
+	}
+	if streaks != 3 {
+		t.Fatalf("active streaks = %d, want 3", streaks)
+	}
 }
 
 func TestGetQuizRank(t *testing.T) {

@@ -123,6 +123,16 @@ func (n *Net) HandleStats(ctx context.Context, m *tgbotapi.Message) error {
 		return fmt.Errorf("repo.CountWordOfDaySubscribers: %w", err)
 	}
 
+	wotdChats, err := n.repo.CountWordOfDayChats(ctx)
+	if err != nil {
+		return fmt.Errorf("repo.CountWordOfDayChats: %w", err)
+	}
+
+	activeStreaks, err := n.repo.CountActiveStreaks(ctx)
+	if err != nil {
+		return fmt.Errorf("repo.CountActiveStreaks: %w", err)
+	}
+
 	quizPlayers, quizAnswers, quizCorrect, err := n.repo.CountQuizStats(ctx)
 	if err != nil {
 		return fmt.Errorf("repo.CountQuizStats: %w", err)
@@ -139,6 +149,8 @@ func (n *Net) HandleStats(ctx context.Context, m *tgbotapi.Message) error {
 		approvedPairs:   approvedPairs,
 		missingWords:    missingCount,
 		wotdSubscribers: wotdSubscribers,
+		wotdChats:       wotdChats,
+		activeStreaks:   activeStreaks,
 		quizPlayers:     quizPlayers,
 		quizAnswers:     quizAnswers,
 		quizCorrect:     quizCorrect,
@@ -201,6 +213,8 @@ type statsData struct {
 	approvedPairs   int
 	missingWords    int
 	wotdSubscribers int
+	wotdChats       int
+	activeStreaks   int
 	quizPlayers     int
 	quizAnswers     int
 	quizCorrect     int
@@ -242,7 +256,13 @@ func buildStatsMessage(d statsData) string {
 
 	b.WriteString("🎮 <b>Вовлечённость</b>\n")
 	fmt.Fprintf(&b, "📖 Подписчиков на «Слово дня»: <b>%s</b>\n", formatThousands(d.wotdSubscribers))
+	if d.wotdChats > 0 {
+		fmt.Fprintf(&b, "💬 Групп на «Слове дня»: <b>%s</b>\n", formatThousands(d.wotdChats))
+	}
 	fmt.Fprintf(&b, "🧠 Игроков в викторину: <b>%s</b>\n", formatThousands(d.quizPlayers))
+	if d.activeStreaks > 0 {
+		fmt.Fprintf(&b, "🔥 Активных серий: <b>%s</b>\n", formatThousands(d.activeStreaks))
+	}
 	quizPct := 0
 	if d.quizAnswers > 0 {
 		quizPct = d.quizCorrect * 100 / d.quizAnswers

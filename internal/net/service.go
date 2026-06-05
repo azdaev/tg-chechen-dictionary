@@ -165,6 +165,7 @@ type QuizStore interface {
 	GetQuizRank(ctx context.Context, userID int64) (int, error)
 	CountQuizStats(ctx context.Context) (players, totalAnswers, correctAnswers int, err error)
 	ListLapsingStreaks(ctx context.Context, lastAnswerDate string) ([]models.QuizScorer, error)
+	CountActiveStreaks(ctx context.Context) (int, error)
 }
 
 // WordOfDayStore manages opt-in subscriptions for the daily "Word of the Day".
@@ -178,6 +179,7 @@ type WordOfDayStore interface {
 	SetChatWordOfDaySubscription(ctx context.Context, chatID int64, subscribed bool) error
 	IsChatWordOfDaySubscribed(ctx context.Context, chatID int64) (bool, error)
 	ListWordOfDayChatIDs(ctx context.Context) ([]int64, error)
+	CountWordOfDayChats(ctx context.Context) (int, error)
 }
 
 type Net struct {

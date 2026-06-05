@@ -17,6 +17,19 @@ func TestBuildStatsMessage_CacheSection(t *testing.T) {
 	}
 }
 
+func TestBuildStatsMessage_EngagementLines(t *testing.T) {
+	msg := buildStatsMessage(statsData{month: 6, year: 2026, wotdChats: 4, activeStreaks: 12})
+	if !strings.Contains(msg, "Групп на «Слове дня»: <b>4</b>") || !strings.Contains(msg, "Активных серий: <b>12</b>") {
+		t.Fatalf("engagement lines missing:\n%s", msg)
+	}
+
+	// Zero values hide the optional lines instead of reporting zeros.
+	msg = buildStatsMessage(statsData{month: 6, year: 2026})
+	if strings.Contains(msg, "Групп") || strings.Contains(msg, "серий") {
+		t.Fatalf("optional lines must be hidden at zero:\n%s", msg)
+	}
+}
+
 func TestBuildMeMessage(t *testing.T) {
 	msg := buildMeMessage(1234, 8, 10, 3, 7, true)
 	for _, want := range []string{"1 234", "8/10", "(80%)", "Серия: <b>3 дн.</b>", "Место в /top: <b>№7</b>", "Слово дня: <b>включено</b>"} {

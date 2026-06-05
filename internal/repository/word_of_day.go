@@ -58,6 +58,13 @@ func (r *Repository) IsChatWordOfDaySubscribed(ctx context.Context, chatID int64
 	return err == nil, err
 }
 
+// CountWordOfDayChats returns how many group chats receive the daily push.
+func (r *Repository) CountWordOfDayChats(ctx context.Context) (int, error) {
+	var n int
+	err := r.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM wotd_chats;`).Scan(&n)
+	return n, err
+}
+
 // ListWordOfDayChatIDs returns the group chats receiving the daily push.
 func (r *Repository) ListWordOfDayChatIDs(ctx context.Context) ([]int64, error) {
 	rows, err := r.db.QueryContext(ctx, `SELECT chat_id FROM wotd_chats;`)

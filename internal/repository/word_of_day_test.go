@@ -157,4 +157,7 @@ func TestChatWordOfDaySubscription(t *testing.T) {
 	if len(ids) != 1 || ids[0] != -200 {
 		t.Fatalf("chat ids after unsubscribe = %v, want [-200]", ids)
 	}
+	if count, err := r.CountWordOfDayChats(ctx); err != nil || count != 1 {
+		t.Fatalf("chat count = %d (err %v), want 1", count, err)
+	}
 }
