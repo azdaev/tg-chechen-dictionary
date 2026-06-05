@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
@@ -69,8 +70,23 @@ func (n *Net) HandleRandom(ctx context.Context, chatID int64) error {
 		tgbotapi.EscapeText(tgbotapi.ModeHTML, tools.Clean(word.Chechen)),
 		tgbotapi.EscapeText(tgbotapi.ModeHTML, tools.Clean(word.Russian)),
 	)
-	if line := grammarSummaryLine(n.business.GrammarFor(ctx, word.Chechen)); line != "" {
-		text += "\n\n" + line
+
+	// Both enrichments hit live APIs on fresh words; fetch them concurrently so
+	// the card costs one round trip, not two.
+	var exampleLine, grammarLine string
+	var wg sync.WaitGroup
+	wg.Go(func() {
+		if ex, ok := n.usageExample(word.Chechen); ok {
+			exampleLine = fmt.Sprintf(WordOfDayExampleFormat, tgbotapi.EscapeText(tgbotapi.ModeHTML, ex))
+		}
+	})
+	wg.Go(func() { grammarLine = grammarSummaryLine(n.business.GrammarFor(ctx, word.Chechen)) })
+	wg.Wait()
+	if exampleLine != "" {
+		text += "\n\n" + exampleLine
+	}
+	if grammarLine != "" {
+		text += "\n\n" + grammarLine
 	}
 
 	msg := tgbotapi.NewMessage(chatID, text)

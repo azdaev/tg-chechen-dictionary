@@ -213,8 +213,9 @@ func pickFresh(recent []string, draw func() *models.RandomWord) *models.RandomWo
 	return fallback
 }
 
-// wordOfDayExample mines the word's dictionary glosses for a usage example.
-func (n *Net) wordOfDayExample(chechen string) (string, bool) {
+// usageExample mines the word's dictionary glosses for a usage example.
+// Shared by the Word of the Day and /random cards.
+func (n *Net) usageExample(chechen string) (string, bool) {
 	for i, p := range n.business.Translate(chechen) {
 		if i == 5 {
 			break
@@ -267,7 +268,7 @@ func (n *Net) sendWordOfDay(ctx context.Context) {
 	)
 	// One dictionary and one grammar lookup for the whole broadcast, not per
 	// subscriber: a real usage example turns the card from vocabulary into language.
-	if ex, ok := n.wordOfDayExample(word.Chechen); ok {
+	if ex, ok := n.usageExample(word.Chechen); ok {
 		text += "\n\n" + fmt.Sprintf(WordOfDayExampleFormat, tgbotapi.EscapeText(tgbotapi.ModeHTML, ex))
 	}
 	if line := grammarSummaryLine(n.business.GrammarFor(ctx, word.Chechen)); line != "" {
