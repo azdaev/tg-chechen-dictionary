@@ -42,6 +42,18 @@ func grammarSummaryLine(g *models.WordGrammar) string {
 	return "<i>" + strings.Join(parts, " · ") + "</i>"
 }
 
+// wordCardButtons builds the keyboard for discovery cards: another word, plus
+// sharing this one into any chat via a pre-filled inline query — every shared
+// card carries the bot's handle to whoever receives it.
+func wordCardButtons(chechen string) tgbotapi.InlineKeyboardMarkup {
+	return tgbotapi.NewInlineKeyboardMarkup(
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData(RandomMoreButtonText, "random_more"),
+			tgbotapi.InlineKeyboardButton{Text: ShareWordButtonText, SwitchInlineQuery: &chechen},
+		),
+	)
+}
+
 // HandleRandom sends a random Chechen word from the dictionary so users can
 // discover and learn new vocabulary, with a button to keep exploring.
 func (n *Net) HandleRandom(ctx context.Context, chatID int64) error {
@@ -91,11 +103,7 @@ func (n *Net) HandleRandom(ctx context.Context, chatID int64) error {
 
 	msg := tgbotapi.NewMessage(chatID, text)
 	msg.ParseMode = "html"
-	msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(
-		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData(RandomMoreButtonText, "random_more"),
-		),
-	)
+	msg.ReplyMarkup = wordCardButtons(word.Chechen)
 
 	_, err = n.bot.Send(msg)
 	return err

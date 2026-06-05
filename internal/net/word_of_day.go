@@ -285,13 +285,9 @@ func (n *Net) sendWordOfDay(ctx context.Context) {
 		}
 	}
 
-	// The daily word doubles as a doorway: one tap serves another word via
-	// the existing /random callback.
-	moreButton := tgbotapi.NewInlineKeyboardMarkup(
-		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData(RandomMoreButtonText, "random_more"),
-		),
-	)
+	// The daily word doubles as a doorway: one tap serves another word, and
+	// the share button carries today's word (and the bot) into other chats.
+	buttons := wordCardButtons(word.Chechen)
 
 	for _, id := range subscribers {
 		select {
@@ -302,7 +298,7 @@ func (n *Net) sendWordOfDay(ctx context.Context) {
 		}
 		out := tgbotapi.NewMessage(id, text)
 		out.ParseMode = "html"
-		out.ReplyMarkup = moreButton
+		out.ReplyMarkup = buttons
 		if _, err := n.bot.Send(out); err != nil {
 			if n.isBlockedError(err) {
 				if mErr := n.repo.MarkUserBlocked(ctx, id, "word_of_day"); mErr != nil {

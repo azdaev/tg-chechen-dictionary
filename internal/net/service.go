@@ -32,6 +32,7 @@ const (
 	MissingWordRowFormat       = "%d. <b>%s</b> — %d раз\n"
 	RandomWordFormat           = "🎲 <b>Случайное слово</b>\n\n<b>%s</b> — %s"
 	RandomMoreButtonText       = "🎲 Ещё одно"
+	ShareWordButtonText        = "📤 Поделиться"
 	RandomEmptyText            = "Словарь пока пуст. Попробуйте перевести несколько слов, и они появятся здесь!"
 	QuizQuestionFormat         = "🧠 <b>Викторина</b>\n\nКак переводится на русский?\n\n<b>%s</b>"
 	QuizQuestionReverseFormat  = "🧠 <b>Викторина</b>\n\nКак сказать по-чеченски?\n\n<b>%s</b>"
