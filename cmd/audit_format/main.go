@@ -55,6 +55,7 @@ func suspicions(rendered string) []string {
 
 func main() {
 	n := flag.Int("n", 100, "entries to sample")
+	examples := flag.Bool("examples", false, "print extracted usage examples instead of flagging renders")
 	flag.Parse()
 
 	apiURL := os.Getenv("DOSHAM_API_URL")
@@ -92,12 +93,23 @@ func main() {
 				continue
 			}
 			rendered++
+			if *examples {
+				if ex, ok := tools.FirstExample(t.Content, e.Content); ok {
+					flagged++
+					fmt.Printf("%s: %s\n", e.Content, ex)
+				}
+				continue
+			}
 			out := tools.FormatTranslationLite("**"+e.Content+"** - "+t.Content, e.Content)
 			if sus := suspicions(out); len(sus) > 0 {
 				flagged++
 				fmt.Printf("=== %s [%s]\nGLOSS: %s\nOUT:\n%s\n\n", e.Content, strings.Join(sus, ", "), t.Content, out)
 			}
 		}
+	}
+	if *examples {
+		fmt.Printf("rendered %d glosses, %d carry an example\n", rendered, flagged)
+		return
 	}
 	fmt.Printf("rendered %d glosses, flagged %d\n", rendered, flagged)
 }
