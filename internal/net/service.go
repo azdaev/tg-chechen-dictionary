@@ -60,6 +60,8 @@ const (
 	DefaultModerationChat      = int64(-5204234916)
 	BroadcastParseMode         = "html"
 	BroadcastSendDelay         = 100 * time.Millisecond
+	StreakReminderHour         = 19 // local hour (container TZ is Europe/Moscow)
+	StreakReminderFormat       = "🔥 Ваша серия — <b>%d дн.</b> Один вопрос сегодня, и она продолжится!"
 	FreeSpellcheckLimit        = 5
 	SubscriptionPriceKopecks   = 10000 // 100 RUB
 	SubscriptionPriceFormatted = "100 ₽"
@@ -158,6 +160,7 @@ type QuizStore interface {
 	TopQuizScorers(ctx context.Context, limit int) ([]models.QuizScorer, error)
 	GetQuizRank(ctx context.Context, userID int64) (int, error)
 	CountQuizStats(ctx context.Context) (players, totalAnswers, correctAnswers int, err error)
+	ListLapsingStreaks(ctx context.Context, lastAnswerDate string) ([]models.QuizScorer, error)
 }
 
 // WordOfDayStore manages opt-in subscriptions for the daily "Word of the Day".

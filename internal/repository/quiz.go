@@ -89,6 +89,33 @@ func (r *Repository) TopQuizScorers(ctx context.Context, limit int) ([]models.Qu
 	return scorers, rows.Err()
 }
 
+// ListLapsingStreaks returns reachable users whose quiz streak survives only
+// until midnight: last answer on the given date (yesterday at reminder time),
+// streak worth keeping. Used for the evening "don't lose it" reminder.
+func (r *Repository) ListLapsingStreaks(ctx context.Context, lastAnswerDate string) ([]models.QuizScorer, error) {
+	rows, err := r.db.QueryContext(
+		ctx,
+		`SELECT q.user_id, q.streak_days FROM quiz_stats q
+		 LEFT JOIN users u ON u.user_id = q.user_id
+		 WHERE q.last_answer_date = ? AND q.streak_days >= 2 AND COALESCE(u.is_blocked, 0) = 0;`,
+		lastAnswerDate,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var scorers []models.QuizScorer
+	for rows.Next() {
+		var s models.QuizScorer
+		if err := rows.Scan(&s.UserID, &s.Streak); err != nil {
+			return nil, err
+		}
+		scorers = append(scorers, s)
+	}
+	return scorers, rows.Err()
+}
+
 // GetQuizRank returns the user's leaderboard position using the same ordering
 // and 3-answer eligibility bar as TopQuizScorers. Returns 0 for users not yet
 // on the board.

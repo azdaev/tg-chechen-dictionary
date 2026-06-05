@@ -101,6 +101,9 @@ func main() {
 	// Daily "Word of the Day" push to opted-in subscribers.
 	botService.StartWordOfDayScheduler(ctx)
 
+	// Evening warning to quiz players whose daily streak lapses at midnight.
+	botService.StartStreakReminderScheduler(ctx)
+
 	botService.Start(ctx)
 
 	// Bounded grace for detached background work (pair persistence, cache

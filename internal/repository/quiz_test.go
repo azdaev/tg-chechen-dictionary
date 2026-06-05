@@ -108,6 +108,47 @@ func TestTopQuizScorers(t *testing.T) {
 	}
 }
 
+func TestListLapsingStreaks(t *testing.T) {
+	r := newQuizTestRepo(t)
+	ctx := context.Background()
+
+	_, err := r.db.Exec(`CREATE TABLE users (
+		user_id INTEGER PRIMARY KEY,
+		is_blocked INTEGER NOT NULL DEFAULT 0
+	);`)
+	if err != nil {
+		t.Fatalf("create users: %v", err)
+	}
+
+	yesterday := time.Now().AddDate(0, 0, -1).Format(time.DateOnly)
+	today := time.Now().Format(time.DateOnly)
+	seed := func(userID int64, streak int, lastDate string) {
+		if _, err := r.db.Exec(
+			`INSERT INTO quiz_stats (user_id, correct_count, total_count, streak_days, last_answer_date) VALUES (?, 1, 1, ?, ?)`,
+			userID, streak, lastDate,
+		); err != nil {
+			t.Fatalf("seed: %v", err)
+		}
+	}
+
+	seed(1, 5, yesterday)    // lapsing — must be reminded
+	seed(2, 5, today)        // already answered today
+	seed(3, 1, yesterday)    // streak too small to mourn
+	seed(4, 9, "2020-01-01") // long lapsed
+	seed(5, 3, yesterday)    // lapsing but blocked
+	if _, err := r.db.Exec(`INSERT INTO users (user_id, is_blocked) VALUES (5, 1)`); err != nil {
+		t.Fatalf("block: %v", err)
+	}
+
+	holders, err := r.ListLapsingStreaks(ctx, yesterday)
+	if err != nil {
+		t.Fatalf("ListLapsingStreaks: %v", err)
+	}
+	if len(holders) != 1 || holders[0].UserID != 1 || holders[0].Streak != 5 {
+		t.Fatalf("holders = %+v, want only user 1 with streak 5", holders)
+	}
+}
+
 func TestGetQuizRank(t *testing.T) {
 	r := newQuizTestRepo(t)
 	ctx := context.Background()

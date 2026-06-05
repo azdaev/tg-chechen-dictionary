@@ -95,6 +95,25 @@ func (c *Cache) SetWordOfDayLastSent(ctx context.Context, date string) error {
 	return c.client.Set(ctx, wordOfDayKey, date, 48*time.Hour).Err()
 }
 
+// streakReminderKey records the date of the last streak-reminder sweep, same
+// contract as wordOfDayKey.
+const streakReminderKey = "streak_reminder_last_sent"
+
+func (c *Cache) GetStreakReminderLastSent(ctx context.Context) (string, error) {
+	val, err := c.client.Get(ctx, streakReminderKey).Result()
+	if errors.Is(err, redis.Nil) {
+		return "", ErrMiss
+	}
+	if err != nil {
+		return "", err
+	}
+	return val, nil
+}
+
+func (c *Cache) SetStreakReminderLastSent(ctx context.Context, date string) error {
+	return c.client.Set(ctx, streakReminderKey, date, 48*time.Hour).Err()
+}
+
 const (
 	wotdRecentKey   = "wotd_recent"
 	wotdRecentLimit = 30
