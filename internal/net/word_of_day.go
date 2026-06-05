@@ -11,34 +11,51 @@ import (
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
 
-// HandleWordOfDay shows the user's Word of the Day subscription status with a
-// button to opt in or out.
+// HandleWordOfDay shows the Word of the Day subscription status with a button
+// to opt in or out. In a group the subscription belongs to the chat itself —
+// the word arrives where the community talks, not in members' private chats.
 func (n *Net) HandleWordOfDay(ctx context.Context, m *tgbotapi.Message) error {
-	if err := n.repo.StoreUser(ctx, int(m.From.ID), m.From.UserName); err != nil {
-		return fmt.Errorf("repo.StoreUser: %w", err)
+	var subscribed bool
+	var err error
+	if isGroup(m.Chat) {
+		subscribed, err = n.repo.IsChatWordOfDaySubscribed(ctx, m.Chat.ID)
+		if err != nil {
+			return fmt.Errorf("repo.IsChatWordOfDaySubscribed: %w", err)
+		}
+	} else {
+		if err := n.repo.StoreUser(ctx, int(m.From.ID), m.From.UserName); err != nil {
+			return fmt.Errorf("repo.StoreUser: %w", err)
+		}
+		subscribed, err = n.repo.IsWordOfDaySubscribed(ctx, m.From.ID)
+		if err != nil {
+			return fmt.Errorf("repo.IsWordOfDaySubscribed: %w", err)
+		}
 	}
 
-	subscribed, err := n.repo.IsWordOfDaySubscribed(ctx, m.From.ID)
-	if err != nil {
-		return fmt.Errorf("repo.IsWordOfDaySubscribed: %w", err)
-	}
-
-	out := tgbotapi.NewMessage(m.Chat.ID, wotdStatusText(subscribed))
+	out := tgbotapi.NewMessage(m.Chat.ID, wotdStatusText(subscribed, isGroup(m.Chat)))
 	out.ParseMode = "html"
 	out.ReplyMarkup = wotdButton(subscribed)
 	_, err = n.bot.Send(out)
 	return err
 }
 
-// HandleWordOfDayCallback toggles the subscription from the inline button.
+// HandleWordOfDayCallback toggles the subscription from the inline button,
+// for the chat when pressed in a group, for the user otherwise.
 func (n *Net) HandleWordOfDayCallback(ctx context.Context, cq *tgbotapi.CallbackQuery) error {
 	subscribe := cq.Data == "wotd_on"
+	group := isGroup(cq.Message.Chat)
 
-	if err := n.repo.StoreUser(ctx, int(cq.From.ID), cq.From.UserName); err != nil {
-		return fmt.Errorf("repo.StoreUser: %w", err)
-	}
-	if err := n.repo.SetWordOfDaySubscription(ctx, cq.From.ID, subscribe); err != nil {
-		return fmt.Errorf("repo.SetWordOfDaySubscription: %w", err)
+	if group {
+		if err := n.repo.SetChatWordOfDaySubscription(ctx, cq.Message.Chat.ID, subscribe); err != nil {
+			return fmt.Errorf("repo.SetChatWordOfDaySubscription: %w", err)
+		}
+	} else {
+		if err := n.repo.StoreUser(ctx, int(cq.From.ID), cq.From.UserName); err != nil {
+			return fmt.Errorf("repo.StoreUser: %w", err)
+		}
+		if err := n.repo.SetWordOfDaySubscription(ctx, cq.From.ID, subscribe); err != nil {
+			return fmt.Errorf("repo.SetWordOfDaySubscription: %w", err)
+		}
 	}
 
 	toast := WotdUnsubscribedToast
@@ -49,17 +66,27 @@ func (n *Net) HandleWordOfDayCallback(ctx context.Context, cq *tgbotapi.Callback
 		n.log.WithError(err).Warn("failed to ack wotd callback")
 	}
 
-	edit := tgbotapi.NewEditMessageTextAndMarkup(cq.Message.Chat.ID, cq.Message.MessageID, wotdStatusText(subscribe), wotdButton(subscribe))
+	edit := tgbotapi.NewEditMessageTextAndMarkup(cq.Message.Chat.ID, cq.Message.MessageID, wotdStatusText(subscribe, group), wotdButton(subscribe))
 	edit.ParseMode = "html"
 	_, err := n.bot.Send(edit)
 	return err
 }
 
-func wotdStatusText(subscribed bool) string {
-	if subscribed {
+func isGroup(chat *tgbotapi.Chat) bool {
+	return chat != nil && (chat.Type == "group" || chat.Type == "supergroup")
+}
+
+func wotdStatusText(subscribed, group bool) string {
+	switch {
+	case group && subscribed:
+		return WotdChatStatusOnText
+	case group:
+		return WotdChatStatusOffText
+	case subscribed:
 		return WotdStatusOnText
+	default:
+		return WotdStatusOffText
 	}
-	return WotdStatusOffText
 }
 
 func wotdButton(subscribed bool) tgbotapi.InlineKeyboardMarkup {
@@ -234,7 +261,12 @@ func (n *Net) sendWordOfDay(ctx context.Context) {
 		n.log.WithError(err).Error("word of the day: list subscribers")
 		return
 	}
-	if len(subscribers) == 0 {
+	chats, err := n.repo.ListWordOfDayChatIDs(ctx)
+	if err != nil {
+		n.log.WithError(err).Error("word of the day: list chats")
+		return
+	}
+	if len(subscribers) == 0 && len(chats) == 0 {
 		return
 	}
 
@@ -275,7 +307,7 @@ func (n *Net) sendWordOfDay(ctx context.Context) {
 		text += "\n\n" + line
 	}
 	text += "\n\n" + WordOfDayFooter
-	n.log.Infof("word of the day: sending %q to %d subscribers", word.Chechen, len(subscribers))
+	n.log.Infof("word of the day: sending %q to %d subscribers and %d chats", word.Chechen, len(subscribers), len(chats))
 
 	// Recorded before the sends: if the broadcast is cut partway, at-most-once
 	// beats greeting the survivors twice tomorrow.
@@ -306,6 +338,30 @@ func (n *Net) sendWordOfDay(ctx context.Context) {
 				}
 			} else {
 				n.log.WithError(err).WithField("user_id", id).Warn("word of the day: send failed")
+			}
+		}
+		time.Sleep(BroadcastSendDelay)
+	}
+
+	// Group chats get the same card. A kicked bot reads as a blocked error —
+	// drop the chat's subscription instead of failing every morning.
+	for _, id := range chats {
+		select {
+		case <-ctx.Done():
+			n.log.Info("word of the day: chat broadcast interrupted by shutdown")
+			return
+		default:
+		}
+		out := tgbotapi.NewMessage(id, text)
+		out.ParseMode = "html"
+		out.ReplyMarkup = buttons
+		if _, err := n.bot.Send(out); err != nil {
+			if n.isBlockedError(err) {
+				if uErr := n.repo.SetChatWordOfDaySubscription(ctx, id, false); uErr != nil {
+					n.log.WithError(uErr).WithField("chat_id", id).Warn("word of the day: unsubscribe chat")
+				}
+			} else {
+				n.log.WithError(err).WithField("chat_id", id).Warn("word of the day: chat send failed")
 			}
 		}
 		time.Sleep(BroadcastSendDelay)

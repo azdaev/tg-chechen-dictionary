@@ -118,3 +118,43 @@ func TestWordOfDayNudge(t *testing.T) {
 		t.Fatal("marked user must read as nudged")
 	}
 }
+
+func TestChatWordOfDaySubscription(t *testing.T) {
+	r := newUsersTestRepo(t)
+	ctx := context.Background()
+
+	if _, err := r.db.Exec(`CREATE TABLE wotd_chats (
+		chat_id INTEGER PRIMARY KEY,
+		created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+	);`); err != nil {
+		t.Fatalf("create table: %v", err)
+	}
+
+	if sub, _ := r.IsChatWordOfDaySubscribed(ctx, -100); sub {
+		t.Fatal("fresh chat must not be subscribed")
+	}
+
+	// Subscribe twice — second insert must be a no-op, not an error.
+	for range 2 {
+		if err := r.SetChatWordOfDaySubscription(ctx, -100, true); err != nil {
+			t.Fatalf("subscribe: %v", err)
+		}
+	}
+	_ = r.SetChatWordOfDaySubscription(ctx, -200, true)
+
+	if sub, _ := r.IsChatWordOfDaySubscribed(ctx, -100); !sub {
+		t.Fatal("chat must be subscribed")
+	}
+	ids, err := r.ListWordOfDayChatIDs(ctx)
+	if err != nil || len(ids) != 2 {
+		t.Fatalf("chat ids = %v (err %v), want 2 chats", ids, err)
+	}
+
+	if err := r.SetChatWordOfDaySubscription(ctx, -100, false); err != nil {
+		t.Fatalf("unsubscribe: %v", err)
+	}
+	ids, _ = r.ListWordOfDayChatIDs(ctx)
+	if len(ids) != 1 || ids[0] != -200 {
+		t.Fatalf("chat ids after unsubscribe = %v, want [-200]", ids)
+	}
+}

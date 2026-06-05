@@ -34,6 +34,49 @@ func (r *Repository) IsWordOfDaySubscribed(ctx context.Context, userID int64) (b
 	return v == 1, err
 }
 
+// SetChatWordOfDaySubscription opts a group chat in or out of the daily push.
+func (r *Repository) SetChatWordOfDaySubscription(ctx context.Context, chatID int64, subscribed bool) error {
+	query := `DELETE FROM wotd_chats WHERE chat_id = ?;`
+	if subscribed {
+		query = `INSERT OR IGNORE INTO wotd_chats (chat_id) VALUES (?);`
+	}
+	_, err := r.db.ExecContext(ctx, query, chatID)
+	return err
+}
+
+// IsChatWordOfDaySubscribed reports whether a group chat is opted in.
+func (r *Repository) IsChatWordOfDaySubscribed(ctx context.Context, chatID int64) (bool, error) {
+	var one int
+	err := r.db.QueryRowContext(
+		ctx,
+		`SELECT 1 FROM wotd_chats WHERE chat_id = ?;`,
+		chatID,
+	).Scan(&one)
+	if err == sql.ErrNoRows {
+		return false, nil
+	}
+	return err == nil, err
+}
+
+// ListWordOfDayChatIDs returns the group chats receiving the daily push.
+func (r *Repository) ListWordOfDayChatIDs(ctx context.Context) ([]int64, error) {
+	rows, err := r.db.QueryContext(ctx, `SELECT chat_id FROM wotd_chats;`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var ids []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
+}
+
 // WasWordOfDayNudged reports whether the one-time subscription suggestion was
 // already sent. Unknown users read as nudged so they are never messaged.
 func (r *Repository) WasWordOfDayNudged(ctx context.Context, userID int64) (bool, error) {

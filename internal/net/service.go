@@ -52,6 +52,8 @@ const (
 	WordOfDayFooter            = "<i>Учите чеченский каждый день! 🇨🇪</i>"
 	WotdStatusOnText           = "📖 <b>Слово дня</b>\n\nВы подписаны ✅ — каждый день в 9:00 будете получать новое чеченское слово."
 	WotdStatusOffText          = "📖 <b>Слово дня</b>\n\nПодпишитесь, чтобы каждое утро получать новое чеченское слово и пополнять словарный запас."
+	WotdChatStatusOnText       = "📖 <b>Слово дня</b>\n\nЭтот чат подписан ✅ — каждое утро в 9:00 сюда приходит новое чеченское слово."
+	WotdChatStatusOffText      = "📖 <b>Слово дня</b>\n\nПодпишите этот чат, чтобы каждое утро здесь появлялось новое чеченское слово."
 	WotdSubscribeButton        = "🔔 Подписаться"
 	WotdUnsubscribeButton      = "🔕 Отписаться"
 	WotdSubscribedToast        = "Вы подписались на слово дня! 🔔"
@@ -173,6 +175,9 @@ type WordOfDayStore interface {
 	CountWordOfDaySubscribers(ctx context.Context) (int, error)
 	WasWordOfDayNudged(ctx context.Context, userID int64) (bool, error)
 	MarkWordOfDayNudged(ctx context.Context, userID int64) error
+	SetChatWordOfDaySubscription(ctx context.Context, chatID int64, subscribed bool) error
+	IsChatWordOfDaySubscribed(ctx context.Context, chatID int64) (bool, error)
+	ListWordOfDayChatIDs(ctx context.Context) ([]int64, error)
 }
 
 type Net struct {
@@ -478,5 +483,6 @@ func (n *Net) isBlockedError(err error) bool {
 	errStr := err.Error()
 	return strings.Contains(errStr, "bot was blocked") ||
 		strings.Contains(errStr, "user is deactivated") ||
+		strings.Contains(errStr, "bot was kicked") ||
 		strings.Contains(errStr, "chat not found")
 }
