@@ -48,14 +48,20 @@ func (n *Net) HandleMe(ctx context.Context, m *tgbotapi.Message) error {
 	if err != nil {
 		return fmt.Errorf("repo.IsWordOfDaySubscribed: %w", err)
 	}
+	rank := 0
+	if total > 0 {
+		if rank, err = n.repo.GetQuizRank(ctx, m.From.ID); err != nil {
+			return fmt.Errorf("repo.GetQuizRank: %w", err)
+		}
+	}
 
-	msg := tgbotapi.NewMessage(m.Chat.ID, buildMeMessage(lookups, correct, total, streak, wotdSubscribed))
+	msg := tgbotapi.NewMessage(m.Chat.ID, buildMeMessage(lookups, correct, total, streak, rank, wotdSubscribed))
 	msg.ParseMode = "html"
 	_, err = n.bot.Send(msg)
 	return err
 }
 
-func buildMeMessage(lookups, correct, total, streak int, wotdSubscribed bool) string {
+func buildMeMessage(lookups, correct, total, streak, rank int, wotdSubscribed bool) string {
 	var b strings.Builder
 	b.WriteString("👤 <b>Ваш прогресс</b>\n\n")
 	fmt.Fprintf(&b, "🔎 Поисков в словаре: <b>%s</b>\n", formatThousands(lookups))
@@ -63,6 +69,9 @@ func buildMeMessage(lookups, correct, total, streak int, wotdSubscribed bool) st
 		fmt.Fprintf(&b, "🧠 Викторина: <b>%d/%d</b> (%d%%)\n", correct, total, correct*100/total)
 		if streak >= 2 {
 			fmt.Fprintf(&b, "🔥 Серия: <b>%d дн.</b>\n", streak)
+		}
+		if rank > 0 {
+			fmt.Fprintf(&b, "🏆 Место в /top: <b>№%d</b>\n", rank)
 		}
 	} else {
 		b.WriteString("🧠 Викторина: попробуйте /quiz!\n")

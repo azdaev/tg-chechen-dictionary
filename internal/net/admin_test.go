@@ -18,14 +18,19 @@ func TestBuildStatsMessage_CacheSection(t *testing.T) {
 }
 
 func TestBuildMeMessage(t *testing.T) {
-	msg := buildMeMessage(1234, 8, 10, 3, true)
-	for _, want := range []string{"1 234", "8/10", "(80%)", "Серия: <b>3 дн.</b>", "Слово дня: <b>включено</b>"} {
+	msg := buildMeMessage(1234, 8, 10, 3, 7, true)
+	for _, want := range []string{"1 234", "8/10", "(80%)", "Серия: <b>3 дн.</b>", "Место в /top: <b>№7</b>", "Слово дня: <b>включено</b>"} {
 		if !strings.Contains(msg, want) {
 			t.Errorf("missing %q:\n%s", want, msg)
 		}
 	}
 
-	msg = buildMeMessage(0, 0, 0, 0, false)
+	// Unranked players (below the 3-answer bar) see no rank line.
+	if msg := buildMeMessage(5, 1, 2, 0, 0, true); strings.Contains(msg, "Место") {
+		t.Errorf("rank line must be hidden when unranked:\n%s", msg)
+	}
+
+	msg = buildMeMessage(0, 0, 0, 0, 0, false)
 	if !strings.Contains(msg, "попробуйте /quiz") {
 		t.Errorf("expected quiz nudge when never played:\n%s", msg)
 	}
