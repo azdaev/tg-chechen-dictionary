@@ -183,6 +183,12 @@ func (n *Net) recordActivity(ctx context.Context, userID int64, username string,
 }
 
 func (n *Net) HandleInline(ctx context.Context, iq *tgbotapi.InlineQuery) error {
+	// An empty query is the "@bot " moment in someone's chat — serve a few
+	// discovery words instead of a blank screen.
+	if strings.TrimSpace(iq.Query) == "" {
+		return n.answerInlineDiscovery(ctx, iq)
+	}
+
 	translations := n.business.Translate(iq.Query)
 
 	// A dead-end inline query used to show nothing at all; rescue it the same
@@ -245,6 +251,48 @@ func (n *Net) HandleInline(ctx context.Context, iq *tgbotapi.InlineQuery) error 
 	}
 
 	n.recordActivity(ctx, iq.From.ID, iq.From.UserName, models.ActivityTypeInline)
+	return nil
+}
+
+// answerInlineDiscovery responds to an empty inline query with a few random
+// dictionary words. Pool-backed, so the common case costs no API call.
+func (n *Net) answerInlineDiscovery(ctx context.Context, iq *tgbotapi.InlineQuery) error {
+	articles := make([]any, 0, InlineDiscoveryCount)
+	for i := range InlineDiscoveryCount {
+		w, err := n.business.RandomWordFromAPI(ctx)
+		if err != nil || w == nil {
+			break
+		}
+		text := fmt.Sprintf(
+			RandomWordFormat,
+			tgbotapi.EscapeText(tgbotapi.ModeHTML, w.Chechen),
+			tgbotapi.EscapeText(tgbotapi.ModeHTML, w.Russian),
+		)
+		article := tgbotapi.NewInlineQueryResultArticle(iq.ID+strconv.Itoa(i), "🎲 "+w.Chechen, "")
+		article.Description = w.Russian
+		article.InputMessageContent = tgbotapi.InputTextMessageContent{
+			Text:      text,
+			ParseMode: "html",
+		}
+		articles = append(articles, article)
+	}
+	if len(articles) == 0 {
+		return nil // pool empty and API down; leave the placeholder screen
+	}
+
+	inlineConf := tgbotapi.InlineConfig{
+		InlineQueryID: iq.ID,
+		IsPersonal:    false,
+		CacheTime:     InlineDiscoveryCacheSec,
+		Results:       articles,
+	}
+	resp, err := n.bot.Request(inlineConf)
+	if err != nil {
+		return fmt.Errorf("bot.Request: %w", err)
+	}
+	if !resp.Ok {
+		return fmt.Errorf("bot.Request: %s", resp.Description)
+	}
 	return nil
 }
 
