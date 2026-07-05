@@ -75,7 +75,8 @@ func TestFormatPairs_TamesRawBrackets(t *testing.T) {
 	// Local DB pairs carry raw content; a stray bracket must not survive into
 	// the HTML-mode message.
 	got := FormatPairs([]models.TranslationPairs{{Original: "цӏа <", Translate: "дом"}})
-	if strings.ContainsAny(got, "<>") {
+	clean := Clean(got)
+	if strings.ContainsAny(clean, "<>") {
 		t.Errorf("stray bracket leaked into formatted card: %q", got)
 	}
 }

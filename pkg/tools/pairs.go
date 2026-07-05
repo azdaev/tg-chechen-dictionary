@@ -35,13 +35,13 @@ func formatPair(t models.TranslationPairs) string {
 	// headword. Telegram-side checks Translate first to match historical output.
 	if hasDictionaryMarkup(t.Translate) {
 		entry := fmt.Sprintf("**%s** - %s", t.Original, t.Translate)
-		return FormatTranslationLite(entry, t.Original) + "\n\n"
+		return formatDictionaryCard(FormatTranslationLite(entry, t.Original), t.OriginalLang, t.TranslateLang) + "\n\n"
 	}
 	if hasDictionaryMarkup(t.Original) {
 		entry := fmt.Sprintf("**%s** - %s", t.Translate, t.Original)
-		return FormatTranslationLite(entry, t.Translate) + "\n\n"
+		return formatDictionaryCard(FormatTranslationLite(entry, t.Translate), t.TranslateLang, t.OriginalLang) + "\n\n"
 	}
-	return fmt.Sprintf("%s — %s\n\n", t.Original, Clean(t.Translate))
+	return formatSimpleCard(t.Original, Clean(t.Translate), t.OriginalLang, t.TranslateLang) + "\n\n"
 }
 
 // hasDictionaryMarkup reports whether a string carries dictionary structure:

@@ -420,8 +420,10 @@ func (b *Business) fetchTranslationsFromAPI(word string) []models.TranslationPai
 			translation.LanguageCode = normLang
 
 			translationPair := models.TranslationPairs{
-				Original:  tools.EscapeUnclosedTags(entry.Content),
-				Translate: tools.EscapeUnclosedTags(translation.Content),
+				Original:      tools.EscapeUnclosedTags(entry.Content),
+				Translate:     tools.EscapeUnclosedTags(translation.Content),
+				OriginalLang:  inferOriginalLang(normLang),
+				TranslateLang: normLang,
 			}
 			translations = append(translations, translationPair)
 
@@ -440,6 +442,10 @@ func (b *Business) fetchTranslationsFromAPI(word string) []models.TranslationPai
 		})
 	}
 
+	if exact := exactOriginalPairs(translations, word); len(exact) > 0 {
+		translations = exact
+	}
+
 	if utf8.RuneCountInString(word) <= 3 && len(translations) >= 10 {
 		translations = translations[:10]
 	}
@@ -450,6 +456,20 @@ func (b *Business) fetchTranslationsFromAPI(word string) []models.TranslationPai
 	})
 
 	return translations
+}
+
+func exactOriginalPairs(pairs []models.TranslationPairs, word string) []models.TranslationPairs {
+	key := tools.NormalizeSearch(word)
+	if key == "" {
+		return nil
+	}
+	exact := make([]models.TranslationPairs, 0, len(pairs))
+	for _, p := range pairs {
+		if tools.NormalizeSearch(p.Original) == key {
+			exact = append(exact, p)
+		}
+	}
+	return exact
 }
 
 func normalizeCacheKey(word string) string {

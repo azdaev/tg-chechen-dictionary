@@ -11,6 +11,8 @@ type TranslationResponse struct {
 type TranslationPairs struct {
 	Original        string `json:"word"`
 	Translate       string `json:"translate"`
+	OriginalLang    string `json:"original_lang,omitempty"`
+	TranslateLang   string `json:"translate_lang,omitempty"`
 	FormattedAI     string `json:"formatted_ai,omitempty"`
 	FormattedChosen string `json:"formatted_chosen,omitempty"`
 }

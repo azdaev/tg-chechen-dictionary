@@ -204,3 +204,17 @@ func TestFetchTranslations_GraphQLErrorIsNil(t *testing.T) {
 		t.Fatalf("GraphQL error must return nil so it is not cached, got %#v", got)
 	}
 }
+
+func TestFetchTranslations_ExactHeadwordSuppressesSubstringNoise(t *testing.T) {
+	stubDoshamAPI(t, http.StatusOK, `{"data":{"find":[
+		{"entryId":"e1","content":"Ряд","type":"WORD","translations":[{"translationId":"t1","content":"могӏа","languageCode":"ce"}]},
+		{"entryId":"e2","content":"могӏа","type":"WORD","translations":[{"translationId":"t2","content":"ряд","languageCode":"ru"}]},
+		{"entryId":"e3","content":"Рядок","type":"WORD","translations":[{"translationId":"t3","content":"могӏалг","languageCode":"ce"}]}
+	]}}`)
+	b := &Business{log: logrus.New()}
+
+	got := b.fetchTranslationsFromAPI("ряд")
+	if len(got) != 1 || got[0].Original != "Ряд" {
+		t.Fatalf("translations = %+v, want only the exact headword Ряд", got)
+	}
+}

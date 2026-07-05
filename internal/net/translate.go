@@ -222,8 +222,7 @@ func (n *Net) HandleInline(ctx context.Context, iq *tgbotapi.InlineQuery) error 
 		// description shows the card minus its headword, condensed to one line.
 		formatted := clampMessage(tools.FormatPairs(translations[i : i+1]))
 		article := tgbotapi.NewInlineQueryResultArticle(iq.ID+strconv.Itoa(i), title, "")
-		article.Description = strings.ReplaceAll(
-			strings.TrimPrefix(formatted, tools.Clean(translations[i].Original)+" — "), "\n", " · ")
+		article.Description = inlineDescription(formatted, translations[i].Original)
 		article.InputMessageContent = tgbotapi.InputTextMessageContent{
 			Text:      formatted,
 			ParseMode: "html",

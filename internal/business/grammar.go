@@ -3,6 +3,7 @@ package business
 import (
 	"chetoru/internal/cache"
 	"chetoru/internal/models"
+	"chetoru/pkg/tools"
 	"context"
 	"encoding/json"
 	"errors"
@@ -68,11 +69,12 @@ func (b *Business) GrammarFor(ctx context.Context, word string) *models.WordGram
 	return g
 }
 
-// computeGrammar runs the live dosham lookup behind GrammarFor: one `find` query,
-// keeping only morphologically analyzed Chechen WORD entries, picking the
-// highest-rated, and enriching cross-direction matches.
+// computeGrammar runs the live dosham lookup behind GrammarFor, keeping only a
+// morphologically analyzed Chechen WORD entry that exactly matches the user's
+// headword. Russian-side translation queries should not produce a second
+// grammar message for the Chechen translation.
 func (b *Business) computeGrammar(ctx context.Context, word string) *models.WordGrammar {
-	best := bestGrammarEntry(b.findGrammarEntries(ctx, word), "")
+	best := bestGrammarEntry(b.findGrammarEntries(ctx, word), word)
 	if best == nil {
 		return nil
 	}
@@ -152,10 +154,10 @@ func (b *Business) findGrammarEntries(ctx context.Context, word string) []gramma
 }
 
 // bestGrammarEntry picks the highest-rated analyzed Chechen WORD entry. When
-// mustMatch is non-empty, only entries whose content equals it (case-folded)
-// are considered, so an enrichment re-query can't drift to an unrelated word.
+// mustMatch is non-empty, only entries whose normalized content equals it are
+// considered, so palochka stand-ins still match but substring hits do not.
 func bestGrammarEntry(entries []grammarEntry, mustMatch string) *grammarEntry {
-	mustMatch = strings.TrimSpace(mustMatch)
+	mustMatch = tools.NormalizeSearch(mustMatch)
 	var best *grammarEntry
 	for i := range entries {
 		e := &entries[i]
@@ -165,7 +167,7 @@ func bestGrammarEntry(entries []grammarEntry, mustMatch string) *grammarEntry {
 		if e.Type != "WORD" || !entryHasGrammar(e) {
 			continue
 		}
-		if mustMatch != "" && !strings.EqualFold(strings.TrimSpace(e.Content), mustMatch) {
+		if mustMatch != "" && tools.NormalizeSearch(e.Content) != mustMatch {
 			continue
 		}
 		if best == nil || e.Rate > best.Rate {

@@ -257,20 +257,32 @@ func (r *Repository) FindTranslationPairs(ctx context.Context, cleanWord string,
 		limit = 200
 	}
 
+	originals, err := r.findTranslationPairsBySide(ctx, "original_clean", cleanWord, limit, false)
+	if err != nil {
+		return nil, err
+	}
+	if len(originals) > 0 {
+		return originals, nil
+	}
+	return r.findTranslationPairsBySide(ctx, "translation_clean", cleanWord, limit, true)
+}
+
+func (r *Repository) findTranslationPairsBySide(ctx context.Context, side, cleanWord string, limit int, swap bool) ([]models.TranslationPairs, error) {
 	rows, err := r.db.QueryContext(
 		ctx,
 		`select
 			original_raw,
-			original_clean,
+			original_lang,
 			translation_raw,
-			translation_clean,
+			translation_lang,
 			formatted_ai,
 			formatted_chosen
 		from dictionary_pairs
 		where (formatted_chosen is null or formatted_chosen != 'deleted')
-		  and (original_clean = ? or translation_clean = ?)
+		  and `+side+` = ?
+		order by length(original_clean), length(translation_clean), id
 		limit ?;`,
-		cleanWord, cleanWord, limit,
+		cleanWord, limit,
 	)
 	if err != nil {
 		return nil, err
@@ -279,9 +291,9 @@ func (r *Repository) FindTranslationPairs(ctx context.Context, cleanWord string,
 
 	results := make([]models.TranslationPairs, 0, limit)
 	for rows.Next() {
-		var originalRaw, originalClean, translationRaw, translationClean string
+		var originalRaw, originalLang, translationRaw, translationLang string
 		var formattedAI, formattedChosen sql.NullString
-		if err := rows.Scan(&originalRaw, &originalClean, &translationRaw, &translationClean, &formattedAI, &formattedChosen); err != nil {
+		if err := rows.Scan(&originalRaw, &originalLang, &translationRaw, &translationLang, &formattedAI, &formattedChosen); err != nil {
 			return nil, err
 		}
 
@@ -293,24 +305,19 @@ func (r *Repository) FindTranslationPairs(ctx context.Context, cleanWord string,
 			chosenText = formattedChosen.String
 		}
 
-		if originalClean == cleanWord {
-			results = append(results, models.TranslationPairs{
-				Original:        originalRaw,
-				Translate:       translationRaw,
-				FormattedAI:     aiText,
-				FormattedChosen: chosenText,
-			})
-			continue
+		if swap {
+			originalRaw, translationRaw = translationRaw, originalRaw
+			originalLang, translationLang = translationLang, originalLang
 		}
 
-		if translationClean == cleanWord {
-			results = append(results, models.TranslationPairs{
-				Original:        translationRaw,
-				Translate:       originalRaw,
-				FormattedAI:     aiText,
-				FormattedChosen: chosenText,
-			})
-		}
+		results = append(results, models.TranslationPairs{
+			Original:        originalRaw,
+			Translate:       translationRaw,
+			OriginalLang:    originalLang,
+			TranslateLang:   translationLang,
+			FormattedAI:     aiText,
+			FormattedChosen: chosenText,
+		})
 	}
 
 	return results, rows.Err()
@@ -331,8 +338,10 @@ func (r *Repository) FindTranslationPairsByPrefix(ctx context.Context, prefix st
 		`select
 			original_raw,
 			original_clean,
+			original_lang,
 			translation_raw,
 			translation_clean,
+			translation_lang,
 			formatted_ai,
 			formatted_chosen
 		from dictionary_pairs
@@ -349,20 +358,23 @@ func (r *Repository) FindTranslationPairsByPrefix(ctx context.Context, prefix st
 
 	results := make([]models.TranslationPairs, 0, limit)
 	for rows.Next() {
-		var originalRaw, originalClean, translationRaw, translationClean string
+		var originalRaw, originalClean, originalLang, translationRaw, translationClean, translationLang string
 		var formattedAI, formattedChosen sql.NullString
-		if err := rows.Scan(&originalRaw, &originalClean, &translationRaw, &translationClean, &formattedAI, &formattedChosen); err != nil {
+		if err := rows.Scan(&originalRaw, &originalClean, &originalLang, &translationRaw, &translationClean, &translationLang, &formattedAI, &formattedChosen); err != nil {
 			return nil, err
 		}
 
 		pair := models.TranslationPairs{
 			Original:        originalRaw,
 			Translate:       translationRaw,
+			OriginalLang:    originalLang,
+			TranslateLang:   translationLang,
 			FormattedAI:     formattedAI.String,
 			FormattedChosen: formattedChosen.String,
 		}
 		if !strings.HasPrefix(originalClean, prefix) {
 			pair.Original, pair.Translate = pair.Translate, pair.Original
+			pair.OriginalLang, pair.TranslateLang = pair.TranslateLang, pair.OriginalLang
 		}
 		results = append(results, pair)
 	}
@@ -381,8 +393,10 @@ func (r *Repository) FindStrictlyApprovedPairs(ctx context.Context, cleanWord st
 		`select
 			original_raw,
 			original_clean,
+			original_lang,
 			translation_raw,
-			translation_clean
+			translation_clean,
+			translation_lang
 		from dictionary_pairs
 		where formatted_chosen is not null and formatted_chosen != 'deleted' and (original_clean = ? or translation_clean = ?)
 		limit ?;`,
@@ -395,23 +409,27 @@ func (r *Repository) FindStrictlyApprovedPairs(ctx context.Context, cleanWord st
 
 	results := make([]models.TranslationPairs, 0, limit)
 	for rows.Next() {
-		var originalRaw, originalClean, translationRaw, translationClean string
-		if err := rows.Scan(&originalRaw, &originalClean, &translationRaw, &translationClean); err != nil {
+		var originalRaw, originalClean, originalLang, translationRaw, translationClean, translationLang string
+		if err := rows.Scan(&originalRaw, &originalClean, &originalLang, &translationRaw, &translationClean, &translationLang); err != nil {
 			return nil, err
 		}
 
 		if originalClean == cleanWord {
 			results = append(results, models.TranslationPairs{
-				Original:  originalRaw,
-				Translate: translationRaw,
+				Original:      originalRaw,
+				Translate:     translationRaw,
+				OriginalLang:  originalLang,
+				TranslateLang: translationLang,
 			})
 			continue
 		}
 
 		if translationClean == cleanWord {
 			results = append(results, models.TranslationPairs{
-				Original:  translationRaw,
-				Translate: originalRaw,
+				Original:      translationRaw,
+				Translate:     originalRaw,
+				OriginalLang:  translationLang,
+				TranslateLang: originalLang,
 			})
 		}
 	}

@@ -1,6 +1,12 @@
 package business
 
-import "testing"
+import (
+	"context"
+	"net/http"
+	"testing"
+
+	"github.com/sirupsen/logrus"
+)
 
 func TestPosFromDetails(t *testing.T) {
 	cases := []struct {
@@ -44,5 +50,21 @@ func TestEntryHasGrammar(t *testing.T) {
 				t.Errorf("entryHasGrammar(%+v) = %v, want %v", c.e, got, c.want)
 			}
 		})
+	}
+}
+
+func TestComputeGrammarRequiresExactHeadword(t *testing.T) {
+	stubDoshamAPI(t, http.StatusOK, `{"data":{"find":[
+		{"content":"могӏа","type":"WORD","rate":10000,"details":"{\"Case\":1,\"Declension\":1}","entryForms":[{"content":"могӏарш"}],"relatedEntries":[]}
+	]}}`)
+	b := &Business{log: logrus.New()}
+
+	if got := b.computeGrammar(context.Background(), "ряд"); got != nil {
+		t.Fatalf("Russian translation query must not show Chechen grammar card, got %+v", got)
+	}
+
+	got := b.computeGrammar(context.Background(), "мог1а")
+	if got == nil || got.Headword != "могӏа" || got.POS != "существительное" {
+		t.Fatalf("Chechen headword with palochka stand-in = %+v, want могӏа noun grammar", got)
 	}
 }

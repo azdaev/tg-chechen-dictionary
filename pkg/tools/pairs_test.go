@@ -9,8 +9,19 @@ import (
 func TestFormatPairs(t *testing.T) {
 	t.Run("plain pair", func(t *testing.T) {
 		got := FormatPairs([]models.TranslationPairs{{Original: "дог", Translate: "сердце"}})
-		if got != "дог — сердце" {
-			t.Errorf("got %q, want %q", got, "дог — сердце")
+		want := "📘 <b>дог</b>\n\n<b>Перевод</b>\n• сердце"
+		if got != want {
+			t.Errorf("got %q, want %q", got, want)
+		}
+	})
+
+	t.Run("plain pair with language labels", func(t *testing.T) {
+		got := FormatPairs([]models.TranslationPairs{{
+			Original: "Ряд", Translate: "могӏа", OriginalLang: "RUS", TranslateLang: "CHE",
+		}})
+		want := "📘 <b>Ряд</b>\n<i>с русского на чеченский</i>\n\n<b>Перевод</b>\n• могӏа"
+		if got != want {
+			t.Errorf("got %q, want %q", got, want)
 		}
 	})
 
@@ -35,6 +46,18 @@ func TestFormatPairs(t *testing.T) {
 		}
 	})
 
+	t.Run("dictionary formatter with language labels", func(t *testing.T) {
+		got := FormatPairs([]models.TranslationPairs{{
+			Original: "Ряд", Translate: "1) могӏа; два ~а - шина могӏаре", OriginalLang: "RUS", TranslateLang: "CHE",
+		}})
+		if !strings.HasPrefix(got, "📘 <b>Ряд</b>\n<i>с русского на чеченский</i>\n\n<b>Перевод</b>\n• могӏа") {
+			t.Errorf("structured header missing: %q", got)
+		}
+		if !strings.Contains(got, "два ряда → шина могӏаре") {
+			t.Errorf("example missing after structured header: %q", got)
+		}
+	})
+
 	t.Run("result is trimmed and pairs are separated", func(t *testing.T) {
 		got := FormatPairs([]models.TranslationPairs{
 			{Original: "дог", Translate: "сердце"},
@@ -43,7 +66,7 @@ func TestFormatPairs(t *testing.T) {
 		if strings.HasSuffix(got, "\n") || strings.HasPrefix(got, "\n") {
 			t.Errorf("not trimmed: %q", got)
 		}
-		if got != "дог — сердце\n\nкуьг — рука" {
+		if !strings.Contains(got, "📘 <b>дог</b>") || !strings.Contains(got, "📘 <b>куьг</b>") {
 			t.Errorf("got %q", got)
 		}
 	})

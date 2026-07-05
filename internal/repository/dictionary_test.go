@@ -66,9 +66,26 @@ func TestFindTranslationPairs_IncludesUnmoderated(t *testing.T) {
 		t.Fatalf("FindTranslationPairs(дерево) = %+v (err %v), want swapped pair", found, err)
 	}
 
+	reverse := TranslationPair{
+		OriginalRaw: "Дерево", OriginalClean: "дерево", OriginalLang: "RUS",
+		TranslationRaw: "Дитт", TranslationClean: "дитт", TranslationLang: "CHE",
+		Source: "api",
+	}
+	reverseID, _, err := r.InsertTranslationPair(ctx, reverse)
+	if err != nil {
+		t.Fatalf("insert reverse: %v", err)
+	}
+	found, err = r.FindTranslationPairs(ctx, "дитт", 10)
+	if err != nil || len(found) != 1 || found[0].Original != "Дитт" {
+		t.Fatalf("FindTranslationPairs with exact headword = %+v (err %v), want only the headword-side pair", found, err)
+	}
+
 	// Deleted pairs stay hidden.
 	if err := r.SetTranslationPairFormattingChoice(ctx, id, "deleted"); err != nil {
 		t.Fatalf("mark deleted: %v", err)
+	}
+	if err := r.SetTranslationPairFormattingChoice(ctx, reverseID, "deleted"); err != nil {
+		t.Fatalf("mark reverse deleted: %v", err)
 	}
 	if found, err := r.FindTranslationPairs(ctx, "дитт", 10); err != nil || len(found) != 0 {
 		t.Fatalf("FindTranslationPairs after delete = %+v (err %v), want none", found, err)
