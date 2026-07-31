@@ -9,24 +9,44 @@ import (
 
 func TestInlineCardRendering(t *testing.T) {
 	// The inline-sent message must match the text path's card, not the raw
-	// gloss; the picker description is the card minus its headword.
+	// gloss; the picker description is built from the data behind it.
 	p := models.TranslationPairs{
 		Original:  "Дом",
 		Translate: "м 1) цӏа; деревянный ~- дечиган цӏа",
 	}
 	formatted := tools.FormatPairs([]models.TranslationPairs{p})
-	if !strings.HasPrefix(formatted, "Дом — цӏа") {
-		t.Errorf("formatted card = %q, want it to start with %q", formatted, "Дом — цӏа")
+	if !strings.HasPrefix(formatted, "<b>Дом</b> — цӏа") {
+		t.Errorf("formatted card = %q, want it to start with %q", formatted, "<b>Дом</b> — цӏа")
 	}
 	if strings.Contains(formatted, "~") || strings.Contains(formatted, "1)") {
 		t.Errorf("raw gloss markup leaked into inline card:\n%s", formatted)
 	}
 
-	desc := strings.ReplaceAll(strings.TrimPrefix(formatted, tools.Clean(p.Original)+" — "), "\n", " · ")
-	if strings.HasPrefix(desc, "Дом") {
-		t.Errorf("description still carries the headword: %q", desc)
+	// Telegram renders the description as plain text, so a tag reaching it
+	// shows up literally — which is what slicing the description out of the
+	// rendered card started doing the moment that card grew a <b>.
+	desc := inlineDescription(p.Translate)
+	if strings.ContainsAny(desc, "<>") {
+		t.Errorf("description carries markup: %q", desc)
 	}
-	if !strings.Contains(desc, " · ") {
+	if strings.Contains(desc, "\n") {
 		t.Errorf("description not condensed to one line: %q", desc)
+	}
+	if !strings.Contains(desc, "цӏа") {
+		t.Errorf("description lost the translation: %q", desc)
+	}
+}
+
+func TestInlineDescriptionTruncates(t *testing.T) {
+	desc := inlineDescription(strings.Repeat("слово ", 40))
+	if n := len([]rune(desc)); n > inlineDescriptionRunes+1 { // +1 for the ellipsis
+		t.Errorf("description is %d runes, want at most %d", n, inlineDescriptionRunes+1)
+	}
+	if !strings.HasSuffix(desc, "…") {
+		t.Errorf("truncated description missing its ellipsis: %q", desc)
+	}
+	// The cut lands on a word boundary, so no half-word before the ellipsis.
+	if strings.HasSuffix(desc, "сло…") {
+		t.Errorf("description cut mid-word: %q", desc)
 	}
 }

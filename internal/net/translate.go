@@ -129,6 +129,27 @@ func (n *Net) maybeSendDonation(ctx context.Context, chatID int64, userID int) {
 	}
 }
 
+// inlineDescriptionRunes caps the inline picker's subtitle. Telegram truncates
+// longer ones itself, but a gloss cut mid-word by the client reads worse than
+// one cut at a boundary here.
+const inlineDescriptionRunes = 100
+
+// inlineDescription renders the one-line subtitle under an inline result. It
+// takes the raw gloss rather than the rendered card, so it is plain text by
+// construction.
+func inlineDescription(gloss string) string {
+	desc := strings.Join(strings.Fields(tools.Clean(gloss)), " ")
+	runes := []rune(desc)
+	if len(runes) <= inlineDescriptionRunes {
+		return desc
+	}
+	cut := string(runes[:inlineDescriptionRunes])
+	if i := strings.LastIndex(cut, " "); i > 0 {
+		cut = cut[:i]
+	}
+	return cut + "…"
+}
+
 // clampMessage keeps text under Telegram's message-length cap; an oversized
 // message is rejected outright, so the user would get nothing at all. The cut
 // lands on a line boundary so HTML tags inside a line aren't split open.
@@ -218,12 +239,14 @@ func (n *Net) HandleInline(ctx context.Context, iq *tgbotapi.InlineQuery) error 
 			title = "🔍 " + title
 		}
 		// The sent message gets the same card the text path produces, instead
-		// of dumping the raw gloss ("м 1) цӏа; деревянный ~- …"). The picker
-		// description shows the card minus its headword, condensed to one line.
+		// of dumping the raw gloss ("м 1) цӏа; деревянный ~- …").
 		formatted := clampMessage(tools.FormatPairs(translations[i : i+1]))
 		article := tgbotapi.NewInlineQueryResultArticle(iq.ID+strconv.Itoa(i), title, "")
-		article.Description = strings.ReplaceAll(
-			strings.TrimPrefix(formatted, tools.Clean(translations[i].Original)+" — "), "\n", " · ")
+		// The description comes from the data, not from the rendered card: the
+		// picker shows plain text, so a card carrying <b> would leak the literal
+		// tags, and slicing a headword prefix off the front breaks the moment
+		// the card's opening line changes.
+		article.Description = inlineDescription(translations[i].Translate)
 		article.InputMessageContent = tgbotapi.InputTextMessageContent{
 			Text:      formatted,
 			ParseMode: "html",
@@ -406,7 +429,9 @@ func formatGrammarCard(g *models.WordGrammar) string {
 	if g == nil || g.Headword == "" {
 		return ""
 	}
-	header := "📖 <b>" + tools.Clean(g.Headword) + "</b>"
+	// 🔤, not 📖: the book belongs to the Word of the Day, and a subscriber who
+	// gets both opens the grammar card reading it as today's word.
+	header := "🔤 <b>" + tools.Clean(g.Headword) + "</b>"
 	if g.POS != "" {
 		header += " · " + g.POS
 	}
@@ -433,7 +458,7 @@ func formatGrammarCard(g *models.WordGrammar) string {
 	if len(g.Idioms) > 0 {
 		lines = append(lines, "\n💬 <b>Выражения:</b>")
 		for _, idiom := range g.Idioms {
-			lines = append(lines, fmt.Sprintf("• %s — %s", tools.Clean(idiom.Chechen), tools.Clean(idiom.Russian)))
+			lines = append(lines, "• "+tools.FormatExample(tools.Clean(idiom.Chechen), tools.Clean(idiom.Russian)))
 		}
 	}
 

@@ -14,7 +14,7 @@ func TestFormatGrammarCard(t *testing.T) {
 			Forms:    []string{"деган", "дагна", "дегнаш"},
 		}
 		got := formatGrammarCard(g)
-		want := "📖 <b>дог</b> · существительное\nФормы: деган, дагна, дегнаш"
+		want := "🔤 <b>дог</b> · существительное\nФормы: деган, дагна, дегнаш"
 		if got != want {
 			t.Errorf("got %q, want %q", got, want)
 		}
@@ -23,7 +23,7 @@ func TestFormatGrammarCard(t *testing.T) {
 	t.Run("forms without confident POS", func(t *testing.T) {
 		g := &models.WordGrammar{Headword: "къайлаха", Forms: []string{"къайлахо"}}
 		got := formatGrammarCard(g)
-		if !strings.HasPrefix(got, "📖 <b>къайлаха</b>") || strings.Contains(got, "·") {
+		if !strings.HasPrefix(got, "🔤 <b>къайлаха</b>") || strings.Contains(got, "·") {
 			t.Errorf("unexpected card without POS: %q", got)
 		}
 		if !strings.Contains(got, "Формы: къайлахо") {
@@ -63,7 +63,7 @@ func TestFormatGrammarCard(t *testing.T) {
 		if !strings.Contains(got, "💬 <b>Выражения:</b>") {
 			t.Errorf("missing idioms header: %q", got)
 		}
-		if !strings.Contains(got, "• дог тедан — успокоить") || !strings.Contains(got, "• дог эца — утешить") {
+		if !strings.Contains(got, "• <i>дог тедан → успокоить</i>") || !strings.Contains(got, "• <i>дог эца → утешить</i>") {
 			t.Errorf("missing idiom lines: %q", got)
 		}
 	})
@@ -73,7 +73,7 @@ func TestFormatGrammarCard(t *testing.T) {
 			Headword: "x",
 			Idioms:   []models.Idiom{{Chechen: "a", Russian: "b"}},
 		}
-		if got := formatGrammarCard(g); !strings.Contains(got, "• a — b") {
+		if got := formatGrammarCard(g); !strings.Contains(got, "• <i>a → b</i>") {
 			t.Errorf("expected idiom-only card to render, got %q", got)
 		}
 	})
@@ -91,7 +91,7 @@ func TestGrammarSummaryLine(t *testing.T) {
 			POS:   "существительное",
 			Forms: []string{"деган", "дагна"},
 		}
-		want := "<i>существительное · формы: деган, дагна</i>"
+		want := "существительное · формы: деган, дагна"
 		if got := grammarSummaryLine(g); got != want {
 			t.Errorf("got %q, want %q", got, want)
 		}
@@ -99,7 +99,7 @@ func TestGrammarSummaryLine(t *testing.T) {
 
 	t.Run("pos only", func(t *testing.T) {
 		g := &models.WordGrammar{POS: "глагол"}
-		if got := grammarSummaryLine(g); got != "<i>глагол</i>" {
+		if got := grammarSummaryLine(g); got != "глагол" {
 			t.Errorf("got %q", got)
 		}
 	})

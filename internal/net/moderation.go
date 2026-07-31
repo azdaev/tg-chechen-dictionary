@@ -174,6 +174,7 @@ func formatModerationMessage(pair repository.TranslationPair) string {
 	legacyFormat := tools.FormatTranslationLite(
 		fmt.Sprintf("**%s** - %s", pair.OriginalRaw, pair.TranslationRaw),
 		pair.OriginalRaw,
+		pair.TranslationLang == "CHE" && pair.OriginalLang != "CHE",
 	)
 	sb.WriteString("📋 Legacy:\n")
 	sb.WriteString(legacyFormat)

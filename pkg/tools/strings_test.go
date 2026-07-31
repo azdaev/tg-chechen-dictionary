@@ -17,9 +17,9 @@ func TestFormatDeterminism(t *testing.T) {
 	input := "**дом** м 1) хим. им. род. цӏа; ~культуры -культуран цӏа; ~ отдыха – садаӏаран цӏа 2) (учреждение) тех. ист. цӏа; детский ~- берийн цӏа"
 	word := "дом"
 
-	first := FormatTranslationLite(input, word)
+	first := FormatTranslationLite(input, word, true)
 	for i := range 200 {
-		if got := FormatTranslationLite(input, word); got != first {
+		if got := FormatTranslationLite(input, word, true); got != first {
 			t.Fatalf("FormatTranslationLite non-deterministic at iter %d:\n first=%q\n got  =%q", i, first, got)
 		}
 	}
@@ -38,19 +38,22 @@ func TestFormatTranslationLite_AdjectiveGloss(t *testing.T) {
 	// standing in for the "1." sense marker, dot-style "2." marker, and a
 	// tilde inside a sense line (not just in examples).
 	input := "**Домашний** -яя, -ее ӏ. цӏера; ~ий адрес – цӏера адрес 2. в знач. сущ. ~ие мн. цӏеранаш"
-	got := FormatTranslationLite(input, "Домашний")
+	got := FormatTranslationLite(input, "Домашний", true)
 
-	if !strings.HasPrefix(got, "Домашний — цӏера") {
-		t.Errorf("header = %q, want it to start with %q (endings and ӏ. stripped)", got, "Домашний — цӏера")
+	// Two senses, so the headword takes its own line and the senses number
+	// from 1. The gloss is the Chechen side here, so it carries the bold.
+	if !strings.HasPrefix(got, "Домашний\n1. <b>цӏера</b>") {
+		t.Errorf("header = %q, want it to start with %q (endings and ӏ. stripped)", got, "Домашний\n1. <b>цӏера</b>")
 	}
 	if strings.Contains(got, "яя") || strings.Contains(got, "ӏ.") {
 		t.Errorf("endings or palochka marker leaked into output:\n%s", got)
 	}
-	if !strings.Contains(got, "в знач. сущ. домашние") {
-		t.Errorf("second sense missing or tilde unreplaced:\n%s", got)
+	if !strings.Contains(got, "2. <b>в знач. сущ. домашние") {
+		t.Errorf("second sense missing, unnumbered, or tilde unreplaced:\n%s", got)
 	}
-	if !strings.Contains(got, "домашний адрес → цӏера адрес") {
-		t.Errorf("example not rendered:\n%s", got)
+	// Chechen leads the example even though the headword is Russian.
+	if !strings.Contains(got, "<i>цӏера адрес → домашний адрес</i>") {
+		t.Errorf("example not rendered Chechen-first:\n%s", got)
 	}
 }
 
@@ -73,10 +76,13 @@ func TestEscapeUnclosedTags(t *testing.T) {
 
 func TestFormatPairs_TamesRawBrackets(t *testing.T) {
 	// Local DB pairs carry raw content; a stray bracket must not survive into
-	// the HTML-mode message.
+	// the HTML-mode message. The card now emits deliberate tags of its own, so
+	// "contains no angle bracket" no longer separates the two — assert the whole
+	// line instead: the bold the renderer meant to write, and nothing the data
+	// smuggled in.
 	got := FormatPairs([]models.TranslationPairs{{Original: "цӏа <", Translate: "дом"}})
-	if strings.ContainsAny(got, "<>") {
-		t.Errorf("stray bracket leaked into formatted card: %q", got)
+	if want := "<b>цӏа </b> — дом"; got != want {
+		t.Errorf("formatted card = %q, want %q", got, want)
 	}
 }
 
@@ -108,12 +114,12 @@ func TestNormalizeSearch_FoldsPalochka(t *testing.T) {
 func TestFormatTranslationLite_VerbGloss(t *testing.T) {
 	// Verb glosses open with aspect/government labels ("сов., кому", "несов.")
 	// that must not become the card header.
-	got := FormatTranslationLite("**Давать** - несов. 1) дала; ~ книгу - книга яла 2) (позволить) дита", "Давать")
-	if !strings.HasPrefix(got, "Давать — дала") {
-		t.Errorf("header = %q, want it to start with %q", got, "Давать — дала")
+	got := FormatTranslationLite("**Давать** - несов. 1) дала; ~ книгу - книга яла 2) (позволить) дита", "Давать", true)
+	if !strings.HasPrefix(got, "Давать\n1. <b>дала</b>") {
+		t.Errorf("header = %q, want it to start with %q", got, "Давать\n1. <b>дала</b>")
 	}
 
-	got = FormatTranslationLite("**Даться** - сов., кому 1) не ~ в обман - ӏеха ца вайта", "Даться")
+	got = FormatTranslationLite("**Даться** - сов., кому 1) не ~ в обман - ӏеха ца вайта", "Даться", true)
 	if strings.Contains(got, "сов.") || strings.Contains(got, "кому") {
 		t.Errorf("aspect/government labels leaked into output:\n%s", got)
 	}
@@ -122,20 +128,41 @@ func TestFormatTranslationLite_VerbGloss(t *testing.T) {
 func TestFormatTranslationLite_HomonymAndEndings(t *testing.T) {
 	// «Губа»: palochka homonym number plus gender marker ("ӏ ж 1) балда")
 	// must not become the header translation.
-	got := FormatTranslationLite("**Губа** - ӏ ж 1) балда; кусать губы - церга балда леца", "Губа")
-	if !strings.HasPrefix(got, "Губа — балда") {
-		t.Errorf("header = %q, want it to start with %q", got, "Губа — балда")
+	got := FormatTranslationLite("**Губа** - ӏ ж 1) балда; кусать губы - церга балда леца", "Губа", true)
+	// One sense stays a one-liner: no number, no headword line of its own.
+	if !strings.HasPrefix(got, "Губа — <b>балда</b>") {
+		t.Errorf("header = %q, want it to start with %q", got, "Губа — <b>балда</b>")
 	}
 
 	// Ending list with its dash intact after the separator ("- -ая, -ое ...").
-	got = FormatTranslationLite("**Оглушительный** - -ая, -ое къорден; ~о кричать - мохь хьакха", "Оглушительный")
-	if !strings.HasPrefix(got, "Оглушительный — къорден") {
-		t.Errorf("header = %q, want it to start with %q", got, "Оглушительный — къорден")
+	got = FormatTranslationLite("**Оглушительный** - -ая, -ое къорден; ~о кричать - мохь хьакха", "Оглушительный", true)
+	if !strings.HasPrefix(got, "Оглушительный — <b>къорден</b>") {
+		t.Errorf("header = %q, want it to start with %q", got, "Оглушительный — <b>къорден</b>")
 	}
 	// ~о on an adjective inflects from the base: "оглушительно", not the
 	// full headword.
 	if !strings.Contains(got, "оглушительно кричать") {
 		t.Errorf("adjective ~о not inflected:\n%s", got)
+	}
+}
+
+func TestFormatTranslationLite_ExampleIndent(t *testing.T) {
+	// A lone example sits flush under its sense — indenting one line reads as a
+	// mistake. Three or more become a list, and the indent ties them to the
+	// sense above rather than to the card.
+	one := FormatTranslationLite("**Губа** - 1) балда; кусать губы - церга балда леца", "Губа", true)
+	if strings.Contains(one, "\n   • ") {
+		t.Errorf("a single example should not be indented:\n%s", one)
+	}
+	if !strings.Contains(one, "\n• <i>") {
+		t.Errorf("single example missing its bullet:\n%s", one)
+	}
+
+	many := FormatTranslationLite(
+		"**Дом** - 1) цӏа; деревянный ~ - дечиган цӏа; ~ отдыха - садаӏаран цӏа; детский ~ - берийн цӏа",
+		"Дом", true)
+	if strings.Count(many, "\n   • ") != 3 {
+		t.Errorf("expected three indented examples:\n%s", many)
 	}
 }
 
@@ -174,64 +201,78 @@ func TestCleanTranslation(t *testing.T) {
 
 func TestParseExamples(t *testing.T) {
 	tests := []struct {
-		name     string
-		input    string
-		expected []string
+		name         string
+		input        string
+		chechenLeads bool
+		expected     []string
 	}{
 		{
-			name:  "single example",
-			input: "самопишущая ~а - ша язден ручка",
+			name:         "single example",
+			input:        "самопишущая ~а - ша язден ручка",
+			chechenLeads: true,
 			expected: []string{
-				"самопишущая ~а → ша язден ручка",
+				"<i>самопишущая ~а → ша язден ручка</i>",
 			},
 		},
 		{
-			name:  "multiple examples with semicolons",
-			input: "самопишущая ~а - ша язден ручка; шариковая ~а - шарикан ручка; ~а с пером - перо йолу ручка",
+			// A Russian headword's gloss is Chechen, so the example's sides are
+			// the other way round and the rendering has to flip them back.
+			name:     "russian headword puts chechen first",
+			input:    "самопишущая ~а - ша язден ручка",
+			expected: []string{"<i>ша язден ручка → самопишущая ~а</i>"},
+		},
+		{
+			name:         "multiple examples with semicolons",
+			input:        "самопишущая ~а - ша язден ручка; шариковая ~а - шарикан ручка; ~а с пером - перо йолу ручка",
+			chechenLeads: true,
 			expected: []string{
-				"самопишущая ~а → ша язден ручка",
-				"шариковая ~а → шарикан ручка",
-				"~а с пером → перо йолу ручка",
+				"<i>самопишущая ~а → ша язден ручка</i>",
+				"<i>шариковая ~а → шарикан ручка</i>",
+				"<i>~а с пером → перо йолу ручка</i>",
 			},
 		},
 		{
 			// Live dosham glosses mix hyphens with en/em dashes as the separator
 			// ("~ отдыха – садаӏаран цӏа" in the real «Дом» entry).
-			name:  "en-dash and em-dash separators",
-			input: "~ отдыха – садаӏаран цӏа; ~ моды — мода цӏа",
+			name:         "en-dash and em-dash separators",
+			input:        "~ отдыха – садаӏаран цӏа; ~ моды — мода цӏа",
+			chechenLeads: true,
 			expected: []string{
-				"~ отдыха → садаӏаран цӏа",
-				"~ моды → мода цӏа",
+				"<i>~ отдыха → садаӏаран цӏа</i>",
+				"<i>~ моды → мода цӏа</i>",
 			},
 		},
 		{
-			name:  "complex sentence example",
-			input: "ас сайн ахча цуьнгахь дитина я оставил у него свои деньги",
+			name:         "complex sentence example",
+			input:        "ас сайн ахча цуьнгахь дитина я оставил у него свои деньги",
+			chechenLeads: true,
 			expected: []string{
-				"ас сайн ахча цуьнгахь дитина я оставил у него свои деньги",
+				"<i>ас сайн ахча цуьнгахь дитина я оставил у него свои деньги</i>",
 			},
 		},
 		{
-			name:     "no examples",
-			input:    "просто текст без примеров",
-			expected: []string{"просто текст без примеров"},
+			name:         "no examples",
+			input:        "просто текст без примеров",
+			chechenLeads: true,
+			expected:     []string{"<i>просто текст без примеров</i>"},
 		},
 		{
-			name:  "more than 5 examples should be limited",
-			input: "ex1 - пер1; ex2 - пер2; ex3 - пер3; ex4 - пер4; ex5 - пер5; ex6 - пер6; ex7 - пер7",
+			name:         "more than 5 examples should be limited",
+			input:        "ex1 - пер1; ex2 - пер2; ex3 - пер3; ex4 - пер4; ex5 - пер5; ex6 - пер6; ex7 - пер7",
+			chechenLeads: true,
 			expected: []string{
-				"ex1 → пер1",
-				"ex2 → пер2",
-				"ex3 → пер3",
-				"ex4 → пер4",
-				"ex5 → пер5",
+				"<i>ex1 → пер1</i>",
+				"<i>ex2 → пер2</i>",
+				"<i>ex3 → пер3</i>",
+				"<i>ex4 → пер4</i>",
+				"<i>ex5 → пер5</i>",
 			},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := parseExamples(tt.input)
+			result := parseExamples(tt.input, tt.chechenLeads)
 			if len(result) != len(tt.expected) {
 				t.Errorf("parseExamples() returned %d examples, want %d", len(result), len(tt.expected))
 				t.Errorf("got: %v", result)
@@ -396,7 +437,7 @@ func TestFirstExample(t *testing.T) {
 		{"empty", "", "", "", false},
 	}
 	for _, c := range cases {
-		got, ok := FirstExample(c.gloss, c.word)
+		got, ok := FirstExample(c.gloss, c.word, true)
 		if got != c.want || ok != c.ok {
 			t.Errorf("%s: FirstExample = %q/%v, want %q/%v", c.name, got, ok, c.want, c.ok)
 		}

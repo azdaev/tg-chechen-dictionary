@@ -93,14 +93,16 @@ func main() {
 				continue
 			}
 			rendered++
+			// Only CE translations get here, so the gloss is the Chechen side
+			// and the headword is Russian.
 			if *examples {
-				if ex, ok := tools.FirstExample(t.Content, e.Content); ok {
+				if ex, ok := tools.FirstExample(t.Content, e.Content, false); ok {
 					flagged++
 					fmt.Printf("%s: %s\n", e.Content, ex)
 				}
 				continue
 			}
-			out := tools.FormatTranslationLite("**"+e.Content+"** - "+t.Content, e.Content)
+			out := tools.FormatTranslationLite("**"+e.Content+"** - "+t.Content, e.Content, true)
 			if sus := suspicions(out); len(sus) > 0 {
 				flagged++
 				fmt.Printf("=== %s [%s]\nGLOSS: %s\nOUT:\n%s\n\n", e.Content, strings.Join(sus, ", "), t.Content, out)

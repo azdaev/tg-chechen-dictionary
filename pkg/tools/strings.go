@@ -134,9 +134,28 @@ func EscapeUnclosedTags(text string) string {
 	return text
 }
 
+// exampleLine renders a usage example with the studied language first. Every
+// card that shows an example goes through here or FormatExample, so the
+// translation card and the grammar card can no longer disagree on which
+// language leads.
+func exampleLine(chechen, russian string) string {
+	return chechen + " → " + russian
+}
+
+// FormatExample renders a usage example for a Telegram card. Italic is the
+// card's mark for an example and means nothing else.
+func FormatExample(chechen, russian string) string {
+	return "<i>" + exampleLine(chechen, russian) + "</i>"
+}
+
 // FormatTranslationLite formats a dictionary entry into a lightweight, consistent style.
-// originalWord is used for tilde replacement (~ое -> чёрное)
-func FormatTranslationLite(text string, originalWord string) string {
+// originalWord is used for tilde replacement (~ое -> чёрное).
+//
+// boldGloss says the Chechen side is the gloss, not the headword — Russian
+// entries carry their Chechen translation in the senses. Bold always marks the
+// studied language, so it moves with it; with no language known the headword
+// takes it, matching /random and /wotd.
+func FormatTranslationLite(text string, originalWord string, boldGloss bool) string {
 	if text == "" {
 		return ""
 	}
@@ -161,12 +180,13 @@ func FormatTranslationLite(text string, originalWord string) string {
 		text = stripped
 	}
 
-	parts := meaningRe.Split(text, -1)
+	type sense struct {
+		main     string
+		examples []string
+	}
+	var senses []sense
 
-	var lines []string
-	headerWritten := false
-
-	for _, part := range parts {
+	for _, part := range meaningRe.Split(text, -1) {
 		part = strings.TrimSpace(part)
 		if part == "" {
 			continue
@@ -174,47 +194,102 @@ func FormatTranslationLite(text string, originalWord string) string {
 
 		semicolonIndex := findMainSemicolon(part)
 		main := part
-		examples := []string{}
+		var examples []string
 
 		if semicolonIndex != -1 {
 			main = part[:semicolonIndex]
-			examples = parseExamples(part[semicolonIndex+1:])
+			examples = parseExamples(part[semicolonIndex+1:], !boldGloss)
 		}
 
 		main = expandAbbreviations(cleanTranslation(main))
 		if word != "" {
 			main = replaceTildeWithWord(main, word)
+			for i, example := range examples {
+				examples[i] = replaceTildeWithWord(example, word)
+			}
+		}
+		for i, example := range examples {
+			examples[i] = expandAbbreviations(example)
 		}
 
-		if !headerWritten {
-			if word != "" && main != "" {
-				lines = append(lines, fmt.Sprintf("%s — %s", word, main))
-			} else if word != "" {
-				lines = append(lines, word)
-			} else if main != "" {
-				lines = append(lines, main)
-			}
-			headerWritten = true
-		} else if main != "" {
-			lines = append(lines, fmt.Sprintf("• %s", main))
+		// A marker with no translation of its own ("2. ; пример - масал") is a
+		// carrier for its examples, not a sense the reader should count.
+		if main == "" && len(senses) > 0 {
+			last := &senses[len(senses)-1]
+			last.examples = append(last.examples, examples...)
+			continue
 		}
+		senses = append(senses, sense{main: main, examples: examples})
+	}
 
-		for _, example := range examples {
-			if word != "" {
-				example = replaceTildeWithWord(example, word)
-			}
-			example = expandAbbreviations(example)
-			lines = append(lines, fmt.Sprintf("• %s", example))
+	bold := func(s string) string {
+		if s == "" {
+			return s
 		}
+		return "<b>" + s + "</b>"
+	}
+	header := word
+	if !boldGloss {
+		header = bold(header)
+	}
+	gloss := func(s string) string {
+		if boldGloss {
+			return bold(s)
+		}
+		return s
+	}
+
+	var lines []string
+	// One sense stays a one-liner — the common case, and a numbered list of one
+	// is noise. Two or more put the headword on its own line so the numbers
+	// start at 1 under it.
+	if len(senses) == 1 && senses[0].main != "" {
+		switch {
+		case word != "":
+			lines = append(lines, header+" — "+gloss(senses[0].main))
+		default:
+			lines = append(lines, gloss(senses[0].main))
+		}
+		lines = append(lines, renderExamples(senses[0].examples)...)
+		return strings.TrimSpace(strings.Join(lines, "\n"))
+	}
+
+	if word != "" {
+		lines = append(lines, header)
+	}
+	number := 0
+	for _, s := range senses {
+		if s.main != "" {
+			number++
+			lines = append(lines, fmt.Sprintf("%d. %s", number, gloss(s.main)))
+		}
+		lines = append(lines, renderExamples(s.examples)...)
 	}
 
 	return strings.TrimSpace(strings.Join(lines, "\n"))
 }
 
+// renderExamples prefixes a sense's examples. A lone example sits flush under
+// its sense; three or more get an indent (Telegram keeps leading spaces) so a
+// long list reads as belonging to the sense above it rather than to the card.
+func renderExamples(examples []string) []string {
+	prefix := "• "
+	if len(examples) >= 3 {
+		prefix = "   • "
+	}
+	out := make([]string, 0, len(examples))
+	for _, example := range examples {
+		out = append(out, prefix+example)
+	}
+	return out
+}
+
 // FirstExample mines a raw dictionary gloss for its first usage example and
-// renders it as "phrase → translation" in the gloss's own order. ok is false
-// when no sense carries a splittable example.
-func FirstExample(gloss, word string) (string, bool) {
+// renders it as "chechen → russian". chechenLeads says word is the Chechen
+// headword, so the source order already holds; it is false for a Russian entry
+// whose gloss is Chechen. ok is false when no sense carries a splittable
+// example. The result is plain text — callers escape it before wrapping.
+func FirstExample(gloss, word string, chechenLeads bool) (string, bool) {
 	gloss = boldRe.ReplaceAllString(gloss, "")
 	for _, sense := range meaningRe.Split(gloss, -1) {
 		idx := findMainSemicolon(sense)
@@ -230,7 +305,10 @@ func FirstExample(gloss, word string) (string, bool) {
 			if !ok || left == "" || right == "" {
 				continue
 			}
-			ex := fmt.Sprintf("%s → %s", left, right)
+			if !chechenLeads {
+				left, right = right, left
+			}
+			ex := exampleLine(left, right)
 			if word != "" {
 				ex = replaceTildeWithWord(ex, word)
 			}
@@ -271,9 +349,11 @@ func cleanTranslation(text string) string {
 	return text
 }
 
-// parseExamples splits a "russian phrase - chechen translation" list (separated
-// by semicolons) into rendered "russian → chechen" lines, capped at 5.
-func parseExamples(text string) []string {
+// parseExamples splits a semicolon-separated example list into rendered lines,
+// capped at 5. Each example reads "headword phrase - gloss translation", so
+// which side is Chechen follows from the entry, not from the text: chechenLeads
+// says the headword side is the Chechen one and the source order already holds.
+func parseExamples(text string, chechenLeads bool) []string {
 	var examples []string
 
 	for part := range strings.SplitSeq(text, ";") {
@@ -282,12 +362,18 @@ func parseExamples(text string) []string {
 			continue
 		}
 
-		if russian, chechen, ok := splitExample(part); ok {
-			if russian != "" && chechen != "" {
-				examples = append(examples, fmt.Sprintf("%s → %s", russian, chechen))
+		if left, right, ok := splitExample(part); ok {
+			if left != "" && right != "" {
+				if chechenLeads {
+					examples = append(examples, FormatExample(left, right))
+				} else {
+					examples = append(examples, FormatExample(right, left))
+				}
 			}
 		} else {
-			examples = append(examples, part)
+			// Not a two-sided example — a whole-sentence illustration. Still an
+			// example, so it still gets the card's italic.
+			examples = append(examples, "<i>"+part+"</i>")
 		}
 	}
 

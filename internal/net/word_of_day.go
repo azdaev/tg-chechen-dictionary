@@ -247,7 +247,8 @@ func (n *Net) usageExample(chechen string) (string, bool) {
 		if i == 5 {
 			break
 		}
-		if ex, ok := tools.FirstExample(p.Translate, chechen); ok {
+		// The lookup key is the Chechen word, so its glosses read Chechen first.
+		if ex, ok := tools.FirstExample(p.Translate, chechen, true); ok {
 			return ex, true
 		}
 	}

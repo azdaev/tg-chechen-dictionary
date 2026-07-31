@@ -286,8 +286,10 @@ func (r *Repository) FindTranslationPairs(ctx context.Context, cleanWord string,
 		`select
 			original_raw,
 			original_clean,
+			original_lang,
 			translation_raw,
 			translation_clean,
+			translation_lang,
 			formatted_ai,
 			formatted_chosen,
 			rate
@@ -305,10 +307,10 @@ func (r *Repository) FindTranslationPairs(ctx context.Context, cleanWord string,
 
 	results := make([]models.TranslationPairs, 0, limit)
 	for rows.Next() {
-		var originalRaw, originalClean, translationRaw, translationClean string
+		var originalRaw, originalClean, originalLang, translationRaw, translationClean, translationLang string
 		var formattedAI, formattedChosen sql.NullString
 		var rate int
-		if err := rows.Scan(&originalRaw, &originalClean, &translationRaw, &translationClean, &formattedAI, &formattedChosen, &rate); err != nil {
+		if err := rows.Scan(&originalRaw, &originalClean, &originalLang, &translationRaw, &translationClean, &translationLang, &formattedAI, &formattedChosen, &rate); err != nil {
 			return nil, err
 		}
 
@@ -324,6 +326,8 @@ func (r *Repository) FindTranslationPairs(ctx context.Context, cleanWord string,
 			results = append(results, models.TranslationPairs{
 				Original:        originalRaw,
 				Translate:       translationRaw,
+				OriginalLang:    originalLang,
+				TranslateLang:   translationLang,
 				FormattedAI:     aiText,
 				FormattedChosen: chosenText,
 				Rate:            rate,
@@ -332,9 +336,12 @@ func (r *Repository) FindTranslationPairs(ctx context.Context, cleanWord string,
 		}
 
 		if translationClean == cleanWord {
+			// Reverse hit: the matched side leads, so the languages swap with it.
 			results = append(results, models.TranslationPairs{
 				Original:        translationRaw,
 				Translate:       originalRaw,
+				OriginalLang:    translationLang,
+				TranslateLang:   originalLang,
 				FormattedAI:     aiText,
 				FormattedChosen: chosenText,
 				Rate:            rate,
@@ -360,8 +367,10 @@ func (r *Repository) FindTranslationPairsByPrefix(ctx context.Context, prefix st
 		`select
 			original_raw,
 			original_clean,
+			original_lang,
 			translation_raw,
 			translation_clean,
+			translation_lang,
 			formatted_ai,
 			formatted_chosen
 		from dictionary_pairs
@@ -378,20 +387,23 @@ func (r *Repository) FindTranslationPairsByPrefix(ctx context.Context, prefix st
 
 	results := make([]models.TranslationPairs, 0, limit)
 	for rows.Next() {
-		var originalRaw, originalClean, translationRaw, translationClean string
+		var originalRaw, originalClean, originalLang, translationRaw, translationClean, translationLang string
 		var formattedAI, formattedChosen sql.NullString
-		if err := rows.Scan(&originalRaw, &originalClean, &translationRaw, &translationClean, &formattedAI, &formattedChosen); err != nil {
+		if err := rows.Scan(&originalRaw, &originalClean, &originalLang, &translationRaw, &translationClean, &translationLang, &formattedAI, &formattedChosen); err != nil {
 			return nil, err
 		}
 
 		pair := models.TranslationPairs{
 			Original:        originalRaw,
 			Translate:       translationRaw,
+			OriginalLang:    originalLang,
+			TranslateLang:   translationLang,
 			FormattedAI:     formattedAI.String,
 			FormattedChosen: formattedChosen.String,
 		}
 		if !strings.HasPrefix(originalClean, prefix) {
 			pair.Original, pair.Translate = pair.Translate, pair.Original
+			pair.OriginalLang, pair.TranslateLang = pair.TranslateLang, pair.OriginalLang
 		}
 		results = append(results, pair)
 	}

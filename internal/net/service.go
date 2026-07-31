@@ -18,38 +18,43 @@ import (
 )
 
 const (
-	MaxTranslations            = 4
-	InlineResultsLimit         = 50   // Telegram's hard cap on answerInlineQuery results
-	InlineDiscoveryCount       = 3    // random words served for an empty inline query
-	InlineDiscoveryCacheSec    = 300  // short edge cache so the trio rotates
-	InlineCacheTimeSeconds     = 3600 // Telegram-side cache for non-personal inline answers
-	MoreTranslationsHelpText   = `<i>Чтобы просмотреть все доступные переводы, нажмите на кнопку «Еще» или воспользуйтесь инлайн-режимом: введите @chetoru_bot и слово, которое хотите перевести. Это позволит вам увидеть все варианты.</i>`
-	StartMessageText           = "Отправь мне слово на русском или чеченском, а я скину перевод. Ещё ты можешь пользоваться ботом в других переписках, как на видео.\n\n🎲 /random — случайное чеченское слово.\n🧠 /quiz — викторина: проверь, как хорошо ты знаешь чеченский.\n🏆 /top — рейтинг знатоков.\n👤 /me — мой прогресс.\n📖 /wotd — слово дня каждое утро.\n✍️ /check — проверить орфографию (или начни сообщение с точки).\n\nСловарные данные предоставлены проектом dosham.app"
-	NoTranslationText          = "К сожалению, нет перевода"
-	SuggestionsHeaderText      = "🔍 <b>Возможно, вы искали:</b>"
-	MoreButtonText             = "Еще (%d)"
-	MissingWordsLimit          = 30
-	MissingWordsHeader         = "<b>🔍 Слова без перевода</b>\n\n<i>Слова, которые искали пользователи, но в словаре не нашлось перевода. Это подсказывает, какие слова стоит добавить.</i>\n\n"
-	MissingWordsEmpty          = "Пока нет слов без перевода 🎉"
-	MissingWordRowFormat       = "%d. <b>%s</b> — %d раз\n"
-	RandomWordFormat           = "🎲 <b>Случайное слово</b>\n\n<b>%s</b> — %s"
-	RandomMoreButtonText       = "🎲 Ещё одно"
-	ShareWordButtonText        = "📤 Поделиться"
-	RandomEmptyText            = "Словарь пока пуст. Попробуйте перевести несколько слов, и они появятся здесь!"
-	QuizQuestionFormat         = "🧠 <b>Викторина</b>\n\nКак переводится на русский?\n\n<b>%s</b>"
-	QuizQuestionReverseFormat  = "🧠 <b>Викторина</b>\n\nКак сказать по-чеченски?\n\n<b>%s</b>"
-	QuizNextButtonText         = "➡️ Следующий вопрос"
-	QuizLookupButtonText       = "📖 Открыть в словаре"
-	QuizCorrectToast           = "✅ Верно!"
-	QuizWrongToast             = "❌ Неверно"
-	QuizErrorText              = "Не удалось составить вопрос. Попробуйте /quiz ещё раз."
-	QuizTopLimit               = 10
-	QuizTopHeader              = "🏆 <b>Топ знатоков чеченского</b>\n<i>по количеству верных ответов в /quiz</i>\n\n"
-	QuizTopEmptyText           = "Пока никто не набрал очков в /quiz. Стань первым! 🧠"
-	WordOfDayHour              = 9 // local hour (container TZ is Europe/Moscow)
-	WordOfDayFormat            = "📖 <b>Слово дня</b>\n\n<b>%s</b> — %s"
-	WordOfDayExampleFormat     = "✍️ <i>%s</i>"
-	WordOfDayFooter            = "<i>Учите чеченский каждый день! 🇨🇪</i>"
+	MaxTranslations         = 4
+	InlineResultsLimit      = 50   // Telegram's hard cap on answerInlineQuery results
+	InlineDiscoveryCount    = 3    // random words served for an empty inline query
+	InlineDiscoveryCacheSec = 300  // short edge cache so the trio rotates
+	InlineCacheTimeSeconds  = 3600 // Telegram-side cache for non-personal inline answers
+	// No <i>: on a translation card italic marks a usage example and nothing
+	// else, and this text sits right under one.
+	MoreTranslationsHelpText  = `Чтобы просмотреть все доступные переводы, нажмите на кнопку «Ещё» или воспользуйтесь инлайн-режимом: введите @chetoru_bot и слово, которое хотите перевести. Это позволит вам увидеть все варианты.`
+	StartMessageText          = "Отправь мне слово на русском или чеченском, а я скину перевод. Ещё ты можешь пользоваться ботом в других переписках, как на видео.\n\n🎲 /random — случайное чеченское слово.\n🧠 /quiz — викторина: проверь, как хорошо ты знаешь чеченский.\n🏆 /top — рейтинг знатоков.\n👤 /me — мой прогресс.\n📖 /wotd — слово дня каждое утро.\n✍️ /check — проверить орфографию (или начни сообщение с точки).\n\nСловарные данные предоставлены проектом dosham.app"
+	NoTranslationText         = "К сожалению, нет перевода"
+	SuggestionsHeaderText     = "🔍 <b>Возможно, вы искали:</b>"
+	MoreButtonText            = "Ещё (%d)"
+	MissingWordsLimit         = 30
+	MissingWordsHeader        = "<b>🔍 Слова без перевода</b>\n\n<i>Слова, которые искали пользователи, но в словаре не нашлось перевода. Это подсказывает, какие слова стоит добавить.</i>\n\n"
+	MissingWordsEmpty         = "Пока нет слов без перевода 🎉"
+	MissingWordRowFormat      = "%d. <b>%s</b> — %d раз\n"
+	RandomWordFormat          = "🎲 <b>Случайное слово</b>\n\n<b>%s</b> — %s"
+	RandomMoreButtonText      = "🎲 Ещё одно"
+	ShareWordButtonText       = "📤 Поделиться"
+	RandomEmptyText           = "Словарь пока пуст. Попробуйте перевести несколько слов, и они появятся здесь!"
+	QuizQuestionFormat        = "🧠 <b>Викторина</b>\n\nКак переводится на русский?\n\n<b>%s</b>"
+	QuizQuestionReverseFormat = "🧠 <b>Викторина</b>\n\nКак сказать по-чеченски?\n\n<b>%s</b>"
+	QuizNextButtonText        = "➡️ Следующий вопрос"
+	QuizLookupButtonText      = "📖 Открыть в словаре"
+	QuizCorrectToast          = "✅ Верно!"
+	QuizWrongToast            = "❌ Неверно"
+	QuizErrorText             = "Не удалось составить вопрос. Попробуйте /quiz ещё раз."
+	QuizTopLimit              = 10
+	QuizTopHeader             = "🏆 <b>Топ знатоков чеченского</b>\n<i>по количеству верных ответов в /quiz</i>\n\n"
+	QuizTopEmptyText          = "Пока никто не набрал очков в /quiz. Стань первым! 🧠"
+	WordOfDayHour             = 9 // local hour (container TZ is Europe/Moscow)
+	WordOfDayFormat           = "📖 <b>Слово дня</b>\n\n<b>%s</b> — %s"
+	WordOfDayExampleFormat    = "✍️ <i>%s</i>"
+	// No 🇨🇪: CE is unassigned in ISO 3166-1, so it is not a flag anywhere —
+	// clients render two letter tiles. And no <i>: the card above already
+	// spends italic on its usage example.
+	WordOfDayFooter            = "Учите чеченский каждый день!"
 	WotdStatusOnText           = "📖 <b>Слово дня</b>\n\nВы подписаны ✅ — каждый день в 9:00 будете получать новое чеченское слово."
 	WotdStatusOffText          = "📖 <b>Слово дня</b>\n\nПодпишитесь, чтобы каждое утро получать новое чеченское слово и пополнять словарный запас."
 	WotdChatStatusOnText       = "📖 <b>Слово дня</b>\n\nЭтот чат подписан ✅ — каждое утро в 9:00 сюда приходит новое чеченское слово."

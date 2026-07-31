@@ -428,9 +428,11 @@ func (b *Business) fetchTranslationsFromAPI(word string) []models.TranslationPai
 			translation.LanguageCode = normLang
 
 			translationPair := models.TranslationPairs{
-				Original:  tools.EscapeUnclosedTags(entry.Content),
-				Translate: tools.EscapeUnclosedTags(translation.Content),
-				Rate:      entry.Rate,
+				Original:      tools.EscapeUnclosedTags(entry.Content),
+				Translate:     tools.EscapeUnclosedTags(translation.Content),
+				OriginalLang:  inferOriginalLang(normLang),
+				TranslateLang: normLang,
+				Rate:          entry.Rate,
 			}
 			translations = append(translations, translationPair)
 

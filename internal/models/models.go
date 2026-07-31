@@ -9,8 +9,13 @@ type TranslationResponse struct {
 }
 
 type TranslationPairs struct {
-	Original        string `json:"word"`
-	Translate       string `json:"translate"`
+	Original  string `json:"word"`
+	Translate string `json:"translate"`
+	// OriginalLang and TranslateLang are "CHE", "RUS", or "" when unknown. The
+	// card bolds whichever side is Chechen and orders examples by it, and no
+	// spelling rule can stand in — plenty of Chechen words carry no palochka.
+	OriginalLang    string `json:"original_lang,omitempty"`
+	TranslateLang   string `json:"translate_lang,omitempty"`
 	FormattedAI     string `json:"formatted_ai,omitempty"`
 	FormattedChosen string `json:"formatted_chosen,omitempty"`
 	// Rate is dosham's own entry weight, used to order results within a

@@ -168,6 +168,46 @@ func TestInsertTranslationPairBackfillsRate(t *testing.T) {
 	}
 }
 
+// The card bolds whichever side is Chechen, so the languages have to swap with
+// the sides on a reverse hit. Reading them off the wrong column bolds Russian.
+func TestFindTranslationPairsLanguagesFollowOrientation(t *testing.T) {
+	r := newDictionaryTestRepo(t)
+	ctx := context.Background()
+
+	pair := TranslationPair{
+		OriginalRaw: "Дитт", OriginalClean: "дитт", OriginalLang: "CHE",
+		TranslationRaw: "Дерево", TranslationClean: "дерево", TranslationLang: "RUS",
+		Source: "api",
+	}
+	if _, _, err := r.InsertTranslationPair(ctx, pair); err != nil {
+		t.Fatalf("insert: %v", err)
+	}
+
+	found, err := r.FindTranslationPairs(ctx, "дитт", 10)
+	if err != nil || len(found) != 1 {
+		t.Fatalf("FindTranslationPairs = %+v (err %v)", found, err)
+	}
+	if found[0].OriginalLang != "CHE" || found[0].TranslateLang != "RUS" {
+		t.Errorf("forward lookup langs = %q/%q, want CHE/RUS", found[0].OriginalLang, found[0].TranslateLang)
+	}
+
+	found, err = r.FindTranslationPairs(ctx, "дерево", 10)
+	if err != nil || len(found) != 1 {
+		t.Fatalf("reverse FindTranslationPairs = %+v (err %v)", found, err)
+	}
+	if found[0].OriginalLang != "RUS" || found[0].TranslateLang != "CHE" {
+		t.Errorf("reverse lookup langs = %q/%q, want RUS/CHE", found[0].OriginalLang, found[0].TranslateLang)
+	}
+
+	byPrefix, err := r.FindTranslationPairsByPrefix(ctx, "дерев", 10)
+	if err != nil || len(byPrefix) != 1 {
+		t.Fatalf("FindTranslationPairsByPrefix = %+v (err %v)", byPrefix, err)
+	}
+	if byPrefix[0].OriginalLang != "RUS" || byPrefix[0].TranslateLang != "CHE" {
+		t.Errorf("prefix lookup langs = %q/%q, want RUS/CHE", byPrefix[0].OriginalLang, byPrefix[0].TranslateLang)
+	}
+}
+
 func TestFindTranslationPairsByPrefix(t *testing.T) {
 	r := newDictionaryTestRepo(t)
 	ctx := context.Background()

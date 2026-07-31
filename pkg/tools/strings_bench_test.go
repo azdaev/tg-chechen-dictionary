@@ -17,6 +17,6 @@ func BenchmarkCleanPlain(b *testing.B) {
 func BenchmarkFormatTranslationLite(b *testing.B) {
 	const entry = "**черный** -ая, -ое 1) Ӏаьржа; ~ое море - Ӏаьржа хӀорд; перен. ~ день - вон де 2) разг. сийна; ~ хлеб - сийна бепиг"
 	for b.Loop() {
-		FormatTranslationLite(entry, "черный")
+		FormatTranslationLite(entry, "черный", true)
 	}
 }

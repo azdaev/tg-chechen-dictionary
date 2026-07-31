@@ -15,8 +15,10 @@ import (
 // where the word is the focus and grammar is a hint, not the content.
 const maxSummaryForms = 6
 
-// grammarSummaryLine renders a one-line italic grammar hint (part of speech and
-// a few inflected forms) for compact cards. Returns "" when there is nothing to show.
+// grammarSummaryLine renders a one-line grammar hint (part of speech and a few
+// inflected forms) for compact cards. Returns "" when there is nothing to show.
+// Deliberately unstyled: the same card carries a usage example, and italic is
+// what marks an example.
 func grammarSummaryLine(g *models.WordGrammar) string {
 	if g == nil {
 		return ""
@@ -39,7 +41,7 @@ func grammarSummaryLine(g *models.WordGrammar) string {
 	if len(parts) == 0 {
 		return ""
 	}
-	return "<i>" + strings.Join(parts, " · ") + "</i>"
+	return strings.Join(parts, " · ")
 }
 
 // wordCardButtons builds the keyboard for discovery cards: another word, plus

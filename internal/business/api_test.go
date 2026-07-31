@@ -37,6 +37,23 @@ func TestFetchTranslations_EmptyAnswerIsNotNil(t *testing.T) {
 	}
 }
 
+// The renderer bolds the Chechen side and orders examples by it, so the API
+// mapper has to say which side that is — the entry itself carries no marker.
+func TestFetchTranslations_CarriesLanguages(t *testing.T) {
+	stubDoshamAPI(t, http.StatusOK, `{"data":{"find":[
+		{"entryId":"1","content":"Дом","type":"WORD","rate":100,
+		 "translations":[{"translationId":"t1","content":"цӏа","languageCode":"ce"}]}]}}`)
+	b := &Business{log: logrus.New()}
+
+	got := b.fetchTranslationsWithFallback("Дом")
+	if len(got) != 1 {
+		t.Fatalf("got %d pairs, want 1", len(got))
+	}
+	if got[0].OriginalLang != "RUS" || got[0].TranslateLang != "CHE" {
+		t.Errorf("langs = %q/%q, want RUS/CHE", got[0].OriginalLang, got[0].TranslateLang)
+	}
+}
+
 func TestFetchTranslations_HTTPErrorIsNil(t *testing.T) {
 	stubDoshamAPI(t, http.StatusInternalServerError, `{"data":{"find":[]}}`)
 	b := &Business{log: logrus.New()}
