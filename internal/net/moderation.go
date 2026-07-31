@@ -132,7 +132,7 @@ func (n *Net) invalidateCacheForPair(ctx context.Context, pairID int64) {
 		if word == "" {
 			continue
 		}
-		_ = n.cache.Delete(ctx, word)
+		_ = n.cache.DeleteTranslation(ctx, word)
 	}
 }
 

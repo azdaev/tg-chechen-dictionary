@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"time"
 
 	redis "github.com/redis/go-redis/v9"
@@ -19,15 +20,47 @@ import (
 var ErrMiss = errors.New("cache: miss")
 
 const (
-	translationTTL = 30 * 24 * time.Hour
+	// translationTTL is a week rather than a month so a bad answer — or a
+	// formatting fix that shipped without a version bump — self-heals in days
+	// instead of outliving the release that fixed it.
+	translationTTL = 7 * 24 * time.Hour
 	// negativeTTL keeps "no results" answers briefly: dead-end queries are the
 	// most expensive path (ё-variant fallbacks plus suggestion retries), but
 	// new words do get added to dosham, so misses must expire quickly.
 	negativeTTL = 24 * time.Hour
-	// spellcheckTTL is shorter than translationTTL: the checker prompt evolves,
-	// and stale verdicts should pick up improvements within a week.
+	// spellcheckTTL matches translationTTL: the checker prompt evolves, and
+	// stale verdicts should pick up improvements within a week.
 	spellcheckTTL = 7 * 24 * time.Hour
+	// grammarTTL stays long and independent of translationTTL. Morphology does
+	// not churn, most lookups cache a negative ("no grammar") answer, and every
+	// miss costs a live dosham query — so grammar must not inherit a TTL chosen
+	// for how fast translation formatting changes.
+	grammarTTL = 30 * 24 * time.Hour
 )
+
+// translationKeyVersion namespaces cached lookup results. Bump it in the same
+// commit as any change to ranking, to the normalization that feeds the key, or
+// to the shape of models.TranslationPairs — a stored answer otherwise outlives
+// the release meant to replace it, and callers see the old output for a full
+// TTL. Bump it on every forward roll, including a re-deploy after a revert.
+const translationKeyVersion = 1
+
+// translationKey builds the Redis key for a lookup. Key construction lives here
+// rather than in the caller so the read, write, and moderator-invalidation
+// paths cannot drift apart on the next version bump — that drift is exactly
+// what made invalidateCacheForPair delete keys nobody was writing.
+func translationKey(cleanWord string) string {
+	return fmt.Sprintf("tr%d_%s", translationKeyVersion, cleanWord)
+}
+
+// grammarKey is deliberately independent of translationKeyVersion. Routing
+// both through one version would wipe every grammar entry on a translation
+// format bump, and each grammar miss costs a live dosham query — a self-
+// inflicted upstream burst at deploy time. Grammar gets its own suffix if and
+// when its payload changes.
+func grammarKey(cleanWord string) string {
+	return "grammar_" + cleanWord
+}
 
 type Cache struct {
 	client *redis.Client
@@ -44,8 +77,10 @@ func NewCache(addr, password string) *Cache {
 	}
 }
 
-func (c *Cache) Get(ctx context.Context, key string) ([]models.TranslationPairs, error) {
-	val, err := c.client.Get(ctx, key).Result()
+// GetTranslation returns the cached lookup for a normalized word. Callers pass
+// the clean word; namespacing and versioning are this package's business.
+func (c *Cache) GetTranslation(ctx context.Context, cleanWord string) ([]models.TranslationPairs, error) {
+	val, err := c.client.Get(ctx, translationKey(cleanWord)).Result()
 	if errors.Is(err, redis.Nil) {
 		return nil, ErrMiss
 	}
@@ -62,7 +97,7 @@ func (c *Cache) Get(ctx context.Context, key string) ([]models.TranslationPairs,
 	return translations, nil
 }
 
-func (c *Cache) Set(ctx context.Context, key string, translations []models.TranslationPairs) error {
+func (c *Cache) SetTranslation(ctx context.Context, cleanWord string, translations []models.TranslationPairs) error {
 	data, err := json.Marshal(translations)
 	if err != nil {
 		return err
@@ -72,7 +107,7 @@ func (c *Cache) Set(ctx context.Context, key string, translations []models.Trans
 	if len(translations) == 0 {
 		ttl = negativeTTL
 	}
-	return c.client.Set(ctx, key, data, ttl).Err()
+	return c.client.Set(ctx, translationKey(cleanWord), data, ttl).Err()
 }
 
 // wordOfDayKey records the date of the last word-of-day broadcast so a
@@ -157,7 +192,7 @@ type grammarCacheEntry struct {
 // GetGrammar returns the cached grammar for a word. A nil result with a nil
 // error is a cached "no grammar" answer; ErrMiss means nothing is cached.
 func (c *Cache) GetGrammar(ctx context.Context, key string) (*models.WordGrammar, error) {
-	val, err := c.client.Get(ctx, "grammar_"+key).Result()
+	val, err := c.client.Get(ctx, grammarKey(key)).Result()
 	if errors.Is(err, redis.Nil) {
 		return nil, ErrMiss
 	}
@@ -178,7 +213,7 @@ func (c *Cache) SetGrammar(ctx context.Context, key string, g *models.WordGramma
 	if err != nil {
 		return err
 	}
-	return c.client.Set(ctx, "grammar_"+key, data, translationTTL).Err()
+	return c.client.Set(ctx, grammarKey(key), data, grammarTTL).Err()
 }
 
 // spellcheckKey hashes the checked text: spellcheck inputs are whole sentences,
@@ -212,6 +247,9 @@ func (c *Cache) SetSpellcheck(ctx context.Context, text string, result *ai.Spell
 	return c.client.Set(ctx, spellcheckKey(text), data, spellcheckTTL).Err()
 }
 
-func (c *Cache) Delete(ctx context.Context, key string) error {
-	return c.client.Del(ctx, key).Err()
+// DeleteTranslation drops the cached lookup for a normalized word. It shares
+// translationKey with the write path, so a version bump can never leave the
+// moderator-invalidation path deleting keys nobody writes.
+func (c *Cache) DeleteTranslation(ctx context.Context, cleanWord string) error {
+	return c.client.Del(ctx, translationKey(cleanWord)).Err()
 }

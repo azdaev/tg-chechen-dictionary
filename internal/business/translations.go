@@ -457,7 +457,7 @@ func normalizeCacheKey(word string) string {
 }
 
 func (b *Business) loadCachedTranslations(ctx context.Context, cacheKey string) ([]models.TranslationPairs, bool) {
-	translations, err := b.cache.Get(ctx, cacheKey)
+	translations, err := b.cache.GetTranslation(ctx, cacheKey)
 	if err != nil {
 		if !errors.Is(err, cache.ErrMiss) {
 			b.log.Printf("cache get failed for %q: %v\n", cacheKey, err)
@@ -471,7 +471,7 @@ func (b *Business) loadCachedTranslations(ctx context.Context, cacheKey string) 
 
 func (b *Business) cacheTranslationsAsync(ctx context.Context, cacheKey string, translations []models.TranslationPairs) {
 	b.bg.Go(func() {
-		if err := b.cache.Set(ctx, cacheKey, translations); err != nil {
+		if err := b.cache.SetTranslation(ctx, cacheKey, translations); err != nil {
 			b.log.Printf("failed to cache translation: %v\n", err)
 		}
 	})
