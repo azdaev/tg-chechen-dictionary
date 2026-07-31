@@ -75,6 +75,43 @@ func TestFindTranslationPairs_IncludesUnmoderated(t *testing.T) {
 	}
 }
 
+func TestFindTranslationPairs_ApprovedFirstThenShortest(t *testing.T) {
+	r := newDictionaryTestRepo(t)
+	ctx := context.Background()
+
+	// Inserted worst-first on purpose: without an order by these come back in
+	// rowid order, and whatever lands first freezes into the cache.
+	for _, p := range []TranslationPair{
+		{OriginalRaw: "Дитт", OriginalClean: "дитт", OriginalLang: "CHE",
+			TranslationRaw: "Дерево, растущее у дома", TranslationClean: "дерево растущее у дома", TranslationLang: "RUS", Source: "api"},
+		{OriginalRaw: "Дитт", OriginalClean: "дитт", OriginalLang: "CHE",
+			TranslationRaw: "Древо", TranslationClean: "древо", TranslationLang: "RUS", Source: "api"},
+		{OriginalRaw: "Дитт", OriginalClean: "дитт", OriginalLang: "CHE",
+			TranslationRaw: "Дерево", TranslationClean: "дерево", TranslationLang: "RUS", Source: "api"},
+	} {
+		if _, _, err := r.InsertTranslationPair(ctx, p); err != nil {
+			t.Fatalf("insert: %v", err)
+		}
+	}
+
+	found, err := r.FindTranslationPairs(ctx, "дитт", 10)
+	if err != nil || len(found) != 3 {
+		t.Fatalf("FindTranslationPairs = %+v (err %v), want 3 pairs", found, err)
+	}
+	if found[0].Translate != "Древо" {
+		t.Fatalf("first = %q, want the shortest translation", found[0].Translate)
+	}
+
+	// A moderator-approved rendering outranks length.
+	if err := r.SetTranslationPairFormattingChoice(ctx, 1, "ai"); err != nil {
+		t.Fatalf("approve: %v", err)
+	}
+	found, err = r.FindTranslationPairs(ctx, "дитт", 10)
+	if err != nil || found[0].Translate != "Дерево, растущее у дома" {
+		t.Fatalf("first = %+v (err %v), want the approved pair", found[0], err)
+	}
+}
+
 func TestFindTranslationPairsByPrefix(t *testing.T) {
 	r := newDictionaryTestRepo(t)
 	ctx := context.Background()

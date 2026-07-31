@@ -93,6 +93,7 @@ func (b *Business) Translate(word string) []models.TranslationPairs {
 	}
 
 	if translations := b.loadLocalTranslations(ctx, word); len(translations) > 0 {
+		translations = rankAndDedup(translations, word)
 		b.cacheTranslationsAsync(ctx, cacheKey, translations)
 		return translations
 	}
@@ -102,6 +103,7 @@ func (b *Business) Translate(word string) []models.TranslationPairs {
 	// query doesn't redo the whole fallback cascade.
 	translations := b.fetchTranslationsWithFallback(word)
 	if translations != nil {
+		translations = rankAndDedup(translations, word)
 		b.cacheTranslationsAsync(ctx, cacheKey, translations)
 	}
 
@@ -162,7 +164,9 @@ func (b *Business) RecheckTranslation(word string) bool {
 	if len(translations) == 0 {
 		return false
 	}
-	b.cacheTranslationsAsync(context.Background(), normalizeCacheKey(word), translations)
+	// This path bypasses Translate and writes under the same key, so it has to
+	// rank too — otherwise the sweep quietly caches an unranked list.
+	b.cacheTranslationsAsync(context.Background(), normalizeCacheKey(word), rankAndDedup(translations, word))
 	return true
 }
 
@@ -383,6 +387,7 @@ func (b *Business) fetchTranslationsFromAPI(word string) []models.TranslationPai
 				entryId
 				content
 				type
+				rate
 				details
 				translations {
 					translationId
@@ -422,6 +427,7 @@ func (b *Business) fetchTranslationsFromAPI(word string) []models.TranslationPai
 			translationPair := models.TranslationPairs{
 				Original:  tools.EscapeUnclosedTags(entry.Content),
 				Translate: tools.EscapeUnclosedTags(translation.Content),
+				Rate:      entry.Rate,
 			}
 			translations = append(translations, translationPair)
 
@@ -440,16 +446,81 @@ func (b *Business) fetchTranslationsFromAPI(word string) []models.TranslationPai
 		})
 	}
 
-	if utf8.RuneCountInString(word) <= 3 && len(translations) >= 10 {
-		translations = translations[:10]
+	return translations
+}
+
+// rankAndDedup puts the answer the user actually searched for first and drops
+// duplicates that differ only in stress marks. It runs on the way out of
+// Translate rather than inside the API fetch: storeTranslationPair persists
+// every looked-up word, so once a word is known the local table — not the API —
+// is the steady-state path, and a fix applied only to the fetch would leave the
+// bug reachable through the other door.
+func rankAndDedup(pairs []models.TranslationPairs, query string) []models.TranslationPairs {
+	// nil must stay nil. Translate tells a failed API call (nil, not cached)
+	// apart from a real "no results" (empty non-nil, negative-cached for a day);
+	// allocating a fresh slice here would negative-cache every dosham outage.
+	if len(pairs) < 2 {
+		return pairs
 	}
 
-	// Sort translations by length of the original word (shortest to longest)
-	sort.Slice(translations, func(i, j int) bool {
-		return utf8.RuneCountInString(translations[i].Original) < utf8.RuneCountInString(translations[j].Original)
+	key := normalizeForRank(query)
+	out := make([]models.TranslationPairs, 0, len(pairs))
+	at := make(map[string]int, len(pairs))
+	for _, p := range pairs {
+		k := normalizeForRank(p.Original) + "\x00" + normalizeForRank(p.Translate)
+		if i, ok := at[k]; ok {
+			// Whichever order the duplicates arrived in, the moderator-approved
+			// rendering is the one that survives.
+			if out[i].FormattedChosen != "ai" && p.FormattedChosen == "ai" {
+				out[i] = p
+			}
+			continue
+		}
+		at[k] = len(out)
+		out = append(out, p)
+	}
+
+	// Stable, and every tiebreaker deterministic: the first result freezes into
+	// the cache, and "Ещё" pagination re-ranks on each call, so an unstable
+	// order would shuffle pages between presses. On the local path every pair
+	// lands in bucket 0 with rate 0 — sort.Slice's pdqsort would order those
+	// arbitrarily.
+	sort.SliceStable(out, func(i, j int) bool {
+		a, b := out[i], out[j]
+		if ra, rb := rankPair(a, key), rankPair(b, key); ra != rb {
+			return ra < rb
+		}
+		if a.Rate != b.Rate {
+			return a.Rate > b.Rate
+		}
+		la, lb := utf8.RuneCountInString(a.Original), utf8.RuneCountInString(b.Original)
+		if la != lb {
+			return la < lb
+		}
+		if a.Original != b.Original {
+			return a.Original < b.Original
+		}
+		return a.Translate < b.Translate
 	})
 
-	return translations
+	return out
+}
+
+func normalizeForRank(s string) string {
+	return stripStressMarks(tools.NormalizeSearch(s))
+}
+
+func rankPair(p models.TranslationPairs, key string) int {
+	original := normalizeForRank(p.Original)
+	switch {
+	case original == key:
+		return 0
+	case normalizeForRank(p.Translate) == key:
+		return 1
+	case strings.HasPrefix(original, key):
+		return 2
+	}
+	return 3
 }
 
 func normalizeCacheKey(word string) string {

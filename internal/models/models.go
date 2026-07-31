@@ -13,6 +13,10 @@ type TranslationPairs struct {
 	Translate       string `json:"translate"`
 	FormattedAI     string `json:"formatted_ai,omitempty"`
 	FormattedChosen string `json:"formatted_chosen,omitempty"`
+	// Rate is dosham's own entry weight, used to order results within a
+	// relevance bucket. Locally stored pairs have no rate, so ordering must
+	// never depend on it alone.
+	Rate int `json:"rate,omitempty"`
 }
 
 type ActivityType int8
@@ -88,6 +92,7 @@ type Entry struct {
 	EntryID      string        `json:"entryId"`
 	Content      string        `json:"content"`
 	Type         string        `json:"type"`
+	Rate         int           `json:"rate"`
 	Details      string        `json:"details"` // JSON grammar metadata (part of speech, case, etc.)
 	Translations []Translation `json:"translations"`
 }

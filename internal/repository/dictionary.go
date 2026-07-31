@@ -252,6 +252,11 @@ func (r *Repository) UpdateTranslationPairFormatting(ctx context.Context, id int
 	return err
 }
 
+// FindTranslationPairs returns stored pairs for a normalized word. The order by
+// is load-bearing: without it rows come back in rowid order, and since the first
+// result is what freezes into the cache, "which translation the user sees" would
+// depend on insertion history. Moderator-approved renderings come first, then
+// the shortest translation.
 func (r *Repository) FindTranslationPairs(ctx context.Context, cleanWord string, limit int) ([]models.TranslationPairs, error) {
 	if limit <= 0 {
 		limit = 200
@@ -269,6 +274,7 @@ func (r *Repository) FindTranslationPairs(ctx context.Context, cleanWord string,
 		from dictionary_pairs
 		where (formatted_chosen is null or formatted_chosen != 'deleted')
 		  and (original_clean = ? or translation_clean = ?)
+		order by (formatted_chosen is null), length(translation_raw), id
 		limit ?;`,
 		cleanWord, cleanWord, limit,
 	)
