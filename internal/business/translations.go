@@ -85,29 +85,32 @@ func (b *Business) AIFormattingEnabled() bool {
 	return b.aiFormattingEnabled
 }
 
-func (b *Business) Translate(word string) []models.TranslationPairs {
+// Translate returns the ranked pairs for a word. An empty result with a nil
+// error is a real "no such word" and is negative-cached; a non-nil error means
+// the dictionary could not answer, and callers must not read that as absence —
+// it is the difference between telling a user their word is missing and telling
+// them the service is down, and between recording a genuine vocabulary gap and
+// poisoning missing_words with every query made during an outage.
+func (b *Business) Translate(word string) ([]models.TranslationPairs, error) {
 	ctx := context.Background()
 	cacheKey := normalizeCacheKey(word)
 	if translations, ok := b.loadCachedTranslations(ctx, cacheKey); ok {
-		return translations
+		return translations, nil
 	}
 
 	if translations := b.loadLocalTranslations(ctx, word); len(translations) > 0 {
 		translations = rankAndDedup(translations, word)
 		b.cacheTranslationsAsync(ctx, cacheKey, translations)
-		return translations
+		return translations, nil
 	}
 
-	// nil means the API errored and is not cached; an empty non-nil slice is a
-	// real "no results" answer and is negative-cached so repeating a dead-end
-	// query doesn't redo the whole fallback cascade.
-	translations := b.fetchTranslationsWithFallback(word)
-	if translations != nil {
-		translations = rankAndDedup(translations, word)
-		b.cacheTranslationsAsync(ctx, cacheKey, translations)
+	translations, err := b.fetchTranslationsWithFallback(word)
+	if err != nil {
+		return nil, err
 	}
-
-	return translations
+	translations = rankAndDedup(translations, word)
+	b.cacheTranslationsAsync(ctx, cacheKey, translations)
+	return translations, nil
 }
 
 func normalizeText(text string) string {
@@ -160,8 +163,10 @@ func toNullString(v string) sql.NullString {
 // and reports whether the word has translations now. Used by the daily
 // missing-words sweep; a found result is cached so the next search is instant.
 func (b *Business) RecheckTranslation(word string) bool {
-	translations := b.fetchTranslationsWithFallback(word)
-	if len(translations) == 0 {
+	// An outage is not evidence the word is still missing, so it stays on the
+	// list and gets another chance on the next sweep.
+	translations, err := b.fetchTranslationsWithFallback(word)
+	if err != nil || len(translations) == 0 {
 		return false
 	}
 	// This path bypasses Translate and writes under the same key, so it has to
@@ -176,29 +181,33 @@ func (b *Business) RecheckTranslation(word string) bool {
 // substring match that does not fold ё/е — "елка" matches "Белка" but not
 // "Ёлка" — while Russians routinely type е for ё. Variants are tried one ё at
 // a time ("береза" → "бёреза", "берёза"), stopping at the first exact match.
-func (b *Business) fetchTranslationsWithFallback(word string) []models.TranslationPairs {
+func (b *Business) fetchTranslationsWithFallback(word string) ([]models.TranslationPairs, error) {
 	word = strings.TrimSpace(word)
-	translations := b.fetchTranslationsFromAPI(word)
-	if hasExactOriginal(translations, word) {
-		return translations
+	translations, err := b.fetchTranslationsFromAPI(word)
+	if err == nil && hasExactOriginal(translations, word) {
+		return translations, nil
 	}
 
 	variants := tools.YoVariants(word)
 	if len(variants) == 0 {
-		return translations
+		return translations, err
 	}
 
 	// The user is already waiting on a miss, so variant lookups run
 	// concurrently instead of chaining API round trips. Merging still follows
 	// variant order, so the result is the same as the sequential version.
 	results := make([][]models.TranslationPairs, len(variants))
+	errs := make([]error, len(variants))
 	var wg sync.WaitGroup
 	for i, alt := range variants {
-		wg.Go(func() { results[i] = b.fetchTranslationsFromAPI(alt) })
+		wg.Go(func() { results[i], errs[i] = b.fetchTranslationsFromAPI(alt) })
 	}
 	wg.Wait()
 
-	for _, altPairs := range results {
+	for i, altPairs := range results {
+		if err == nil {
+			err = errs[i]
+		}
 		if len(altPairs) == 0 {
 			continue
 		}
@@ -207,7 +216,14 @@ func (b *Business) fetchTranslationsWithFallback(word string) []models.Translati
 			break
 		}
 	}
-	return translations
+	// Something answered, so this is a real result even if a spelling variant
+	// failed on the way — at worst we missed an extra respelling. Only a
+	// cascade that found nothing AND had a query fail is an outage, and that
+	// one must not be negative-cached as "no such word" for a day.
+	if len(translations) > 0 {
+		return translations, nil
+	}
+	return translations, err
 }
 
 // hasExactOriginal reports whether any pair's headword is exactly the searched
@@ -290,7 +306,13 @@ func (b *Business) SuggestTranslations(word string) []models.TranslationPairs {
 	results := make([][]models.TranslationPairs, len(prefixes))
 	var wg sync.WaitGroup
 	for i, prefix := range prefixes {
-		wg.Go(func() { results[i] = filterPrefixMatches(b.Translate(prefix), prefix) })
+		wg.Go(func() {
+			pairs, err := b.Translate(prefix)
+			if err != nil {
+				return
+			}
+			results[i] = filterPrefixMatches(pairs, prefix)
+		})
 	}
 	wg.Wait()
 
@@ -338,7 +360,7 @@ func (b *Business) suggestFromPhraseWords(words []string) []models.TranslationPa
 	var wg sync.WaitGroup
 	for i, w := range words {
 		wg.Go(func() {
-			if pairs := b.Translate(w); len(pairs) > 0 {
+			if pairs, err := b.Translate(w); err == nil && len(pairs) > 0 {
 				results[i] = pairs[:1]
 			}
 		})
@@ -383,7 +405,7 @@ func filterPrefixMatches(pairs []models.TranslationPairs, prefix string) []model
 	return out
 }
 
-func (b *Business) fetchTranslationsFromAPI(word string) []models.TranslationPairs {
+func (b *Business) fetchTranslationsFromAPI(word string) ([]models.TranslationPairs, error) {
 	query := `
 		query Find($inputText: String!) {
 			find(inputText: $inputText) {
@@ -404,8 +426,7 @@ func (b *Business) fetchTranslationsFromAPI(word string) []models.TranslationPai
 
 	var response models.TranslationResponse
 	if err := doDoshamQuery(context.Background(), query, map[string]any{"inputText": word}, &response); err != nil {
-		b.log.Printf("dosham find query failed: %v\n", err)
-		return nil
+		return nil, fmt.Errorf("dosham find %q: %w", word, err)
 	}
 
 	translations := make([]models.TranslationPairs, 0)
@@ -451,7 +472,7 @@ func (b *Business) fetchTranslationsFromAPI(word string) []models.TranslationPai
 		})
 	}
 
-	return translations
+	return translations, nil
 }
 
 // rankAndDedup puts the answer the user actually searched for first and drops
@@ -461,9 +482,6 @@ func (b *Business) fetchTranslationsFromAPI(word string) []models.TranslationPai
 // is the steady-state path, and a fix applied only to the fetch would leave the
 // bug reachable through the other door.
 func rankAndDedup(pairs []models.TranslationPairs, query string) []models.TranslationPairs {
-	// nil must stay nil. Translate tells a failed API call (nil, not cached)
-	// apart from a real "no results" (empty non-nil, negative-cached for a day);
-	// allocating a fresh slice here would negative-cache every dosham outage.
 	if len(pairs) < 2 {
 		return pairs
 	}

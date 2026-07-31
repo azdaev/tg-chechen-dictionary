@@ -1,6 +1,35 @@
 package business
 
-import "testing"
+import (
+	"chetoru/internal/cache"
+	"context"
+	"net/http"
+	"testing"
+
+	"github.com/sirupsen/logrus"
+)
+
+// Grammar entries are cached for 30 days, so an outage written down as "this
+// word has no grammar" hides the paradigm for a month — far longer than the
+// outage. GrammarFor must report the failure and write nothing.
+func TestGrammarFor_TransportErrorIsNotCached(t *testing.T) {
+	stubDoshamAPI(t, http.StatusInternalServerError, ``)
+	b := &Business{log: logrus.New(), cache: cache.NewCache("127.0.0.1:1", "")}
+
+	g, err := b.GrammarFor(context.Background(), "дог")
+	if err == nil {
+		t.Fatalf("outage must surface as an error, got %+v", g)
+	}
+	if g != nil {
+		t.Fatalf("no grammar may accompany an error, got %+v", g)
+	}
+
+	// A word that genuinely has no analyzed entry is a real answer, cacheable.
+	stubDoshamAPI(t, http.StatusOK, `{"data":{"find":[]}}`)
+	if g, err := b.GrammarFor(context.Background(), "ыыыы"); err != nil || g != nil {
+		t.Fatalf("got %+v (err %v), want a cacheable nil", g, err)
+	}
+}
 
 func TestPosFromDetails(t *testing.T) {
 	cases := []struct {

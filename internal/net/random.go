@@ -15,6 +15,18 @@ import (
 // where the word is the focus and grammar is a hint, not the content.
 const maxSummaryForms = 6
 
+// grammarHint is the compact cards' whole relationship with grammar: a hint
+// they render if it happens to be there. A failed lookup is the same to them as
+// no grammar at all, so it is swallowed here instead of at both call sites.
+func (n *Net) grammarHint(ctx context.Context, word string) string {
+	g, err := n.business.GrammarFor(ctx, word)
+	if err != nil {
+		n.log.WithError(err).WithField("word", word).Debug("grammar hint lookup failed")
+		return ""
+	}
+	return grammarSummaryLine(g)
+}
+
 // grammarSummaryLine renders a one-line grammar hint (part of speech and a few
 // inflected forms) for compact cards. Returns "" when there is nothing to show.
 // Deliberately unstyled: the same card carries a usage example, and italic is
@@ -94,7 +106,7 @@ func (n *Net) HandleRandom(ctx context.Context, chatID int64) error {
 			exampleLine = fmt.Sprintf(WordOfDayExampleFormat, tgbotapi.EscapeText(tgbotapi.ModeHTML, ex))
 		}
 	})
-	wg.Go(func() { grammarLine = grammarSummaryLine(n.business.GrammarFor(ctx, word.Chechen)) })
+	wg.Go(func() { grammarLine = n.grammarHint(ctx, word.Chechen) })
 	wg.Wait()
 	if exampleLine != "" {
 		text += "\n\n" + exampleLine

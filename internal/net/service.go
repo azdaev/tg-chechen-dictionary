@@ -25,9 +25,12 @@ const (
 	InlineCacheTimeSeconds  = 3600 // Telegram-side cache for non-personal inline answers
 	// No <i>: on a translation card italic marks a usage example and nothing
 	// else, and this text sits right under one.
-	MoreTranslationsHelpText  = `Чтобы просмотреть все доступные переводы, нажмите на кнопку «Ещё» или воспользуйтесь инлайн-режимом: введите @chetoru_bot и слово, которое хотите перевести. Это позволит вам увидеть все варианты.`
-	StartMessageText          = "Отправь мне слово на русском или чеченском, а я скину перевод. Ещё ты можешь пользоваться ботом в других переписках, как на видео.\n\n🎲 /random — случайное чеченское слово.\n🧠 /quiz — викторина: проверь, как хорошо ты знаешь чеченский.\n🏆 /top — рейтинг знатоков.\n👤 /me — мой прогресс.\n📖 /wotd — слово дня каждое утро.\n✍️ /check — проверить орфографию (или начни сообщение с точки).\n\nСловарные данные предоставлены проектом dosham.app"
-	NoTranslationText         = "К сожалению, нет перевода"
+	MoreTranslationsHelpText = `Чтобы просмотреть все доступные переводы, нажмите на кнопку «Ещё» или воспользуйтесь инлайн-режимом: введите @chetoru_bot и слово, которое хотите перевести. Это позволит вам увидеть все варианты.`
+	StartMessageText         = "Отправь мне слово на русском или чеченском, а я скину перевод. Ещё ты можешь пользоваться ботом в других переписках, как на видео.\n\n🎲 /random — случайное чеченское слово.\n🧠 /quiz — викторина: проверь, как хорошо ты знаешь чеченский.\n🏆 /top — рейтинг знатоков.\n👤 /me — мой прогресс.\n📖 /wotd — слово дня каждое утро.\n✍️ /check — проверить орфографию (или начни сообщение с точки).\n\nСловарные данные предоставлены проектом dosham.app"
+	NoTranslationText        = "К сожалению, нет перевода"
+	// Shown when the dictionary itself failed. Saying "нет перевода" there is a
+	// lie, and it is the lie that also files the user's word as a vocabulary gap.
+	DictionaryUnavailableText = "Словарь сейчас недоступен. Попробуйте через минуту."
 	SuggestionsHeaderText     = "🔍 <b>Возможно, вы искали:</b>"
 	MoreButtonText            = "Ещё (%d)"
 	MissingWordsLimit         = 30
@@ -82,13 +85,13 @@ type AI interface {
 }
 
 type Business interface {
-	Translate(word string) []models.TranslationPairs
+	Translate(word string) ([]models.TranslationPairs, error)
 	SuggestTranslations(word string) []models.TranslationPairs
 	SetAIFormatting(enabled bool)
 	AIFormattingEnabled() bool
 	RandomWordFromAPI(ctx context.Context) (*models.RandomWord, error)
 	GenerateQuiz(ctx context.Context) (*models.QuizQuestion, error)
-	GrammarFor(ctx context.Context, word string) *models.WordGrammar
+	GrammarFor(ctx context.Context, word string) (*models.WordGrammar, error)
 	TranslationCacheStats() (hits, misses int64)
 	RecheckTranslation(word string) bool
 }

@@ -28,7 +28,10 @@ func TestFetchTranslations_EmptyAnswerIsNotNil(t *testing.T) {
 	stubDoshamAPI(t, http.StatusOK, `{"data":{"find":[]}}`)
 	b := &Business{log: logrus.New()}
 
-	got := b.fetchTranslationsWithFallback("яблоками")
+	got, err := b.fetchTranslationsWithFallback("яблоками")
+	if err != nil {
+		t.Fatalf("real empty answer must not be an error: %v", err)
+	}
 	if got == nil {
 		t.Fatal("real empty answer must be non-nil so it gets negative-cached")
 	}
@@ -45,7 +48,10 @@ func TestFetchTranslations_CarriesLanguages(t *testing.T) {
 		 "translations":[{"translationId":"t1","content":"цӏа","languageCode":"ce"}]}]}}`)
 	b := &Business{log: logrus.New()}
 
-	got := b.fetchTranslationsWithFallback("Дом")
+	got, err := b.fetchTranslationsWithFallback("Дом")
+	if err != nil {
+		t.Fatalf("fetch: %v", err)
+	}
 	if len(got) != 1 {
 		t.Fatalf("got %d pairs, want 1", len(got))
 	}
@@ -58,8 +64,58 @@ func TestFetchTranslations_HTTPErrorIsNil(t *testing.T) {
 	stubDoshamAPI(t, http.StatusInternalServerError, `{"data":{"find":[]}}`)
 	b := &Business{log: logrus.New()}
 
-	if got := b.fetchTranslationsWithFallback("яблоками"); got != nil {
-		t.Fatalf("HTTP failure must return nil so it is not cached, got %#v", got)
+	if got, err := b.fetchTranslationsWithFallback("яблоками"); err == nil {
+		t.Fatalf("HTTP failure must be reported as an error so it is not cached, got %#v", got)
+	}
+}
+
+// Translate reaches the cache write only on the success path, so an outage
+// reported as an error can no longer be stored as "no such word" for a day.
+func TestTranslate_ErrorIsNotNegativeCached(t *testing.T) {
+	stubDoshamAPI(t, http.StatusInternalServerError, ``)
+	b := &Business{log: logrus.New(), cache: cache.NewCache("127.0.0.1:1", "")}
+
+	got, err := b.Translate("яблоками")
+	if err == nil {
+		t.Fatalf("outage must surface as an error, got %#v", got)
+	}
+	if got != nil {
+		t.Fatalf("no pairs may accompany an error, got %#v", got)
+	}
+	b.WaitBackground()
+}
+
+// A ё-variant that fails while the primary query legitimately returns nothing
+// leaves the question open: the word may live under the spelling we never got
+// an answer for. Calling that "no such word" caches the outage.
+func TestFetchTranslations_FailedVariantIsNotAMiss(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			Variables struct {
+				InputText string `json:"inputText"`
+			} `json:"variables"`
+		}
+		json.NewDecoder(r.Body).Decode(&req)
+		if req.Variables.InputText == "береза" {
+			fmt.Fprint(w, `{"data":{"find":[]}}`)
+			return
+		}
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	t.Cleanup(srv.Close)
+	t.Setenv("DOSHAM_API_URL", srv.URL)
+	b := &Business{log: logrus.New()}
+
+	got, err := b.fetchTranslationsWithFallback("береза")
+	if err == nil {
+		t.Fatalf("a failed variant with no results anywhere must be an error, got %#v", got)
+	}
+
+	// The mirror case: a variant that fails after something was already found
+	// is not an outage — at worst an extra spelling went unchecked.
+	stubDoshamFind(t, map[string]string{"береза": "Береза"})
+	if got, err := b.fetchTranslationsWithFallback("береза"); err != nil || len(got) != 1 {
+		t.Fatalf("got %+v (err %v), want the found pair and no error", got, err)
 	}
 }
 
@@ -112,7 +168,10 @@ func TestFetchTranslations_YoFallbackFindsVariant(t *testing.T) {
 	stubDoshamFind(t, map[string]string{"берёза": "Берёза"})
 	b := &Business{log: logrus.New()}
 
-	got := b.fetchTranslationsWithFallback("береза")
+	got, err := b.fetchTranslationsWithFallback("береза")
+	if err != nil {
+		t.Fatalf("fetch: %v", err)
+	}
 	if len(got) != 1 || got[0].Original != "Берёза" {
 		t.Fatalf("translations = %+v, want exactly [Берёза]", got)
 	}
@@ -172,7 +231,10 @@ func TestFetchTranslations_StoresPairsDetached(t *testing.T) {
 	repo := &recordingDictRepo{inserted: make(chan repository.TranslationPair, 1)}
 	b := &Business{log: logrus.New(), dictRepo: repo}
 
-	got := b.fetchTranslationsFromAPI("яблок")
+	got, err := b.fetchTranslationsFromAPI("яблок")
+	if err != nil {
+		t.Fatalf("fetch: %v", err)
+	}
 	if len(got) != 1 {
 		t.Fatalf("translations = %+v, want 1 pair", got)
 	}
@@ -217,7 +279,7 @@ func TestFetchTranslations_GraphQLErrorIsNil(t *testing.T) {
 	stubDoshamAPI(t, http.StatusOK, `{"errors":[{"message":"internal error"}],"data":null}`)
 	b := &Business{log: logrus.New()}
 
-	if got := b.fetchTranslationsWithFallback("яблоками"); got != nil {
-		t.Fatalf("GraphQL error must return nil so it is not cached, got %#v", got)
+	if got, err := b.fetchTranslationsWithFallback("яблоками"); err == nil {
+		t.Fatalf("GraphQL error must be reported as an error so it is not cached, got %#v", got)
 	}
 }

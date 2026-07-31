@@ -243,7 +243,13 @@ func pickFresh(recent []string, draw func() *models.RandomWord) *models.RandomWo
 // usageExample mines the word's dictionary glosses for a usage example.
 // Shared by the Word of the Day and /random cards.
 func (n *Net) usageExample(chechen string) (string, bool) {
-	for i, p := range n.business.Translate(chechen) {
+	// Enrichment only: an unreachable dictionary means the card ships without
+	// an example, not that the card is wrong.
+	pairs, err := n.business.Translate(chechen)
+	if err != nil {
+		return "", false
+	}
+	for i, p := range pairs {
 		if i == 5 {
 			break
 		}
@@ -304,7 +310,7 @@ func (n *Net) sendWordOfDay(ctx context.Context) {
 	if ex, ok := n.usageExample(word.Chechen); ok {
 		text += "\n\n" + fmt.Sprintf(WordOfDayExampleFormat, tgbotapi.EscapeText(tgbotapi.ModeHTML, ex))
 	}
-	if line := grammarSummaryLine(n.business.GrammarFor(ctx, word.Chechen)); line != "" {
+	if line := n.grammarHint(ctx, word.Chechen); line != "" {
 		text += "\n\n" + line
 	}
 	text += "\n\n" + WordOfDayFooter

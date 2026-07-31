@@ -150,7 +150,10 @@ func TestTranslate_LocalPathRankedAndDeduped(t *testing.T) {
 	}}
 	b := &Business{log: logrus.New(), dictRepo: repo, cache: cache.NewCache("127.0.0.1:1", "")}
 
-	got := b.Translate("яблоко")
+	got, err := b.Translate("яблоко")
+	if err != nil {
+		t.Fatalf("Translate: %v", err)
+	}
 	if len(got) != 2 {
 		t.Fatalf("got %d pairs, want the stress duplicate collapsed: %+v", len(got), got)
 	}

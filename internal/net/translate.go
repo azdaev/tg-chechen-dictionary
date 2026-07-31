@@ -23,7 +23,15 @@ func (n *Net) HandleText(ctx context.Context, m *tgbotapi.Message) error {
 	// never sit between the user and the translation.
 	defer n.recordActivity(ctx, m.From.ID, m.From.UserName, models.ActivityTypeText)
 
-	translations := n.business.Translate(m.Text)
+	translations, err := n.business.Translate(m.Text)
+	if err != nil {
+		// Not a miss: nothing gets recorded as a vocabulary gap, and
+		// SuggestTranslations is skipped — it would fan one failed lookup out
+		// into four more against the provider that just failed.
+		n.log.WithError(err).WithField("word", m.Text).Warn("translation lookup failed")
+		_, sendErr := n.bot.Send(tgbotapi.NewMessage(m.Chat.ID, DictionaryUnavailableText))
+		return sendErr
+	}
 	if len(translations) == 0 {
 		// Record the vocabulary gap so maintainers know what to add next —
 		// detached, so the write never delays the reply the user is waiting on.
@@ -210,7 +218,13 @@ func (n *Net) HandleInline(ctx context.Context, iq *tgbotapi.InlineQuery) error 
 		return n.answerInlineDiscovery(ctx, iq)
 	}
 
-	translations := n.business.Translate(iq.Query)
+	translations, err := n.business.Translate(iq.Query)
+	if err != nil {
+		// Answer nothing rather than an empty picker: Telegram edge-caches a
+		// delivered answer for an hour, so an outage rendered as "no results"
+		// would outlive the outage. Not answering caches nothing.
+		return fmt.Errorf("translate %q: %w", iq.Query, err)
+	}
 
 	// A dead-end inline query used to show nothing at all; rescue it the same
 	// way the text path does — with lemma suggestions for the typed prefix.
@@ -332,7 +346,12 @@ func (n *Net) HandleMoreTranslations(ctx context.Context, cq *tgbotapi.CallbackQ
 		}
 	}()
 
-	translations := n.business.Translate(word)
+	translations, err := n.business.Translate(word)
+	if err != nil {
+		n.log.WithError(err).WithField("word", word).Warn("more-translations lookup failed")
+		_, sendErr := n.bot.Send(tgbotapi.NewMessage(cq.Message.Chat.ID, DictionaryUnavailableText))
+		return sendErr
+	}
 	if len(translations) == 0 {
 		_, err := n.bot.Send(tgbotapi.NewMessage(cq.Message.Chat.ID, NoTranslationText))
 		return err
@@ -406,7 +425,13 @@ const maxGrammarForms = 12
 // if any is available, sends a compact follow-up card. It is a no-op when the
 // word has no analyzed grammar, so most TEXT/phrase lookups send nothing.
 func (n *Net) sendGrammarCard(ctx context.Context, chatID int64, word string) {
-	g := n.business.GrammarFor(ctx, word)
+	// Optional enrichment on top of a translation already delivered, so a
+	// failure just means no card — logged, never surfaced.
+	g, err := n.business.GrammarFor(ctx, word)
+	if err != nil {
+		n.log.WithError(err).WithField("word", word).Debug("grammar lookup failed")
+		return
+	}
 	if g == nil {
 		return
 	}

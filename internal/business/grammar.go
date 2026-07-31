@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 )
 
@@ -47,34 +48,45 @@ const maxIdioms = 5
 // for a single word, so multi-word input is skipped without a query. Results
 // (including "no grammar") are cached, since the live dosham lookup is otherwise
 // repeated on every translation. Returns nil when there is nothing worth showing.
-func (b *Business) GrammarFor(ctx context.Context, word string) *models.WordGrammar {
+//
+// A non-nil error means the lookup failed, not that the word has no grammar.
+// The distinction has to survive the cache: grammar entries live for 30 days,
+// so writing an outage down as "no grammar" would hide the paradigm for a month.
+func (b *Business) GrammarFor(ctx context.Context, word string) (*models.WordGrammar, error) {
 	word = strings.TrimSpace(word)
 	if word == "" || strings.ContainsAny(word, " \t\n") {
-		return nil
+		return nil, nil
 	}
 
 	cacheKey := normalizeCacheKey(word)
 	if g, err := b.cache.GetGrammar(ctx, cacheKey); err == nil {
-		return g
+		return g, nil
 	} else if !errors.Is(err, cache.ErrMiss) {
 		b.log.Printf("grammar cache get failed for %q: %v\n", cacheKey, err)
 	}
 
-	g := b.computeGrammar(ctx, word)
+	g, err := b.computeGrammar(ctx, word)
+	if err != nil {
+		return nil, err
+	}
 
 	if err := b.cache.SetGrammar(ctx, cacheKey, g); err != nil {
 		b.log.Printf("grammar cache set failed for %q: %v\n", cacheKey, err)
 	}
-	return g
+	return g, nil
 }
 
 // computeGrammar runs the live dosham lookup behind GrammarFor: one `find` query,
 // keeping only morphologically analyzed Chechen WORD entries, picking the
 // highest-rated, and enriching cross-direction matches.
-func (b *Business) computeGrammar(ctx context.Context, word string) *models.WordGrammar {
-	best := bestGrammarEntry(b.findGrammarEntries(ctx, word), "")
+func (b *Business) computeGrammar(ctx context.Context, word string) (*models.WordGrammar, error) {
+	entries, err := b.findGrammarEntries(ctx, word)
+	if err != nil {
+		return nil, err
+	}
+	best := bestGrammarEntry(entries, "")
 	if best == nil {
-		return nil
+		return nil, nil
 	}
 
 	// When the best match for the user's query carries neither a paradigm nor set
@@ -83,7 +95,10 @@ func (b *Business) computeGrammar(ctx context.Context, word string) *models.Word
 	// headword, so re-query it directly to enrich. Skip when the user already
 	// typed that headword (re-querying the same word can't add anything).
 	if len(best.EntryForms) == 0 && len(best.RelatedEntries) == 0 && !strings.EqualFold(strings.TrimSpace(best.Content), word) {
-		if enriched := bestGrammarEntry(b.findGrammarEntries(ctx, best.Content), best.Content); enriched != nil {
+		// Enrichment only — a failure here leaves the thin entry we already
+		// have, which is still a real answer and safe to cache.
+		found, _ := b.findGrammarEntries(ctx, best.Content)
+		if enriched := bestGrammarEntry(found, best.Content); enriched != nil {
 			if len(enriched.EntryForms) > 0 || len(enriched.RelatedEntries) > 0 || posFromDetails(enriched.Details) != "" {
 				best = enriched
 			}
@@ -112,9 +127,9 @@ func (b *Business) computeGrammar(ctx context.Context, word string) *models.Word
 	}
 
 	if g.POS == "" && len(g.Forms) == 0 && len(g.Idioms) == 0 {
-		return nil // nothing worth showing
+		return nil, nil // nothing worth showing
 	}
-	return g
+	return g, nil
 }
 
 // firstRussian returns the first Russian translation content, or "".
@@ -130,7 +145,7 @@ func firstRussian(translations []grammarTranslation) string {
 }
 
 // findGrammarEntries runs the grammar `find` query and returns the raw entries.
-func (b *Business) findGrammarEntries(ctx context.Context, word string) []grammarEntry {
+func (b *Business) findGrammarEntries(ctx context.Context, word string) ([]grammarEntry, error) {
 	query := `
 		query Grammar($inputText: String!) {
 			find(inputText: $inputText) {
@@ -145,10 +160,9 @@ func (b *Business) findGrammarEntries(ctx context.Context, word string) []gramma
 	`
 	var resp grammarResponse
 	if err := doDoshamQuery(ctx, query, map[string]any{"inputText": word}, &resp); err != nil {
-		b.log.Printf("dosham grammar query failed: %v\n", err)
-		return nil
+		return nil, fmt.Errorf("dosham grammar %q: %w", word, err)
 	}
-	return resp.Data.Find
+	return resp.Data.Find, nil
 }
 
 // bestGrammarEntry picks the highest-rated analyzed Chechen WORD entry. When
