@@ -483,9 +483,9 @@ func rankAndDedup(pairs []models.TranslationPairs, query string) []models.Transl
 
 	// Stable, and every tiebreaker deterministic: the first result freezes into
 	// the cache, and "Ещё" pagination re-ranks on each call, so an unstable
-	// order would shuffle pages between presses. On the local path every pair
-	// lands in bucket 0 with rate 0 — sort.Slice's pdqsort would order those
-	// arbitrarily.
+	// order would shuffle pages between presses. On the local path a query's
+	// pairs share bucket 0, and rows stored before the rate column share rate 0
+	// too — sort.Slice's pdqsort would order those arbitrarily.
 	//
 	// Dedup has already removed pairs equal on both sides, so this comparator is
 	// a total order and nothing of FindTranslationPairs' ORDER BY survives it.
@@ -616,6 +616,7 @@ func (b *Business) storeTranslationPair(entry models.Entry, translation models.T
 		Source:              "api",
 		SourceEntryID:       toNullString(entry.EntryID),
 		SourceTranslationID: toNullString(translation.TranslationID),
+		Rate:                entry.Rate,
 	}
 	if pair.OriginalClean == "" || pair.TranslationClean == "" {
 		return

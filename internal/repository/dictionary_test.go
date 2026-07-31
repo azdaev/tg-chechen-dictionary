@@ -1,6 +1,7 @@
 package repository
 
 import (
+	"chetoru/migrations"
 	"context"
 	"database/sql"
 	"testing"
@@ -17,24 +18,12 @@ func newDictionaryTestRepo(t *testing.T) *Repository {
 	db.SetMaxOpenConns(1) // keep the single in-memory connection alive
 	t.Cleanup(func() { db.Close() })
 
-	_, err = db.Exec(`CREATE TABLE dictionary_pairs (
-		id INTEGER PRIMARY KEY AUTOINCREMENT,
-		original_raw TEXT NOT NULL,
-		original_clean TEXT NOT NULL,
-		original_lang TEXT NOT NULL,
-		translation_raw TEXT NOT NULL,
-		translation_clean TEXT NOT NULL,
-		translation_lang TEXT NOT NULL,
-		source TEXT NOT NULL,
-		source_entry_id TEXT,
-		source_translation_id TEXT,
-		formatted_ai TEXT,
-		formatted_chosen TEXT
-	);
-	CREATE UNIQUE INDEX idx_dictionary_pairs_unique
-		ON dictionary_pairs (original_clean, original_lang, translation_clean, translation_lang);`)
-	if err != nil {
-		t.Fatalf("create table: %v", err)
+	// Run the real migrations instead of hand-building the schema. A hand-built
+	// copy drifts from production silently, and main.go log.Fatals on a failed
+	// migration — so a broken migration is a restart loop, which no test caught
+	// while the schema was duplicated here.
+	if err := migrations.Up(db); err != nil {
+		t.Fatalf("migrations.Up: %v", err)
 	}
 	return NewRepository(db)
 }
@@ -114,6 +103,68 @@ func TestFindTranslationPairs_ApprovedFirstThenShortest(t *testing.T) {
 	found, err = r.FindTranslationPairs(ctx, "дитт", 10)
 	if err != nil || found[0].Translate != "Дерево, растущее у дома" {
 		t.Fatalf("first = %+v (err %v), want the approved pair", found[0], err)
+	}
+}
+
+// Without a stored rate the ordering signal lives only as long as the Redis
+// entry, and the local table is the steady-state read path.
+func TestTranslationPairRateSurvivesStorage(t *testing.T) {
+	r := newDictionaryTestRepo(t)
+	ctx := context.Background()
+
+	pair := TranslationPair{
+		OriginalRaw: "Дитт", OriginalClean: "дитт", OriginalLang: "CHE",
+		TranslationRaw: "Дерево", TranslationClean: "дерево", TranslationLang: "RUS",
+		Source: "api", Rate: 10000,
+	}
+	if _, _, err := r.InsertTranslationPair(ctx, pair); err != nil {
+		t.Fatalf("insert: %v", err)
+	}
+
+	found, err := r.FindTranslationPairs(ctx, "дитт", 10)
+	if err != nil || len(found) != 1 {
+		t.Fatalf("FindTranslationPairs = %+v (err %v)", found, err)
+	}
+	if found[0].Rate != 10000 {
+		t.Fatalf("rate = %d, want it read back from the row", found[0].Rate)
+	}
+
+	// Reverse lookups swap the sides; the rate belongs to the row, not a side.
+	if found, err := r.FindTranslationPairs(ctx, "дерево", 10); err != nil || found[0].Rate != 10000 {
+		t.Fatalf("reverse lookup rate = %+v (err %v)", found, err)
+	}
+}
+
+// Rows written before the rate column exists stay at zero forever unless the
+// insert path backfills them: a stored pair is never re-inserted.
+func TestInsertTranslationPairBackfillsRate(t *testing.T) {
+	r := newDictionaryTestRepo(t)
+	ctx := context.Background()
+
+	pair := TranslationPair{
+		OriginalRaw: "Дитт", OriginalClean: "дитт", OriginalLang: "CHE",
+		TranslationRaw: "Дерево", TranslationClean: "дерево", TranslationLang: "RUS",
+		Source: "api",
+	}
+	if _, _, err := r.InsertTranslationPair(ctx, pair); err != nil {
+		t.Fatalf("insert: %v", err)
+	}
+
+	pair.Rate = 10000
+	id, inserted, err := r.InsertTranslationPair(ctx, pair)
+	if err != nil {
+		t.Fatalf("re-insert: %v", err)
+	}
+	if inserted {
+		t.Fatal("duplicate reported as newly inserted")
+	}
+
+	found, err := r.FindTranslationPairs(ctx, "дитт", 10)
+	if err != nil || len(found) != 1 {
+		t.Fatalf("FindTranslationPairs = %+v (err %v)", found, err)
+	}
+	if found[0].Rate != 10000 {
+		t.Fatalf("rate = %d for pair %d, want the zero row backfilled", found[0].Rate, id)
 	}
 }
 

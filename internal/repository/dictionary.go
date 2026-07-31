@@ -22,15 +22,19 @@ type TranslationPair struct {
 	FormattedAI         sql.NullString
 	FormattedChosen     sql.NullString
 	FormatVersion       sql.NullString
+	// Rate is dosham's entry weight. It is stored rather than kept only in the
+	// cache because the local table is the steady-state read path.
+	Rate int
 }
 
-const selectPairIDQuery = `select id from dictionary_pairs
+const selectPairIDQuery = `select id, rate from dictionary_pairs
 	where original_clean = ? and original_lang = ?
 	  and translation_clean = ? and translation_lang = ?
 	limit 1;`
 
-func (r *Repository) lookupPairID(ctx context.Context, pair TranslationPair) (int64, error) {
+func (r *Repository) lookupPairID(ctx context.Context, pair TranslationPair) (int64, int, error) {
 	var id int64
+	var rate int
 	err := r.db.QueryRowContext(
 		ctx,
 		selectPairIDQuery,
@@ -38,8 +42,8 @@ func (r *Repository) lookupPairID(ctx context.Context, pair TranslationPair) (in
 		pair.OriginalLang,
 		pair.TranslationClean,
 		pair.TranslationLang,
-	).Scan(&id)
-	return id, err
+	).Scan(&id, &rate)
+	return id, rate, err
 }
 
 // InsertTranslationPair stores a pair, reporting whether it was newly inserted
@@ -47,8 +51,20 @@ func (r *Repository) lookupPairID(ctx context.Context, pair TranslationPair) (in
 // are the common case — API fetches keep re-seeing stored pairs — so it checks
 // read-only first instead of opening a write transaction per pair.
 func (r *Repository) InsertTranslationPair(ctx context.Context, pair TranslationPair) (int64, bool, error) {
-	existingID, err := r.lookupPairID(ctx, pair)
+	existingID, existingRate, err := r.lookupPairID(ctx, pair)
 	if err == nil {
+		// Backfill once: rows stored before rate existed would otherwise keep
+		// ordering at zero forever, since a stored pair is never re-inserted.
+		// Guarded on rate = 0 so the common duplicate costs no write.
+		if existingRate == 0 && pair.Rate > 0 {
+			if _, err := r.db.ExecContext(
+				ctx,
+				`update dictionary_pairs set rate = ? where id = ? and rate = 0;`,
+				pair.Rate, existingID,
+			); err != nil {
+				return existingID, false, err
+			}
+		}
 		return existingID, false, nil
 	}
 	if !errors.Is(err, sql.ErrNoRows) {
@@ -66,8 +82,9 @@ func (r *Repository) InsertTranslationPair(ctx context.Context, pair Translation
 			translation_lang,
 			source,
 			source_entry_id,
-			source_translation_id
-		) values (?, ?, ?, ?, ?, ?, ?, ?, ?);`,
+			source_translation_id,
+			rate
+		) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`,
 		pair.OriginalRaw,
 		pair.OriginalClean,
 		pair.OriginalLang,
@@ -77,6 +94,7 @@ func (r *Repository) InsertTranslationPair(ctx context.Context, pair Translation
 		pair.Source,
 		pair.SourceEntryID,
 		pair.SourceTranslationID,
+		pair.Rate,
 	)
 	if err != nil {
 		return 0, false, err
@@ -98,7 +116,7 @@ func (r *Repository) InsertTranslationPair(ctx context.Context, pair Translation
 	}
 
 	// Lost an insert race with a concurrent writer; the row exists now.
-	existingID, err = r.lookupPairID(ctx, pair)
+	existingID, _, err = r.lookupPairID(ctx, pair)
 	if err != nil {
 		return 0, false, err
 	}
@@ -255,8 +273,9 @@ func (r *Repository) UpdateTranslationPairFormatting(ctx context.Context, id int
 // FindTranslationPairs returns stored pairs for a normalized word. The order by
 // decides which rows survive the limit, not what the user finally sees —
 // business.rankAndDedup re-sorts the result with a total order. Both layers
-// apply the same preference (moderated first, then shortest translation) so the
-// truncated set and the displayed set agree; change one and change the other.
+// apply the same preference (moderated, then dosham's rate, then the shortest
+// translation) so the truncated set and the displayed set agree; change one and
+// change the other.
 func (r *Repository) FindTranslationPairs(ctx context.Context, cleanWord string, limit int) ([]models.TranslationPairs, error) {
 	if limit <= 0 {
 		limit = 200
@@ -270,11 +289,12 @@ func (r *Repository) FindTranslationPairs(ctx context.Context, cleanWord string,
 			translation_raw,
 			translation_clean,
 			formatted_ai,
-			formatted_chosen
+			formatted_chosen,
+			rate
 		from dictionary_pairs
 		where (formatted_chosen is null or formatted_chosen != 'deleted')
 		  and (original_clean = ? or translation_clean = ?)
-		order by (formatted_chosen is null), length(translation_raw), id
+		order by (formatted_chosen is null), rate desc, length(translation_raw), id
 		limit ?;`,
 		cleanWord, cleanWord, limit,
 	)
@@ -287,7 +307,8 @@ func (r *Repository) FindTranslationPairs(ctx context.Context, cleanWord string,
 	for rows.Next() {
 		var originalRaw, originalClean, translationRaw, translationClean string
 		var formattedAI, formattedChosen sql.NullString
-		if err := rows.Scan(&originalRaw, &originalClean, &translationRaw, &translationClean, &formattedAI, &formattedChosen); err != nil {
+		var rate int
+		if err := rows.Scan(&originalRaw, &originalClean, &translationRaw, &translationClean, &formattedAI, &formattedChosen, &rate); err != nil {
 			return nil, err
 		}
 
@@ -305,6 +326,7 @@ func (r *Repository) FindTranslationPairs(ctx context.Context, cleanWord string,
 				Translate:       translationRaw,
 				FormattedAI:     aiText,
 				FormattedChosen: chosenText,
+				Rate:            rate,
 			})
 			continue
 		}
@@ -315,6 +337,7 @@ func (r *Repository) FindTranslationPairs(ctx context.Context, cleanWord string,
 				Translate:       originalRaw,
 				FormattedAI:     aiText,
 				FormattedChosen: chosenText,
+				Rate:            rate,
 			})
 		}
 	}
