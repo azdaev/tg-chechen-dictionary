@@ -213,9 +213,12 @@ func (b *Business) fetchTranslationsWithFallback(word string) []models.Translati
 // hasExactOriginal reports whether any pair's headword is exactly the searched
 // word (case- and ё/е-insensitive).
 func hasExactOriginal(pairs []models.TranslationPairs, word string) bool {
-	key := tools.NormalizeSearch(word)
+	// Same normalization as ranking. A headword that ranking calls an exact
+	// match must not read as a miss here, or the ё-variant fallback fires live
+	// queries for a word that was already found.
+	key := normalizeForRank(word)
 	for _, p := range pairs {
-		if tools.NormalizeSearch(p.Original) == key {
+		if normalizeForRank(p.Original) == key {
 			return true
 		}
 	}
@@ -469,9 +472,7 @@ func rankAndDedup(pairs []models.TranslationPairs, query string) []models.Transl
 	for _, p := range pairs {
 		k := normalizeForRank(p.Original) + "\x00" + normalizeForRank(p.Translate)
 		if i, ok := at[k]; ok {
-			// Whichever order the duplicates arrived in, the moderator-approved
-			// rendering is the one that survives.
-			if out[i].FormattedChosen != "ai" && p.FormattedChosen == "ai" {
+			if betterDuplicate(out[i], p) {
 				out[i] = p
 			}
 			continue
@@ -485,16 +486,29 @@ func rankAndDedup(pairs []models.TranslationPairs, query string) []models.Transl
 	// order would shuffle pages between presses. On the local path every pair
 	// lands in bucket 0 with rate 0 — sort.Slice's pdqsort would order those
 	// arbitrarily.
+	//
+	// Dedup has already removed pairs equal on both sides, so this comparator is
+	// a total order and nothing of FindTranslationPairs' ORDER BY survives it.
+	// That is why the moderation and shortest-gloss preferences are repeated
+	// here: leaving them only in SQL would mean the user never sees them.
 	sort.SliceStable(out, func(i, j int) bool {
 		a, b := out[i], out[j]
 		if ra, rb := rankPair(a, key), rankPair(b, key); ra != rb {
 			return ra < rb
 		}
+		if approved(a) != approved(b) {
+			return approved(a)
+		}
 		if a.Rate != b.Rate {
 			return a.Rate > b.Rate
 		}
-		la, lb := utf8.RuneCountInString(a.Original), utf8.RuneCountInString(b.Original)
-		if la != lb {
+		// Headword length first (the API path varies here: "Яблоко" before
+		// "Яблоневый"), then gloss length (the local path varies here, because
+		// every headword is the query itself).
+		if la, lb := utf8.RuneCountInString(a.Original), utf8.RuneCountInString(b.Original); la != lb {
+			return la < lb
+		}
+		if la, lb := utf8.RuneCountInString(a.Translate), utf8.RuneCountInString(b.Translate); la != lb {
 			return la < lb
 		}
 		if a.Original != b.Original {
@@ -508,6 +522,24 @@ func rankAndDedup(pairs []models.TranslationPairs, query string) []models.Transl
 
 func normalizeForRank(s string) string {
 	return stripStressMarks(tools.NormalizeSearch(s))
+}
+
+// betterDuplicate reports whether candidate should replace kept when both
+// normalize to the same pair. A moderator's rendering wins, then dosham's own
+// weight: keeping whichever arrived first would let the API's response order
+// decide which survives, and the loser's rate is gone before ranking sees it.
+func betterDuplicate(kept, candidate models.TranslationPairs) bool {
+	if approved(kept) != approved(candidate) {
+		return approved(candidate)
+	}
+	return candidate.Rate > kept.Rate
+}
+
+// approved reports whether a moderator accepted this pair's AI rendering — the
+// only human quality signal the dictionary carries. formatPair renders such a
+// pair differently, so it should also lead its relevance bucket.
+func approved(p models.TranslationPairs) bool {
+	return p.FormattedChosen == "ai" && p.FormattedAI != ""
 }
 
 func rankPair(p models.TranslationPairs, key string) int {

@@ -253,10 +253,10 @@ func (r *Repository) UpdateTranslationPairFormatting(ctx context.Context, id int
 }
 
 // FindTranslationPairs returns stored pairs for a normalized word. The order by
-// is load-bearing: without it rows come back in rowid order, and since the first
-// result is what freezes into the cache, "which translation the user sees" would
-// depend on insertion history. Moderator-approved renderings come first, then
-// the shortest translation.
+// decides which rows survive the limit, not what the user finally sees —
+// business.rankAndDedup re-sorts the result with a total order. Both layers
+// apply the same preference (moderated first, then shortest translation) so the
+// truncated set and the displayed set agree; change one and change the other.
 func (r *Repository) FindTranslationPairs(ctx context.Context, cleanWord string, limit int) ([]models.TranslationPairs, error) {
 	if limit <= 0 {
 		limit = 200

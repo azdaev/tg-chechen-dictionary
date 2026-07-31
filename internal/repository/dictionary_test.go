@@ -81,7 +81,8 @@ func TestFindTranslationPairs_ApprovedFirstThenShortest(t *testing.T) {
 
 	// Inserted worst-first on purpose: without an order by these come back in
 	// rowid order, and whatever lands first freezes into the cache.
-	for _, p := range []TranslationPair{
+	var longestID int64
+	for i, p := range []TranslationPair{
 		{OriginalRaw: "Дитт", OriginalClean: "дитт", OriginalLang: "CHE",
 			TranslationRaw: "Дерево, растущее у дома", TranslationClean: "дерево растущее у дома", TranslationLang: "RUS", Source: "api"},
 		{OriginalRaw: "Дитт", OriginalClean: "дитт", OriginalLang: "CHE",
@@ -89,8 +90,12 @@ func TestFindTranslationPairs_ApprovedFirstThenShortest(t *testing.T) {
 		{OriginalRaw: "Дитт", OriginalClean: "дитт", OriginalLang: "CHE",
 			TranslationRaw: "Дерево", TranslationClean: "дерево", TranslationLang: "RUS", Source: "api"},
 	} {
-		if _, _, err := r.InsertTranslationPair(ctx, p); err != nil {
+		id, _, err := r.InsertTranslationPair(ctx, p)
+		if err != nil {
 			t.Fatalf("insert: %v", err)
+		}
+		if i == 0 {
+			longestID = id
 		}
 	}
 
@@ -103,7 +108,7 @@ func TestFindTranslationPairs_ApprovedFirstThenShortest(t *testing.T) {
 	}
 
 	// A moderator-approved rendering outranks length.
-	if err := r.SetTranslationPairFormattingChoice(ctx, 1, "ai"); err != nil {
+	if err := r.SetTranslationPairFormattingChoice(ctx, longestID, "ai"); err != nil {
 		t.Fatalf("approve: %v", err)
 	}
 	found, err = r.FindTranslationPairs(ctx, "дитт", 10)

@@ -86,6 +86,51 @@ func TestRankAndDedup_PrefersAIFormattedDuplicate(t *testing.T) {
 	}
 }
 
+// The repository's ORDER BY puts moderated pairs first, but dedup leaves a
+// total order behind, so nothing of the SQL order survives rankAndDedup. Both
+// layers have to encode the preference or the moderator's work is invisible.
+func TestRankAndDedup_ApprovedLeadsItsBucket(t *testing.T) {
+	pairs := []models.TranslationPairs{
+		{Original: "Дитт", Translate: "Ясень", FormattedChosen: "ai", FormattedAI: "<b>Дитт</b> — ясень"},
+		{Original: "Дитт", Translate: "Древо"},
+		{Original: "Дитт", Translate: "Дерево"},
+	}
+	got := rankAndDedup(pairs, "дитт")
+	if !approved(got[0]) {
+		t.Fatalf("first result = %q, want the moderated pair ahead of the alphabet", got[0].Translate)
+	}
+}
+
+func TestRankAndDedup_ShortestGlossWithinBucket(t *testing.T) {
+	// Local-path shape: every headword is the query, so only the gloss varies.
+	pairs := []models.TranslationPairs{
+		{Original: "Дитт", Translate: "Дерево, растущее у дома"},
+		{Original: "Дитт", Translate: "Древо"},
+	}
+	got := rankAndDedup(pairs, "дитт")
+	if got[0].Translate != "Древо" {
+		t.Fatalf("first result = %q, want the shortest gloss", got[0].Translate)
+	}
+}
+
+// Duplicates carry their own rate. Keeping first-arrival would hand the choice
+// to dosham's response order and throw the surviving pair's rate away before
+// ranking ever reads it.
+func TestRankAndDedup_HigherRatedDuplicateSurvives(t *testing.T) {
+	pairs := []models.TranslationPairs{
+		{Original: "Яблоко", Translate: "Ӏаж", Rate: 1},
+		{Original: "яблоко", Translate: "ӏаж", Rate: 100},
+		{Original: "Груша", Translate: "Кхор", Rate: 50},
+	}
+	got := rankAndDedup(pairs, "яблоко")
+	if len(got) != 2 {
+		t.Fatalf("got %d pairs, want the duplicate collapsed: %+v", len(got), got)
+	}
+	if got[0].Rate != 100 {
+		t.Fatalf("surviving duplicate has rate %d, want the higher-rated one kept", got[0].Rate)
+	}
+}
+
 type stubDictRepo struct {
 	recordingDictRepo
 	pairs []models.TranslationPairs
