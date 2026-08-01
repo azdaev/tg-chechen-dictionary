@@ -21,7 +21,7 @@ func (n *Net) HandleQuiz(ctx context.Context, chat *tgbotapi.Chat) error {
 	q, err := n.business.GenerateQuiz(ctx)
 	if err != nil {
 		n.log.WithError(err).Warn("GenerateQuiz failed")
-		_, sErr := n.bot.Send(tgbotapi.NewMessage(chat.ID, QuizErrorText))
+		_, sErr := n.send(tgbotapi.NewMessage(chat.ID, QuizErrorText))
 		return sErr
 	}
 
@@ -50,7 +50,7 @@ func (n *Net) sendQuizPoll(ctx context.Context, chatID int64, q *models.QuizQues
 			tgbotapi.NewInlineKeyboardButtonData(QuizNextButtonText, "quiz_n"),
 		),
 	)
-	sent, err := n.bot.Send(poll)
+	sent, err := n.send(poll)
 	if err != nil {
 		return err
 	}
@@ -88,7 +88,7 @@ func (n *Net) HandleTop(ctx context.Context, chatID, userID int64) error {
 		return fmt.Errorf("repo.TopQuizScorers: %w", err)
 	}
 	if len(scorers) == 0 {
-		_, err = n.bot.Send(tgbotapi.NewMessage(chatID, QuizTopEmptyText))
+		_, err = n.send(tgbotapi.NewMessage(chatID, QuizTopEmptyText))
 		return err
 	}
 
@@ -123,7 +123,7 @@ func (n *Net) HandleTop(ctx context.Context, chatID, userID int64) error {
 
 	msg := tgbotapi.NewMessage(chatID, b.String())
 	msg.ParseMode = "html"
-	_, err = n.bot.Send(msg)
+	_, err = n.send(msg)
 	return err
 }
 
@@ -187,7 +187,7 @@ func (n *Net) sendQuizButtons(chatID int64, q *models.QuizQuestion) error {
 	msg := tgbotapi.NewMessage(chatID, fmt.Sprintf(format, tgbotapi.EscapeText(tgbotapi.ModeHTML, q.Prompt)))
 	msg.ParseMode = "html"
 	msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(rows...)
-	_, err := n.bot.Send(msg)
+	_, err := n.send(msg)
 	return err
 }
 
@@ -276,7 +276,7 @@ func (n *Net) HandleQuizCallback(ctx context.Context, cq *tgbotapi.CallbackQuery
 	))
 
 	edit := tgbotapi.NewEditMessageReplyMarkup(chatID, cq.Message.MessageID, tgbotapi.NewInlineKeyboardMarkup(newRows...))
-	if _, err := n.bot.Send(edit); err != nil {
+	if _, err := n.send(edit); err != nil {
 		return fmt.Errorf("bot.Send edit: %w", err)
 	}
 	return nil

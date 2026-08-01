@@ -43,30 +43,30 @@ func (n *Net) HandleCheck(ctx context.Context, m *tgbotapi.Message) error {
 	if text == "" {
 		msg := tgbotapi.NewMessage(m.Chat.ID,
 			"Использование: /check <текст на чеченском>\n\nПример: /check дала безам бу хьо\n\nИли просто начни сообщение с точки:\n.дала безам бу хьо")
-		_, err := n.bot.Send(msg)
+		_, err := n.send(msg)
 		return err
 	}
 
 	if n.ai == nil {
 		msg := tgbotapi.NewMessage(m.Chat.ID, "⚠️ Проверка орфографии временно недоступна")
-		_, err := n.bot.Send(msg)
+		_, err := n.send(msg)
 		return err
 	}
 
-	n.bot.Send(tgbotapi.NewChatAction(m.Chat.ID, tgbotapi.ChatTyping))
+	n.send(tgbotapi.NewChatAction(m.Chat.ID, tgbotapi.ChatTyping))
 
 	result, err := n.spellcheck(ctx, text)
 	if err != nil {
 		n.log.WithError(err).Error("ai.SpellCheck")
 		msg := tgbotapi.NewMessage(m.Chat.ID, "⚠️ Не удалось проверить текст, попробуйте позже")
-		_, sendErr := n.bot.Send(msg)
+		_, sendErr := n.send(msg)
 		return sendErr
 	}
 
 	if result.NoErrors {
 		msg := tgbotapi.NewMessage(m.Chat.ID, "✅ Ошибок не найдено")
 		msg.ReplyToMessageID = m.MessageID
-		_, err = n.bot.Send(msg)
+		_, err = n.send(msg)
 		return err
 	}
 
@@ -92,7 +92,7 @@ func (n *Net) HandleCheck(ctx context.Context, m *tgbotapi.Message) error {
 		msg.ReplyMarkup = spellcheckFeedbackKeyboard(text, result.Corrected)
 	}
 
-	_, err = n.bot.Send(msg)
+	_, err = n.send(msg)
 	return err
 }
 
@@ -166,7 +166,7 @@ func (n *Net) runInlineSpellcheck(ctx context.Context, iq *tgbotapi.InlineQuery)
 			CacheTime:     0,
 			Results:       []any{article},
 		}
-		_, _ = n.bot.Request(inlineConf)
+		_ = n.answerInline(inlineConf)
 		return nil
 	}
 
@@ -203,12 +203,8 @@ func (n *Net) runInlineSpellcheck(ctx context.Context, iq *tgbotapi.InlineQuery)
 		Results:       articles,
 	}
 
-	resp, err := n.bot.Request(inlineConf)
-	if err != nil {
-		return fmt.Errorf("bot.Request: %w", err)
-	}
-	if !resp.Ok {
-		return fmt.Errorf("bot.Request: %s", resp.Description)
+	if err := n.answerInline(inlineConf); err != nil {
+		return fmt.Errorf("answerInline: %w", err)
 	}
 
 	return nil
@@ -255,7 +251,7 @@ func (n *Net) HandleSpellcheckFeedback(ctx context.Context, cq *tgbotapi.Callbac
 		cq.Message.MessageID,
 		tgbotapi.InlineKeyboardMarkup{InlineKeyboard: [][]tgbotapi.InlineKeyboardButton{}},
 	)
-	n.bot.Send(edited)
+	n.send(edited)
 
 	return nil
 }

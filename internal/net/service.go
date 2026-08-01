@@ -473,16 +473,16 @@ func (n *Net) HandleAIToggle(msg *tgbotapi.Message) {
 	switch strings.TrimSpace(msg.CommandArguments()) {
 	case "on":
 		n.business.SetAIFormatting(true)
-		n.bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "AI formatting: ON"))
+		n.send(tgbotapi.NewMessage(msg.Chat.ID, "AI formatting: ON"))
 	case "off":
 		n.business.SetAIFormatting(false)
-		n.bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "AI formatting: OFF"))
+		n.send(tgbotapi.NewMessage(msg.Chat.ID, "AI formatting: OFF"))
 	default:
 		status := "OFF"
 		if n.business.AIFormattingEnabled() {
 			status = "ON"
 		}
-		n.bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "AI formatting: "+status+"\n/ai on | /ai off"))
+		n.send(tgbotapi.NewMessage(msg.Chat.ID, "AI formatting: "+status+"\n/ai on | /ai off"))
 	}
 }
 

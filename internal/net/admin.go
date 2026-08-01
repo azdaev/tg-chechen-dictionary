@@ -22,11 +22,11 @@ func (n *Net) HandleStart(m *tgbotapi.Message) error {
 	video := tgbotapi.NewVideo(m.Chat.ID, tgbotapi.FileBytes{Name: "inline.mp4", Bytes: inlineVideo})
 	video.Caption = StartMessageText
 
-	if _, err := n.bot.Send(video); err != nil {
+	if _, err := n.send(video); err != nil {
 		// Never leave a new user with no welcome: if the video can't be sent,
 		// fall back to the caption as a plain text message.
 		n.log.WithError(err).Warn("failed to send start video, falling back to text")
-		_, err = n.bot.Send(tgbotapi.NewMessage(m.Chat.ID, StartMessageText))
+		_, err = n.send(tgbotapi.NewMessage(m.Chat.ID, StartMessageText))
 		return err
 	}
 	return nil
@@ -57,7 +57,7 @@ func (n *Net) HandleMe(ctx context.Context, m *tgbotapi.Message) error {
 
 	msg := tgbotapi.NewMessage(m.Chat.ID, buildMeMessage(lookups, correct, total, streak, rank, wotdSubscribed))
 	msg.ParseMode = "html"
-	_, err = n.bot.Send(msg)
+	_, err = n.send(msg)
 	return err
 }
 
@@ -162,7 +162,7 @@ func (n *Net) HandleStats(ctx context.Context, m *tgbotapi.Message) error {
 	msg := tgbotapi.NewMessage(m.Chat.ID, text)
 	msg.ParseMode = "html"
 
-	_, err = n.bot.Send(msg)
+	_, err = n.send(msg)
 	return err
 }
 
@@ -179,7 +179,7 @@ func (n *Net) HandleMissingWords(ctx context.Context, m *tgbotapi.Message) error
 	}
 
 	if len(words) == 0 {
-		_, err = n.bot.Send(tgbotapi.NewMessage(m.Chat.ID, MissingWordsEmpty))
+		_, err = n.send(tgbotapi.NewMessage(m.Chat.ID, MissingWordsEmpty))
 		return err
 	}
 
@@ -195,7 +195,7 @@ func (n *Net) HandleMissingWords(ctx context.Context, m *tgbotapi.Message) error
 
 	msg := tgbotapi.NewMessage(m.Chat.ID, sb.String())
 	msg.ParseMode = "html"
-	_, err = n.bot.Send(msg)
+	_, err = n.send(msg)
 	return err
 }
 

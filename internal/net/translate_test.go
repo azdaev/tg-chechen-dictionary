@@ -1,6 +1,8 @@
 package net
 
 import (
+	"chetoru/internal/models"
+	"chetoru/pkg/tools"
 	"strings"
 	"testing"
 )
@@ -45,6 +47,42 @@ func TestClampMessage(t *testing.T) {
 		if len([]rune(l)) != 80 {
 			t.Errorf("clamp split a line: %d runes", len([]rune(l)))
 		}
+	}
+}
+
+// telegramMessageLimit is Telegram's own cap. Nothing in the bot may build a
+// message past it: an oversized send is rejected outright, so the user gets
+// nothing rather than a truncated answer.
+const telegramMessageLimit = 4096
+
+// HandleText appends the inline-mode hint AFTER clamping. The 3800-rune margin
+// covers it, but that dependency is invisible at both sites — one edit to
+// either and the longest cards start failing to send.
+func TestClampedCardLeavesRoomForTheHelpText(t *testing.T) {
+	clamped := clampMessage(strings.Repeat(strings.Repeat("ц", 80)+"\n", 60))
+	total := len([]rune(clamped + "\n\n" + MoreTranslationsHelpText))
+	if total >= telegramMessageLimit {
+		t.Errorf("card plus help text = %d runes, want under %d", total, telegramMessageLimit)
+	}
+}
+
+// The no-translation branch builds its own message from suggestions instead of
+// going through the card path, so it needs its own clamp: three long glosses
+// clear the limit and the near miss turns into a blank screen.
+func TestNoTranslationWithSuggestionsIsClamped(t *testing.T) {
+	suggestions := make([]models.TranslationPairs, 3)
+	for i := range suggestions {
+		suggestions[i] = models.TranslationPairs{
+			Original:  "Яблоко",
+			Translate: strings.Repeat("очень длинное толкование; ", 120),
+		}
+	}
+	text := clampMessage(NoTranslationText + "\n\n" + SuggestionsHeaderText + "\n\n" + tools.FormatPairs(suggestions))
+	if n := len([]rune(text)); n >= telegramMessageLimit {
+		t.Errorf("suggestions message = %d runes, want under %d", n, telegramMessageLimit)
+	}
+	if !strings.HasPrefix(text, NoTranslationText) {
+		t.Errorf("clamping ate the header: %q", text[:40])
 	}
 }
 

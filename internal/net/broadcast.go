@@ -23,7 +23,7 @@ func (n *Net) HandleBroadcast(ctx context.Context, m *tgbotapi.Message) error {
 
 	n.setBroadcastState(true, nil)
 	msg := tgbotapi.NewMessage(m.Chat.ID, "Отправьте текст или фото с подписью. Я покажу превью перед рассылкой.")
-	_, err := n.bot.Send(msg)
+	_, err := n.send(msg)
 	return err
 }
 
@@ -34,7 +34,7 @@ func (n *Net) HandleBroadcastCancel(m *tgbotapi.Message) error {
 
 	n.setBroadcastState(false, nil)
 	msg := tgbotapi.NewMessage(m.Chat.ID, "Рассылка отменена.")
-	_, err := n.bot.Send(msg)
+	_, err := n.send(msg)
 	return err
 }
 
@@ -46,7 +46,7 @@ func (n *Net) HandleBroadcastContent(m *tgbotapi.Message) error {
 	payload, err := buildBroadcastPayload(m)
 	if err != nil {
 		msg := tgbotapi.NewMessage(m.Chat.ID, err.Error())
-		_, sendErr := n.bot.Send(msg)
+		_, sendErr := n.send(msg)
 		return sendErr
 	}
 
@@ -55,7 +55,7 @@ func (n *Net) HandleBroadcastContent(m *tgbotapi.Message) error {
 	if err != nil {
 		return err
 	}
-	_, err = n.bot.Send(preview)
+	_, err = n.send(preview)
 	return err
 }
 
@@ -83,7 +83,7 @@ func (n *Net) HandleBroadcastCallback(ctx context.Context, cq *tgbotapi.Callback
 			return fmt.Errorf("bot.Request: %w", err)
 		}
 		msg := tgbotapi.NewMessage(cq.Message.Chat.ID, "Рассылка отменена.")
-		_, err := n.bot.Send(msg)
+		_, err := n.send(msg)
 		return err
 	default:
 		return nil
@@ -149,7 +149,7 @@ func (n *Net) sendBroadcast(ctx context.Context, cq *tgbotapi.CallbackQuery) err
 
 	summary := fmt.Sprintf("Рассылка завершена. Всего: %d, отправлено: %d, ошибки: %d, заблокировано: %d", len(userIDs), sent, failed, blocked)
 	msg := tgbotapi.NewMessage(cq.Message.Chat.ID, summary)
-	_, err = n.bot.Send(msg)
+	_, err = n.send(msg)
 	return err
 }
 
@@ -173,12 +173,12 @@ func (n *Net) sendBroadcastPayload(chatID int64, payload *broadcastPayload) erro
 		msg := tgbotapi.NewPhoto(chatID, tgbotapi.FileID(payload.PhotoID))
 		msg.Caption = payload.Caption
 		msg.ParseMode = BroadcastParseMode
-		_, err := n.bot.Send(msg)
+		_, err := n.send(msg)
 		return err
 	}
 	msg := tgbotapi.NewMessage(chatID, payload.Text)
 	msg.ParseMode = BroadcastParseMode
-	_, err := n.bot.Send(msg)
+	_, err := n.send(msg)
 	return err
 }
 

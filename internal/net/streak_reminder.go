@@ -70,7 +70,7 @@ func (n *Net) sendStreakReminders(ctx context.Context) {
 		out := tgbotapi.NewMessage(h.UserID, fmt.Sprintf(StreakReminderFormat, h.Streak))
 		out.ParseMode = "html"
 		out.ReplyMarkup = button
-		if _, err := n.bot.Send(out); err != nil {
+		if _, err := n.send(out); err != nil {
 			if n.isBlockedError(err) {
 				if mErr := n.repo.MarkUserBlocked(ctx, h.UserID, "streak_reminder"); mErr != nil {
 					n.log.WithError(mErr).WithField("user_id", h.UserID).Warn("streak reminder: mark blocked")

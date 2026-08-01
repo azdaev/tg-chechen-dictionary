@@ -30,7 +30,7 @@ func (n *Net) HandleModerate(ctx context.Context, m *tgbotapi.Message) error {
 		return fmt.Errorf("repo.ListPendingTranslationPairs: %w", err)
 	}
 	if len(pairs) == 0 {
-		_, err = n.bot.Send(tgbotapi.NewMessage(m.Chat.ID, "Нет новых слов для модерации."))
+		_, err = n.send(tgbotapi.NewMessage(m.Chat.ID, "Нет новых слов для модерации."))
 		return err
 	}
 
@@ -39,12 +39,12 @@ func (n *Net) HandleModerate(ctx context.Context, m *tgbotapi.Message) error {
 		text := formatModerationMessage(pair)
 		msg := tgbotapi.NewMessage(modChatID, text)
 		msg.ReplyMarkup = moderationKeyboard(pair)
-		if _, err := n.bot.Send(msg); err != nil {
+		if _, err := n.send(msg); err != nil {
 			n.log.WithError(err).WithField("pair_id", pair.ID).Warn("failed to send moderation message")
 		}
 	}
 
-	_, err = n.bot.Send(tgbotapi.NewMessage(m.Chat.ID, fmt.Sprintf("Отправлено на модерацию: %d", len(pairs))))
+	_, err = n.send(tgbotapi.NewMessage(m.Chat.ID, fmt.Sprintf("Отправлено на модерацию: %d", len(pairs))))
 	return err
 }
 
@@ -82,7 +82,7 @@ func (n *Net) HandleModerationCallback(ctx context.Context, cq *tgbotapi.Callbac
 		cq.Message.MessageID,
 		status+"\n\n"+cq.Message.Text,
 	)
-	if _, err := n.bot.Send(edited); err != nil {
+	if _, err := n.send(edited); err != nil {
 		n.log.WithError(err).Warn("failed to edit moderation message")
 	}
 
@@ -113,7 +113,7 @@ func (n *Net) SendAutoModeration(ctx context.Context, word string) {
 		text := formatModerationMessage(pair)
 		msg := tgbotapi.NewMessage(modChatID, text)
 		msg.ReplyMarkup = moderationKeyboard(pair)
-		if _, err := n.bot.Send(msg); err != nil {
+		if _, err := n.send(msg); err != nil {
 			n.log.WithError(err).WithField("pair_id", pair.ID).Warn("failed to send moderation message")
 		}
 	}

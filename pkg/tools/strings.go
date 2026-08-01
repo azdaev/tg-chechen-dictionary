@@ -38,6 +38,17 @@ func Clean(text string) string {
 	return output
 }
 
+// StripTags removes HTML tags but keeps the line structure. It backs the
+// plain-text resend after Telegram rejects our markup, where Clean would be
+// wrong: Clean also folds newlines into spaces, which is right for a one-line
+// gloss and would turn a rejected card into a paragraph.
+func StripTags(text string) string {
+	if !strings.Contains(text, "<") {
+		return text
+	}
+	return tagRe.ReplaceAllString(text, "")
+}
+
 func NormalizeSearch(text string) string {
 	clean := Clean(text)
 	clean = strings.TrimSpace(clean)

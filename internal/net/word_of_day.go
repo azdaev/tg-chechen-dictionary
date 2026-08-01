@@ -35,7 +35,7 @@ func (n *Net) HandleWordOfDay(ctx context.Context, m *tgbotapi.Message) error {
 	out := tgbotapi.NewMessage(m.Chat.ID, wotdStatusText(subscribed, isGroup(m.Chat)))
 	out.ParseMode = "html"
 	out.ReplyMarkup = wotdButton(subscribed)
-	_, err = n.bot.Send(out)
+	_, err = n.send(out)
 	return err
 }
 
@@ -68,7 +68,7 @@ func (n *Net) HandleWordOfDayCallback(ctx context.Context, cq *tgbotapi.Callback
 
 	edit := tgbotapi.NewEditMessageTextAndMarkup(cq.Message.Chat.ID, cq.Message.MessageID, wotdStatusText(subscribe, group), wotdButton(subscribe))
 	edit.ParseMode = "html"
-	_, err := n.bot.Send(edit)
+	_, err := n.send(edit)
 	return err
 }
 
@@ -126,7 +126,7 @@ func (n *Net) maybeSuggestWordOfDay(ctx context.Context, chatID, userID int64) {
 	}
 	msg := tgbotapi.NewMessage(chatID, WotdNudgeText)
 	msg.ReplyMarkup = wotdButton(false)
-	if _, err := n.bot.Send(msg); err != nil {
+	if _, err := n.send(msg); err != nil {
 		n.log.WithError(err).WithField("user_id", userID).Warn("wotd nudge: send failed")
 	}
 }
@@ -338,7 +338,7 @@ func (n *Net) sendWordOfDay(ctx context.Context) {
 		out := tgbotapi.NewMessage(id, text)
 		out.ParseMode = "html"
 		out.ReplyMarkup = buttons
-		if _, err := n.bot.Send(out); err != nil {
+		if _, err := n.send(out); err != nil {
 			if n.isBlockedError(err) {
 				if mErr := n.repo.MarkUserBlocked(ctx, id, "word_of_day"); mErr != nil {
 					n.log.WithError(mErr).WithField("user_id", id).Warn("word of the day: mark blocked")
@@ -362,7 +362,7 @@ func (n *Net) sendWordOfDay(ctx context.Context) {
 		out := tgbotapi.NewMessage(id, text)
 		out.ParseMode = "html"
 		out.ReplyMarkup = buttons
-		if _, err := n.bot.Send(out); err != nil {
+		if _, err := n.send(out); err != nil {
 			if n.isBlockedError(err) {
 				if uErr := n.repo.SetChatWordOfDaySubscription(ctx, id, false); uErr != nil {
 					n.log.WithError(uErr).WithField("chat_id", id).Warn("word of the day: unsubscribe chat")

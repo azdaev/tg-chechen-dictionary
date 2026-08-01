@@ -87,7 +87,7 @@ func (n *Net) HandleRandom(ctx context.Context, chatID int64) error {
 	}
 
 	if word == nil {
-		_, err = n.bot.Send(tgbotapi.NewMessage(chatID, RandomEmptyText))
+		_, err = n.send(tgbotapi.NewMessage(chatID, RandomEmptyText))
 		return err
 	}
 
@@ -119,7 +119,7 @@ func (n *Net) HandleRandom(ctx context.Context, chatID int64) error {
 	msg.ParseMode = "html"
 	msg.ReplyMarkup = wordCardButtons(word.Chechen)
 
-	_, err = n.bot.Send(msg)
+	_, err = n.send(msg)
 	return err
 }
 

@@ -17,7 +17,7 @@ func (n *Net) HandleText(ctx context.Context, m *tgbotapi.Message) error {
 	// A typing indicator instead of the old ⌛️ loader message: the loader cost
 	// two blocking Telegram round trips (send + delete) on every lookup before
 	// any work started. Fire-and-forget so even this one doesn't delay the answer.
-	go n.bot.Send(tgbotapi.NewChatAction(m.Chat.ID, tgbotapi.ChatTyping))
+	go n.send(tgbotapi.NewChatAction(m.Chat.ID, tgbotapi.ChatTyping))
 
 	// Bookkeeping runs after the reply has been sent — storage writes should
 	// never sit between the user and the translation.
@@ -29,7 +29,7 @@ func (n *Net) HandleText(ctx context.Context, m *tgbotapi.Message) error {
 		// SuggestTranslations is skipped — it would fan one failed lookup out
 		// into four more against the provider that just failed.
 		n.log.WithError(err).WithField("word", m.Text).Warn("translation lookup failed")
-		_, sendErr := n.bot.Send(tgbotapi.NewMessage(m.Chat.ID, DictionaryUnavailableText))
+		_, sendErr := n.send(tgbotapi.NewMessage(m.Chat.ID, DictionaryUnavailableText))
 		return sendErr
 	}
 	if len(translations) == 0 {
@@ -46,11 +46,14 @@ func (n *Net) HandleText(ctx context.Context, m *tgbotapi.Message) error {
 		})
 		text := NoTranslationText
 		if suggestions := n.business.SuggestTranslations(m.Text); len(suggestions) > 0 {
-			text += "\n\n" + SuggestionsHeaderText + "\n\n" + tools.FormatPairs(suggestions)
+			// Clamped like every other card: three long glosses clear 4096
+			// characters, and Telegram answers an oversized message by sending
+			// nothing — turning a near miss into a blank screen.
+			text = clampMessage(text + "\n\n" + SuggestionsHeaderText + "\n\n" + tools.FormatPairs(suggestions))
 		}
 		msg := tgbotapi.NewMessage(m.Chat.ID, text)
 		msg.ParseMode = "html"
-		_, err := n.bot.Send(msg)
+		_, err := n.send(msg)
 		return err
 	}
 
@@ -90,7 +93,7 @@ func (n *Net) HandleText(ctx context.Context, m *tgbotapi.Message) error {
 		msg.Text += "\n\n" + MoreTranslationsHelpText
 	}
 
-	if _, err := n.bot.Send(msg); err != nil {
+	if _, err := n.send(msg); err != nil {
 		return fmt.Errorf("bot.Send: %w", err)
 	}
 
@@ -128,7 +131,7 @@ func (n *Net) maybeSendDonation(ctx context.Context, chatID int64, userID int) {
 			tgbotapi.NewInlineKeyboardButtonURL("🚀 Поддержать нас", os.Getenv("DONATION_LINK")),
 		),
 	)
-	if _, err := n.bot.Send(donationMsg); err != nil {
+	if _, err := n.send(donationMsg); err != nil {
 		n.log.WithError(err).WithField("user_id", userID).Warn("failed to send donation message")
 		return
 	}
@@ -279,12 +282,8 @@ func (n *Net) HandleInline(ctx context.Context, iq *tgbotapi.InlineQuery) error 
 		Results:       articles,
 	}
 
-	resp, err := n.bot.Request(inlineConf)
-	if err != nil {
-		return fmt.Errorf("bot.Request: %w", err)
-	}
-	if !resp.Ok {
-		return fmt.Errorf("bot.Request: %s", resp.Description)
+	if err := n.answerInline(inlineConf); err != nil {
+		return fmt.Errorf("answerInline: %w", err)
 	}
 
 	n.recordActivity(ctx, iq.From.ID, iq.From.UserName, models.ActivityTypeInline)
@@ -323,12 +322,8 @@ func (n *Net) answerInlineDiscovery(ctx context.Context, iq *tgbotapi.InlineQuer
 		CacheTime:     InlineDiscoveryCacheSec,
 		Results:       articles,
 	}
-	resp, err := n.bot.Request(inlineConf)
-	if err != nil {
-		return fmt.Errorf("bot.Request: %w", err)
-	}
-	if !resp.Ok {
-		return fmt.Errorf("bot.Request: %s", resp.Description)
+	if err := n.answerInline(inlineConf); err != nil {
+		return fmt.Errorf("answerInline: %w", err)
 	}
 	return nil
 }
@@ -349,11 +344,11 @@ func (n *Net) HandleMoreTranslations(ctx context.Context, cq *tgbotapi.CallbackQ
 	translations, err := n.business.Translate(word)
 	if err != nil {
 		n.log.WithError(err).WithField("word", word).Warn("more-translations lookup failed")
-		_, sendErr := n.bot.Send(tgbotapi.NewMessage(cq.Message.Chat.ID, DictionaryUnavailableText))
+		_, sendErr := n.send(tgbotapi.NewMessage(cq.Message.Chat.ID, DictionaryUnavailableText))
 		return sendErr
 	}
 	if len(translations) == 0 {
-		_, err := n.bot.Send(tgbotapi.NewMessage(cq.Message.Chat.ID, NoTranslationText))
+		_, err := n.send(tgbotapi.NewMessage(cq.Message.Chat.ID, NoTranslationText))
 		return err
 	}
 
@@ -385,7 +380,7 @@ func (n *Net) HandleMoreTranslations(ctx context.Context, cq *tgbotapi.CallbackQ
 		}
 	}
 
-	if _, err := n.bot.Send(msg); err != nil {
+	if _, err := n.send(msg); err != nil {
 		return fmt.Errorf("bot.Send: %w", err)
 	}
 	return nil
@@ -442,7 +437,7 @@ func (n *Net) sendGrammarCard(ctx context.Context, chatID int64, word string) {
 	msg := tgbotapi.NewMessage(chatID, text)
 	msg.ParseMode = "html"
 	msg.DisableNotification = true
-	if _, err := n.bot.Send(msg); err != nil {
+	if _, err := n.send(msg); err != nil {
 		n.log.WithError(err).Warn("failed to send grammar card")
 	}
 }

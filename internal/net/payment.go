@@ -59,7 +59,7 @@ func (n *Net) sendInvoice(chatID int64) error {
 		SuggestedTipAmounts: []int{},
 	}
 
-	_, err := n.bot.Send(invoice)
+	_, err := n.send(invoice)
 	return err
 }
 
@@ -74,7 +74,7 @@ func (n *Net) HandleSubscribe(ctx context.Context, m *tgbotapi.Message) error {
 
 	if hasSub {
 		msg := tgbotapi.NewMessage(m.Chat.ID, "✅ У вас уже есть активная подписка. Проверка орфографии без ограничений!")
-		_, err = n.bot.Send(msg)
+		_, err = n.send(msg)
 		return err
 	}
 
@@ -109,7 +109,7 @@ func (n *Net) HandleSubscribe(ctx context.Context, m *tgbotapi.Message) error {
 	}
 
 	infoMsg := tgbotapi.NewMessage(m.Chat.ID, text)
-	if _, err = n.bot.Send(infoMsg); err != nil {
+	if _, err = n.send(infoMsg); err != nil {
 		return err
 	}
 
@@ -154,7 +154,7 @@ func (n *Net) HandleSuccessfulPayment(ctx context.Context, m *tgbotapi.Message) 
 	if err := n.repo.CreateSubscription(ctx, userID, expiresAt, payment.TelegramPaymentChargeID); err != nil {
 		n.log.WithError(err).WithField("user_id", userID).Error("failed to create subscription")
 		msg := tgbotapi.NewMessage(m.Chat.ID, "⚠️ Оплата прошла, но произошла ошибка. Обратитесь к администратору.")
-		n.bot.Send(msg)
+		n.send(msg)
 		return err
 	}
 
@@ -162,6 +162,6 @@ func (n *Net) HandleSuccessfulPayment(ctx context.Context, m *tgbotapi.Message) 
 		"✅ Подписка активирована!\n\nБезлимитная проверка орфографии до %s.\n\nИспользуйте /check или начните сообщение с точки.",
 		expiresAt.Format("02.01.2006"),
 	))
-	_, err := n.bot.Send(msg)
+	_, err := n.send(msg)
 	return err
 }
