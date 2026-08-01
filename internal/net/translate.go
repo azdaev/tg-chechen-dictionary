@@ -93,14 +93,18 @@ func (n *Net) HandleText(ctx context.Context, m *tgbotapi.Message) error {
 		msg.Text += "\n\n" + MoreTranslationsHelpText
 	}
 
-	if _, err := n.send(msg); err != nil {
-		return fmt.Errorf("bot.Send: %w", err)
+	sent, err := n.send(msg)
+	if err != nil {
+		return fmt.Errorf("send: %w", err)
 	}
 
-	// Grammar card for the Chechen headword, sent as a follow-up so it never
-	// delays the (usually cached) translation above. Runs detached because the
-	// update loop processes messages synchronously and this makes a live API call.
-	n.bg.Go(func() { n.sendGrammarCard(context.Background(), m.Chat.ID, m.Text) })
+	// Grammar card for the headword the user is actually looking at — not for
+	// what they typed, which may be an inflected form that matched a different
+	// entry. Sent as a follow-up so it never delays the (usually cached)
+	// translation above, and detached because the update loop processes
+	// messages synchronously while this makes a live API call.
+	headword := firstTranslations[0].Original
+	n.bg.Go(func() { n.sendGrammarCard(context.Background(), m.Chat.ID, sent.MessageID, headword) })
 
 	// Donation nudge runs detached: it is a DB check plus an extra Telegram
 	// message per lookup, and was the last synchronous roundtrip in this tail.
@@ -417,9 +421,11 @@ func parseMoreCallback(data string) (word string, offset int, ok bool) {
 const maxGrammarForms = 12
 
 // sendGrammarCard looks up grammar for the Chechen headword behind a query and,
-// if any is available, sends a compact follow-up card. It is a no-op when the
-// word has no analyzed grammar, so most TEXT/phrase lookups send nothing.
-func (n *Net) sendGrammarCard(ctx context.Context, chatID int64, word string) {
+// if any is available, sends a compact follow-up card as a reply to the
+// translation it belongs to — unattached, it reads as a message about nothing.
+// It is a no-op when the word has no analyzed grammar, so most TEXT/phrase
+// lookups send nothing.
+func (n *Net) sendGrammarCard(ctx context.Context, chatID int64, replyTo int, word string) {
 	// Optional enrichment on top of a translation already delivered, so a
 	// failure just means no card — logged, never surfaced.
 	g, err := n.business.GrammarFor(ctx, word)
@@ -437,6 +443,11 @@ func (n *Net) sendGrammarCard(ctx context.Context, chatID int64, word string) {
 	msg := tgbotapi.NewMessage(chatID, text)
 	msg.ParseMode = "html"
 	msg.DisableNotification = true
+	msg.ReplyToMessageID = replyTo
+	// The translation can be gone by now — the card is detached and the user may
+	// have deleted it. Without this, a missing parent turns the whole card into
+	// a "message to reply not found" error instead of a plain message.
+	msg.AllowSendingWithoutReply = true
 	if _, err := n.send(msg); err != nil {
 		n.log.WithError(err).Warn("failed to send grammar card")
 	}

@@ -84,7 +84,15 @@ func (b *Business) computeGrammar(ctx context.Context, word string) (*models.Wor
 	if err != nil {
 		return nil, err
 	}
-	best := bestGrammarEntry(entries, "")
+	// The headword the user is looking at gets first refusal, then the
+	// highest-rated analyzed entry. It has to be a preference and not a filter:
+	// bestGrammarEntry already considers only analyzed Chechen entries, so
+	// requiring a match would return nil for every Russian query — the grammar
+	// card would vanish for half the dictionary rather than pick the wrong word.
+	best := bestGrammarEntry(entries, word)
+	if best == nil {
+		best = bestGrammarEntry(entries, "")
+	}
 	if best == nil {
 		return nil, nil
 	}
@@ -166,10 +174,16 @@ func (b *Business) findGrammarEntries(ctx context.Context, word string) ([]gramm
 }
 
 // bestGrammarEntry picks the highest-rated analyzed Chechen WORD entry. When
-// mustMatch is non-empty, only entries whose content equals it (case-folded)
-// are considered, so an enrichment re-query can't drift to an unrelated word.
+// mustMatch is non-empty, only entries whose headword matches it are
+// considered, so a caller can pin the result to one word — an enrichment
+// re-query must not drift, and callers that merely prefer a word retry with an
+// empty mustMatch.
+//
+// Matching goes through the search normalization, not EqualFold: displayed
+// headwords differ from what reaches here by ё, by which character stands in
+// for the palochka, and by combining stress marks.
 func bestGrammarEntry(entries []grammarEntry, mustMatch string) *grammarEntry {
-	mustMatch = strings.TrimSpace(mustMatch)
+	key := normalizeForRank(mustMatch)
 	var best *grammarEntry
 	for i := range entries {
 		e := &entries[i]
@@ -179,7 +193,7 @@ func bestGrammarEntry(entries []grammarEntry, mustMatch string) *grammarEntry {
 		if e.Type != "WORD" || !entryHasGrammar(e) {
 			continue
 		}
-		if mustMatch != "" && !strings.EqualFold(strings.TrimSpace(e.Content), mustMatch) {
+		if key != "" && normalizeForRank(e.Content) != key {
 			continue
 		}
 		if best == nil || e.Rate > best.Rate {

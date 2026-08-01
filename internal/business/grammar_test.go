@@ -56,6 +56,61 @@ func TestPosFromDetails(t *testing.T) {
 	}
 }
 
+// A dosham lookup returns every entry whose content contains the query, so the
+// card the user is reading competes with better-weighted neighbours. Picking by
+// rate alone shows the translation of one word and the grammar of another.
+func TestBestGrammarEntry_PrefersTheDisplayedHeadword(t *testing.T) {
+	analyzed := func(content string, rate int) grammarEntry {
+		return grammarEntry{Content: content, Type: "WORD", Rate: rate, Details: `{"Case":1,"Declension":1}`}
+	}
+	entries := []grammarEntry{
+		analyzed("Диттан", 10000),
+		analyzed("Дитт", 16),
+		analyzed("Дитташ", 100),
+	}
+
+	if got := bestGrammarEntry(entries, "дитт"); got == nil || got.Content != "Дитт" {
+		t.Fatalf("got %+v, want the headword the card shows despite its lower rate", got)
+	}
+
+	// Displayed headwords reach here spelled however the dictionary writes
+	// them: palochka stand-ins, ё, a stress mark. EqualFold sees none of that.
+	for _, spelling := range []string{"ДИТТ", "дитт "} {
+		if got := bestGrammarEntry(entries, spelling); got == nil || got.Content != "Дитт" {
+			t.Errorf("%q: got %+v, want Дитт", spelling, got)
+		}
+	}
+
+	// No match is not "no card": the caller retries without a requirement, and
+	// that fallback has to still find the best entry. A Russian headword never
+	// matches an analyzed Chechen entry, which is every Russian query.
+	if got := bestGrammarEntry(entries, "дом"); got != nil {
+		t.Errorf("a pinned lookup must not drift, got %+v", got)
+	}
+	if got := bestGrammarEntry(entries, ""); got == nil || got.Content != "Диттан" {
+		t.Errorf("fallback = %+v, want the highest-rated entry", got)
+	}
+}
+
+// The preference must degrade to the old behaviour rather than to nothing.
+// Only Chechen entries are analyzed, so a Russian query can never match its own
+// headword — as a filter this would delete the grammar card for every Russian
+// lookup, which is most of them.
+func TestComputeGrammar_RussianQueryStillGetsACard(t *testing.T) {
+	stubDoshamAPI(t, http.StatusOK, `{"data":{"find":[
+		{"content":"Цӏа","type":"WORD","rate":100,"details":"{\"Case\":1,\"Declension\":1}",
+		 "entryForms":[{"content":"цӏенош"}],"relatedEntries":[]}]}}`)
+	b := &Business{log: logrus.New()}
+
+	g, err := b.computeGrammar(context.Background(), "дом")
+	if err != nil {
+		t.Fatalf("computeGrammar: %v", err)
+	}
+	if g == nil || g.Headword != "Цӏа" {
+		t.Fatalf("got %+v, want the analyzed Chechen entry", g)
+	}
+}
+
 func TestEntryHasGrammar(t *testing.T) {
 	cases := []struct {
 		name string
