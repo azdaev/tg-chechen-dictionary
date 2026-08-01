@@ -5,6 +5,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"unicode/utf8"
 )
 
 var (
@@ -16,10 +17,11 @@ var (
 	// plus dash continuation keeps real words safe.
 	grammarRe = regexp.MustCompile(`^([а-яёӏ]\s+)+`)
 	endingsRe = regexp.MustCompile(`^-?[а-яё]{1,3}(,\s*-[а-яё]{1,3})+\s*`)
-	// verbLabelRe strips the aspect/government labels heading verb glosses
-	// ("сов., кому 1) …", "несов. дала") — grammar metadata, not translation,
-	// and otherwise it becomes the card's header.
-	verbLabelRe = regexp.MustCompile(`^((не)?сов\.|однокр\.|многокр\.|перех\.|неперех\.|безл\.|нескл\.|кому-чему|кого-что|о ком|о чём|кому|чему|кого|кем|чем|ком|что)([,;]?\s+)`)
+	// verbLabelRe strips the grammar labels heading a gloss ("сов., кому 1) …",
+	// "несов. дала", "тк. мн. собир. …") — metadata, not translation, and
+	// otherwise the first one becomes the card's header. Applied in a loop, so
+	// a chain of them peels off one at a time.
+	verbLabelRe = regexp.MustCompile(`^((не)?сов\.|однокр\.|многокр\.|перех\.|неперех\.|безл\.|нескл\.|т\.к\.|тк\.|мн\.|ед\.|собир\.|кратк\. ф\.|в знач\. сказ\.|кому-чему|кого-что|о ком|о чём|кому|чему|кого|кем|чем|ком|что)([,;]?\s+)`)
 	// Sense markers come as "1)" but also as "ӏ. " (palochka standing in for
 	// the digit) and "2. " in live dosham glosses.
 	meaningRe = regexp.MustCompile(`(\d+\)|(?:^|\s)[ӏ\d]\.\s)`)
@@ -31,11 +33,10 @@ func Clean(text string) string {
 	if !strings.ContainsAny(text, "<\n") {
 		return text
 	}
+	// tagRe already consumed "<>" and "<br />" by the time the old explicit
+	// replacements for them ran, so they never fired.
 	output := tagRe.ReplaceAllString(text, "")
-	output = strings.ReplaceAll(output, "<>", ";")
-	output = strings.ReplaceAll(output, "<br />", " ")
-	output = strings.ReplaceAll(output, "\n", " ")
-	return output
+	return strings.ReplaceAll(output, "\n", " ")
 }
 
 // StripTags removes HTML tags but keeps the line structure. It backs the
@@ -395,22 +396,30 @@ func parseExamples(text string, chechenLeads bool) []string {
 	return examples
 }
 
-// splitExample splits one "russian - chechen" example at its first dash. The
-// source data mixes hyphens with en/em dashes, so all three count. ok is false
-// when there is no inner dash to split on.
-func splitExample(part string) (russian, chechen string, ok bool) {
-	idx, width := -1, 0
-	for _, d := range []string{"-", "–", "—"} {
-		if i := strings.Index(part, d); i != -1 && (idx == -1 || i < idx) {
-			idx, width = i, len(d)
+// splitExample splits one example at the dash separating its two sides. The
+// source data mixes hyphens with en/em dashes, so all three count, and the
+// separator needs a space on at least one side: live glosses glue it to the
+// preceding tilde ("деревянный ~- дечиган цӏа") but never write the
+// case-government shorthand ("кого-л.", "что-л.") with any space at all, and
+// splitting on that one turns «проводить кого-л. до дома» into «л. до дома →
+// проводить кого». ok is false when no dash qualifies.
+func splitExample(part string) (left, right string, ok bool) {
+	for i, r := range part {
+		if r != '-' && r != '–' && r != '—' {
+			continue
 		}
+		width := utf8.RuneLen(r)
+		if i == 0 || i+width >= len(part) {
+			continue // nothing to put on one of the sides
+		}
+		if part[i-1] != ' ' && part[i+width] != ' ' {
+			continue // inside a word
+		}
+		left = strings.Trim(strings.TrimSpace(part[:i]), `"«»""`)
+		right = strings.Trim(strings.TrimSpace(part[i+width:]), `"«»""`)
+		return left, right, true
 	}
-	if idx <= 0 || idx+width >= len(part) {
-		return "", "", false
-	}
-	russian = strings.Trim(strings.TrimSpace(part[:idx]), `"«»""`)
-	chechen = strings.Trim(strings.TrimSpace(part[idx+width:]), `"«»""`)
-	return russian, chechen, true
+	return "", "", false
 }
 
 // replaceTildeWithWord заменяет тильду (~) в тексте на основное слово
@@ -443,7 +452,10 @@ func replaceTildeWithWord(text, word string) string {
 	return result
 }
 
-// getWordBase получает основу слова для склонения
+// getWordBase получает основу слова для склонения.
+// ponytail: суффиксная эвристика. Множественные заголовки она не берёт —
+// «Французы» с «~з» даёт «французз» вместо «француз», потому что основа там
+// «францу». Чинится только морфологией, а её в боте нет.
 func getWordBase(word string) string {
 	word = strings.ToLower(word)
 
@@ -452,9 +464,14 @@ func getWordBase(word string) string {
 		return word
 	}
 
-	// Прилагательные на -ый, -ий, -ой → убираем 2 символа
+	// Прилагательные на -ый, -ий, -ой → убираем 2 символа.
+	// Глаголы в инфинитиве на -ть, -ти, -чь → тоже: без этого «Блистать» с
+	// «~ли звёзды» даёт «блистатьли», а «Распрячь» с «~ги коня» — «распрячьги».
+	// Инфинитив стоит заголовком у каждой глагольной статьи, так что случай
+	// массовый, а не краевой.
 	last2 := string(runes[len(runes)-2:])
-	if last2 == "ый" || last2 == "ий" || last2 == "ой" {
+	if last2 == "ый" || last2 == "ий" || last2 == "ой" ||
+		last2 == "ть" || last2 == "ти" || last2 == "чь" {
 		return string(runes[:len(runes)-2])
 	}
 
@@ -481,7 +498,16 @@ var abbreviationReplacer = newAbbreviationReplacer()
 
 func newAbbreviationReplacer() *strings.Replacer {
 	abbreviations := map[string]string{
-		"тж.":        "также",
+		"тж.": "также",
+		// Both spellings occur live: "тк. мн." in «Нечистоты», "т.к. кратк. ф."
+		// in «Длинный». In a dictionary gloss it is "только", not "так как".
+		"тк.":  "только",
+		"т.к.": "только",
+		// "кратк." earns an entry even though the card rarely shows it: without
+		// one the replacer finds "тк." inside it and writes "кратолько".
+		// Longest-first ordering then lets the whole phrase win.
+		"кратк. ф.":  "(краткая форма)",
+		"кратк.":     "(краткая форма)",
 		"вводн. сл.": "(вводное слово)",
 		"разг.":      "(разговорное)",
 		"прост.":     "(просторечие)",

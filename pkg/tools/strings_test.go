@@ -289,6 +289,54 @@ func TestParseExamples(t *testing.T) {
 	}
 }
 
+// The separator needs a space on at least one side. Live glosses glue it to a
+// preceding tilde, and the case-government shorthand never carries a space at
+// all — so "surrounded by spaces" would break real records and "any dash"
+// shreds real examples.
+func TestSplitExample_DashGluedToTilde(t *testing.T) {
+	cases := []struct {
+		name, in, left, right string
+		ok                    bool
+	}{
+		{"glued to the tilde", "деревянный ~- дечиган цӏа", "деревянный ~", "дечиган цӏа", true},
+		{"glued on the right", "костюм ему ~ -костюм цунна йоккхо ю", "костюм ему ~", "костюм цунна йоккхо ю", true},
+		{"spaces on both sides", "~ путь - беха некъ", "~ путь", "беха некъ", true},
+		{"en dash glued right", "из глаз ~ли слёзы –бӏаьргашкара хиш оьхура", "из глаз ~ли слёзы", "бӏаьргашкара хиш оьхура", true},
+		// The whole point: "кого-л." is one token, not two sides.
+		{"case shorthand is not a separator", "проводить кого-л. до дома", "", "", false},
+		{"first qualifying dash wins", "что-л. взять - схьаэца", "что-л. взять", "схьаэца", true},
+		{"no dash at all", "просто перевод", "", "", false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			left, right, ok := splitExample(c.in)
+			if ok != c.ok || left != c.left || right != c.right {
+				t.Errorf("splitExample(%q) = %q/%q/%v, want %q/%q/%v", c.in, left, right, ok, c.left, c.right, c.ok)
+			}
+		})
+	}
+}
+
+// Grammar labels are metadata; the first one landing in the header makes the
+// card open with «тк.» instead of the translation.
+func TestFormatTranslationLite_NumberLabelsLeaveTheHeader(t *testing.T) {
+	got := FormatTranslationLite("**Нечистоты** - тк. мн. боьхаллашш", "Нечистоты", true)
+	if got != "Нечистоты — <b>боьхаллашш</b>" {
+		t.Errorf("got %q, want the label gone from the header", got)
+	}
+
+	got = FormatTranslationLite("**Вайнахи** - тк. мн. собир. (чеченцы и ингуши) вайнах", "Вайнахи", true)
+	if strings.Contains(got, "только") || strings.Contains(got, "множественное") {
+		t.Errorf("a chain of labels must peel off completely: %q", got)
+	}
+
+	// "тк." lives inside "кратк.", so expanding it without an entry for the
+	// longer word writes "кратолько".
+	if got := expandAbbreviations("кратк. ф. в знач. сказ."); strings.Contains(got, "кратолько") {
+		t.Errorf("abbreviation matched inside a longer word: %q", got)
+	}
+}
+
 func TestReplaceTildeWithWord(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -365,6 +413,13 @@ func TestGetWordBase(t *testing.T) {
 		{"папа", "пап"},
 		{"", ""},
 		{"а", "а"},
+		// Every verb entry is headed by its infinitive, so keeping the -ть made
+		// «Блистать» + «~ли звёзды» read «блистатьли звёзды» on a whole class
+		// of cards, not an odd one.
+		{"блистать", "блиста"},
+		{"брызнуть", "брызну"},
+		{"распрячь", "распря"},
+		{"идти", "ид"},
 	}
 
 	for _, tt := range tests {

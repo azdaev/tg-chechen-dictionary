@@ -33,21 +33,30 @@ var (
 	markerLeftover = regexp.MustCompile(`(^|\n)[^—\n]{0,2}— ?([а-яёӏ] |-[а-яё]{1,3}[,;]|нескл\.|(не)?сов\.)`)
 )
 
+// cardTags are the tags the renderer emits on purpose. Everything else in
+// angle brackets came from the data and would break an HTML-mode send.
+var cardTags = strings.NewReplacer("<b>", "", "</b>", "", "<i>", "", "</i>", "")
+
 func suspicions(rendered string) []string {
+	// Checks run against the card with its own markup removed: the renderer
+	// bolds the studied language and italicises examples, so looking for tags
+	// in the raw string flags every card ever produced.
+	plain := cardTags.Replace(rendered)
+
 	var out []string
-	if strings.Contains(rendered, "~") {
+	if strings.Contains(plain, "~") {
 		out = append(out, "raw tilde")
 	}
-	if senseLeftover.MatchString(rendered) {
+	if senseLeftover.MatchString(plain) {
 		out = append(out, "sense number leftover")
 	}
-	if strings.ContainsAny(rendered, "<>") {
+	if strings.ContainsAny(plain, "<>") {
 		out = append(out, "angle bracket")
 	}
-	if markerLeftover.MatchString(rendered) {
+	if markerLeftover.MatchString(plain) {
 		out = append(out, "marker in header")
 	}
-	if first, _, _ := strings.Cut(rendered, "\n"); strings.HasSuffix(strings.TrimSpace(first), "—") {
+	if first, _, _ := strings.Cut(plain, "\n"); strings.HasSuffix(strings.TrimSpace(first), "—") {
 		out = append(out, "empty header translation")
 	}
 	return out
