@@ -120,6 +120,8 @@ type UserStore interface {
 	MarkUserBlocked(ctx context.Context, userID int64, reason string) error
 	ShouldSendDonationMessage(ctx context.Context, userID int) (bool, error)
 	StoreDonationMessage(ctx context.Context, userID int) error
+	WasInlineHinted(ctx context.Context, userID int64) (bool, error)
+	MarkInlineHinted(ctx context.Context, userID int64) error
 }
 
 // StatsStore answers the aggregate questions behind /stats.

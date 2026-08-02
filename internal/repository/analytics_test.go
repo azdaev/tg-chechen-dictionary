@@ -2,6 +2,7 @@ package repository
 
 import (
 	entities "chetoru/internal/models"
+	"chetoru/migrations"
 	"context"
 	"database/sql"
 	"testing"
@@ -19,23 +20,11 @@ func newActivityTestRepo(t *testing.T) (*Repository, *sql.DB) {
 	db.SetMaxOpenConns(1)
 	t.Cleanup(func() { db.Close() })
 
-	_, err = db.Exec(`CREATE TABLE users (
-		id INTEGER PRIMARY KEY AUTOINCREMENT,
-		user_id INTEGER NOT NULL UNIQUE,
-		username TEXT,
-		is_blocked INTEGER NOT NULL DEFAULT 0,
-		blocked_at DATETIME,
-		blocked_reason TEXT,
-		created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-	);
-	CREATE TABLE activity (
-		id INTEGER PRIMARY KEY AUTOINCREMENT,
-		user_id INTEGER NOT NULL,
-		activity_type INTEGER NOT NULL,
-		created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-	);`)
-	if err != nil {
-		t.Fatalf("create tables: %v", err)
+	// Real migrations, not a hand-built copy: a duplicated schema drifts from
+	// production silently, and every column added since would have to be
+	// remembered here too.
+	if err := migrations.Up(db); err != nil {
+		t.Fatalf("migrations.Up: %v", err)
 	}
 	return NewRepository(db), db
 }
@@ -183,5 +172,40 @@ func TestMarkUserUnblocked_RestoresBlockedUser(t *testing.T) {
 	ids, err = r.ListUserIDs(ctx)
 	if err != nil || len(ids) != 1 {
 		t.Fatalf("no-op unblock changed listing: ids=%v err=%v", ids, err)
+	}
+}
+
+// The hint is one lesson per user, so the flag has to survive the lookup that
+// showed it — and an unknown user must not be taught into a loop.
+func TestInlineHintIsOncePerUser(t *testing.T) {
+	r, _ := newActivityTestRepo(t)
+	ctx := context.Background()
+
+	// No row yet: the user row is written at the end of the same lookup, so
+	// reading "not hinted" here would show the hint again on the next one.
+	if hinted, err := r.WasInlineHinted(ctx, 1); err != nil || !hinted {
+		t.Fatalf("unknown user = %v (err %v), want hinted", hinted, err)
+	}
+
+	if err := r.StoreUser(ctx, 1, "amady"); err != nil {
+		t.Fatalf("StoreUser: %v", err)
+	}
+	if hinted, err := r.WasInlineHinted(ctx, 1); err != nil || hinted {
+		t.Fatalf("fresh user = %v (err %v), want not hinted", hinted, err)
+	}
+
+	if err := r.MarkInlineHinted(ctx, 1); err != nil {
+		t.Fatalf("MarkInlineHinted: %v", err)
+	}
+	if hinted, err := r.WasInlineHinted(ctx, 1); err != nil || !hinted {
+		t.Fatalf("after marking = %v (err %v), want hinted", hinted, err)
+	}
+
+	// Re-storing the user on every lookup must not clear the flag.
+	if err := r.StoreUser(ctx, 1, "amady"); err != nil {
+		t.Fatalf("StoreUser again: %v", err)
+	}
+	if hinted, err := r.WasInlineHinted(ctx, 1); err != nil || !hinted {
+		t.Fatalf("after re-store = %v (err %v), want still hinted", hinted, err)
 	}
 }

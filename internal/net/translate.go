@@ -75,6 +75,7 @@ func (n *Net) HandleText(ctx context.Context, m *tgbotapi.Message) error {
 	msg := tgbotapi.NewMessage(m.Chat.ID, clampMessage(tools.FormatPairs(firstTranslations)))
 	msg.ParseMode = "html"
 
+	var hintInline bool
 	if len(translations) > MaxTranslations {
 		remainingCount := len(translations) - MaxTranslations
 		// Only attach the "More" button when its callback data fits Telegram's
@@ -90,12 +91,27 @@ func (n *Net) HandleText(ctx context.Context, m *tgbotapi.Message) error {
 				),
 			)
 		}
-		msg.Text += "\n\n" + MoreTranslationsHelpText
+		// The inline-mode hint is a lesson, not a footer. Once learned it is a
+		// paragraph the reader skips on every long answer, sitting between them
+		// and the translations they asked for.
+		hintInline = n.shouldHintInline(ctx, m.From.ID)
+		if hintInline {
+			msg.Text += "\n\n" + MoreTranslationsHelpText
+		}
 	}
 
 	sent, err := n.send(msg)
 	if err != nil {
 		return fmt.Errorf("send: %w", err)
+	}
+	if hintInline {
+		// Marked only after it actually reached someone: a failed send means
+		// the lesson was never taught.
+		n.bg.Go(func() {
+			if err := n.repo.MarkInlineHinted(ctx, m.From.ID); err != nil {
+				n.log.WithError(err).WithField("user_id", m.From.ID).Warn("failed to mark inline hint")
+			}
+		})
 	}
 
 	// Grammar card for the headword the user is actually looking at — not for
@@ -115,6 +131,18 @@ func (n *Net) HandleText(ctx context.Context, m *tgbotapi.Message) error {
 	}
 
 	return nil
+}
+
+// shouldHintInline reports whether this user still needs the inline-mode
+// lesson. A failed check stays silent: the hint is optional, and repeating it
+// is the thing being fixed.
+func (n *Net) shouldHintInline(ctx context.Context, userID int64) bool {
+	hinted, err := n.repo.WasInlineHinted(ctx, userID)
+	if err != nil {
+		n.log.WithError(err).WithField("user_id", userID).Warn("inline hint: check failed")
+		return false
+	}
+	return !hinted
 }
 
 // maybeSendDonation sends the periodic donation ask if the user is due one.

@@ -4,6 +4,7 @@ import (
 	entities "chetoru/internal/models"
 	"context"
 	"database/sql"
+	"errors"
 	"time"
 )
 
@@ -50,6 +51,25 @@ func (r *Repository) RecordUserActivity(ctx context.Context, userID int64, usern
 		return err
 	}
 	return tx.Commit()
+}
+
+// WasInlineHinted reports whether the one-time inline-mode hint has been shown.
+// An unknown user reads as hinted: the user row is written at the end of the
+// same lookup, so the alternative is showing the hint again on the next one —
+// which is the repetition this exists to stop.
+func (r *Repository) WasInlineHinted(ctx context.Context, userID int64) (bool, error) {
+	var v int
+	err := r.db.QueryRowContext(ctx, "SELECT inline_hinted FROM users WHERE user_id = ?;", userID).Scan(&v)
+	if errors.Is(err, sql.ErrNoRows) {
+		return true, nil
+	}
+	return v == 1, err
+}
+
+// MarkInlineHinted records that the inline-mode hint went out.
+func (r *Repository) MarkInlineHinted(ctx context.Context, userID int64) error {
+	_, err := r.db.ExecContext(ctx, "UPDATE users SET inline_hinted = 1 WHERE user_id = ?;", userID)
+	return err
 }
 
 // CountUserActivity returns how many lookups (text and inline) a user has made.
