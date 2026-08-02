@@ -86,6 +86,31 @@ func TestNoTranslationWithSuggestionsIsClamped(t *testing.T) {
 	}
 }
 
+// The button carries the typed word, so a long one blows Telegram's 64-byte
+// callback cap and the send fails with it — the whole miss message lost to a
+// button nobody needed.
+func TestCheckCallbackData_FitsLimit(t *testing.T) {
+	data, ok := checkCallbackData("гӏала")
+	if !ok || data != "check_гӏала" {
+		t.Errorf("checkCallbackData(гӏала) = %q/%v", data, ok)
+	}
+
+	// isRecordableMissingWord allows up to 40 runes, and Cyrillic costs two
+	// bytes each — so the cap is reachable through the front door.
+	if _, ok := checkCallbackData(strings.Repeat("ц", 40)); ok {
+		t.Error("a 40-rune word must be reported as too long to encode")
+	}
+
+	// Round-trips through the router's prefix, which is what the handler cuts.
+	data, _ = checkCallbackData(" дитт ")
+	if !strings.HasPrefix(data, "check_") {
+		t.Errorf("data = %q, want the check_ prefix the router matches", data)
+	}
+	if word, _ := strings.CutPrefix(data, "check_"); word != "дитт" {
+		t.Errorf("round-trip = %q, want the trimmed word", word)
+	}
+}
+
 func TestIsRecordableMissingWord(t *testing.T) {
 	cases := []struct {
 		word string

@@ -33,17 +33,20 @@ func (n *Net) HandleText(ctx context.Context, m *tgbotapi.Message) error {
 		return sendErr
 	}
 	if len(translations) == 0 {
-		// Record the vocabulary gap so maintainers know what to add next —
-		// detached, so the write never delays the reply the user is waiting on.
-		n.bg.Go(func() {
-			cleanWord := tools.NormalizeSearch(m.Text)
-			if !isRecordableMissingWord(cleanWord) {
-				return
-			}
-			if err := n.repo.RecordMissingWord(ctx, cleanWord, strings.TrimSpace(m.Text)); err != nil {
-				n.log.WithError(err).WithField("word", cleanWord).Warn("failed to record missing word")
-			}
-		})
+		cleanWord := tools.NormalizeSearch(m.Text)
+		// Whether the gap is worth recording also decides what we tell the
+		// user: promising that a URL or a whole sentence went on the list would
+		// be a lie, and offering to spellcheck one is no use either.
+		recordable := isRecordableMissingWord(cleanWord)
+		if recordable {
+			// Detached, so the write never delays the reply the user is waiting on.
+			n.bg.Go(func() {
+				if err := n.repo.RecordMissingWord(ctx, cleanWord, strings.TrimSpace(m.Text)); err != nil {
+					n.log.WithError(err).WithField("word", cleanWord).Warn("failed to record missing word")
+				}
+			})
+		}
+
 		text := NoTranslationText
 		if suggestions := n.business.SuggestTranslations(m.Text); len(suggestions) > 0 {
 			// Clamped like every other card: three long glosses clear 4096
@@ -53,6 +56,23 @@ func (n *Net) HandleText(ctx context.Context, m *tgbotapi.Message) error {
 		}
 		msg := tgbotapi.NewMessage(m.Chat.ID, text)
 		msg.ParseMode = "html"
+
+		// A miss used to be a dead end. It now says what happened to the word
+		// and offers the one thing that most often explains it — a typo, which
+		// the checker already knows how to find.
+		if recordable {
+			msg.Text += "\n\n" + MissingWordRecordedText
+			if n.ai != nil {
+				if data, ok := checkCallbackData(m.Text); ok {
+					msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(
+						tgbotapi.NewInlineKeyboardRow(
+							tgbotapi.NewInlineKeyboardButtonData(CheckSpellingButtonText, data),
+						),
+					)
+				}
+			}
+		}
+
 		_, err := n.send(msg)
 		return err
 	}

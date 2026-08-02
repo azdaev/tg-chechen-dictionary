@@ -31,6 +31,8 @@ const (
 	// Shown when the dictionary itself failed. Saying "нет перевода" there is a
 	// lie, and it is the lie that also files the user's word as a vocabulary gap.
 	DictionaryUnavailableText = "Словарь сейчас недоступен. Попробуйте через минуту."
+	MissingWordRecordedText   = "Слово записано — такие пропуски мы разбираем и пополняем словарь."
+	CheckSpellingButtonText   = "✍️ Проверить орфографию"
 	SuggestionsHeaderText     = "🔍 <b>Возможно, вы искали:</b>"
 	MoreButtonText            = "Ещё (%d)"
 	MissingWordsLimit         = 30
@@ -373,6 +375,8 @@ func (n *Net) routeCallback(ctx context.Context, cq *tgbotapi.CallbackQuery) {
 		err = n.HandleQuizCallback(ctx, cq)
 	case strings.HasPrefix(data, "wotd_"):
 		err = n.HandleWordOfDayCallback(ctx, cq)
+	case strings.HasPrefix(data, "check_"):
+		err = n.HandleSpellcheckRequest(ctx, cq)
 	case strings.HasPrefix(data, "spell_"):
 		err = n.HandleSpellcheckFeedback(ctx, cq)
 	case strings.HasPrefix(data, "mod_"):

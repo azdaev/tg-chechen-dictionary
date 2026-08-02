@@ -47,25 +47,33 @@ func (n *Net) HandleCheck(ctx context.Context, m *tgbotapi.Message) error {
 		return err
 	}
 
+	return n.runSpellcheck(ctx, m.Chat.ID, m.MessageID, text)
+}
+
+// runSpellcheck checks text and replies with the verdict. Shared by /check, the
+// dot-prefix shortcut, and the button offered after a failed lookup — a typo is
+// the most common reason a word is not found, and the checker was already here.
+func (n *Net) runSpellcheck(ctx context.Context, chatID int64, replyTo int, text string) error {
 	if n.ai == nil {
-		msg := tgbotapi.NewMessage(m.Chat.ID, "⚠️ Проверка орфографии временно недоступна")
+		msg := tgbotapi.NewMessage(chatID, "⚠️ Проверка орфографии временно недоступна")
 		_, err := n.send(msg)
 		return err
 	}
 
-	n.send(tgbotapi.NewChatAction(m.Chat.ID, tgbotapi.ChatTyping))
+	n.send(tgbotapi.NewChatAction(chatID, tgbotapi.ChatTyping))
 
 	result, err := n.spellcheck(ctx, text)
 	if err != nil {
 		n.log.WithError(err).Error("ai.SpellCheck")
-		msg := tgbotapi.NewMessage(m.Chat.ID, "⚠️ Не удалось проверить текст, попробуйте позже")
+		msg := tgbotapi.NewMessage(chatID, "⚠️ Не удалось проверить текст, попробуйте позже")
 		_, sendErr := n.send(msg)
 		return sendErr
 	}
 
 	if result.NoErrors {
-		msg := tgbotapi.NewMessage(m.Chat.ID, "✅ Ошибок не найдено")
-		msg.ReplyToMessageID = m.MessageID
+		msg := tgbotapi.NewMessage(chatID, "✅ Ошибок не найдено")
+		msg.ReplyToMessageID = replyTo
+		msg.AllowSendingWithoutReply = true
 		_, err = n.send(msg)
 		return err
 	}
@@ -85,8 +93,9 @@ func (n *Net) HandleCheck(ctx context.Context, m *tgbotapi.Message) error {
 		responseText = result.Explanation
 	}
 
-	msg := tgbotapi.NewMessage(m.Chat.ID, responseText)
-	msg.ReplyToMessageID = m.MessageID
+	msg := tgbotapi.NewMessage(chatID, responseText)
+	msg.ReplyToMessageID = replyTo
+	msg.AllowSendingWithoutReply = true
 
 	if result.Corrected != "" {
 		msg.ReplyMarkup = spellcheckFeedbackKeyboard(text, result.Corrected)
@@ -94,6 +103,28 @@ func (n *Net) HandleCheck(ctx context.Context, m *tgbotapi.Message) error {
 
 	_, err = n.send(msg)
 	return err
+}
+
+// checkCallbackData builds the payload for the "check the spelling" button
+// offered after a failed lookup. Telegram caps callback_data at 64 bytes and
+// Cyrillic costs two per letter, so it reports ok=false for a long query and
+// the caller omits the button rather than letting the whole send fail.
+func checkCallbackData(text string) (string, bool) {
+	data := "check_" + strings.TrimSpace(text)
+	return data, len(data) <= 64
+}
+
+// HandleSpellcheckRequest answers the button from a failed lookup by running
+// the checker on the word the user typed.
+func (n *Net) HandleSpellcheckRequest(ctx context.Context, cq *tgbotapi.CallbackQuery) error {
+	if _, err := n.bot.Request(tgbotapi.NewCallback(cq.ID, "")); err != nil {
+		n.log.WithError(err).Warn("failed to ack spellcheck callback")
+	}
+	text, found := strings.CutPrefix(cq.Data, "check_")
+	if !found || text == "" {
+		return fmt.Errorf("invalid spellcheck callback data: %q", cq.Data)
+	}
+	return n.runSpellcheck(ctx, cq.Message.Chat.ID, cq.Message.MessageID, text)
 }
 
 // spellcheckDebounceDelay is how long an inline spellcheck query must stay the
