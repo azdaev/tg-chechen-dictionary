@@ -4,6 +4,7 @@ import (
 	"chetoru/internal/cache"
 	"context"
 	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	"github.com/sirupsen/logrus"
@@ -28,6 +29,41 @@ func TestGrammarFor_TransportErrorIsNotCached(t *testing.T) {
 	stubDoshamAPI(t, http.StatusOK, `{"data":{"find":[]}}`)
 	if g, err := b.GrammarFor(context.Background(), "ыыыы"); err != nil || g != nil {
 		t.Fatalf("got %+v (err %v), want a cacheable nil", g, err)
+	}
+}
+
+// The enrichment re-query has the same 30-day reach as the first one. A thin
+// entry with no part of speech renders nothing, so swallowing that failure
+// writes the outage down as "no grammar" for a month — the very thing the
+// error return exists to prevent.
+func TestGrammarFor_FailedEnrichmentIsNotCachedAsAbsence(t *testing.T) {
+	// Details that clear entryHasGrammar but carry none of the keys posFromDetails
+	// reads: that is the one shape where an entry survives selection, has no
+	// forms and no idioms, and still renders nothing on its own.
+	calls := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		calls++
+		if calls == 1 {
+			w.Write([]byte(`{"data":{"find":[{"entryId":"1","content":"дог","type":"WORD",` +
+				`"rate":10,"details":"{\"Number\":\"Sg\"}","entryForms":[],"relatedEntries":[],` +
+				`"translations":[{"content":"сердце","languageCode":"ru"}]}]}}`))
+			return
+		}
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	t.Cleanup(srv.Close)
+	t.Setenv("DOSHAM_API_URL", srv.URL)
+
+	b := &Business{log: logrus.New(), cache: cache.NewCache("127.0.0.1:1", "")}
+	g, err := b.GrammarFor(context.Background(), "сердце")
+	if calls < 2 {
+		t.Fatalf("enrichment re-query never fired (%d calls); the test no longer covers the path", calls)
+	}
+	if err == nil {
+		t.Fatalf("a failed enrichment with nothing to show must surface, got %+v", g)
+	}
+	if g != nil {
+		t.Fatalf("no grammar may accompany an error, got %+v", g)
 	}
 }
 

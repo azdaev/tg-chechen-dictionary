@@ -103,13 +103,20 @@ func (b *Business) computeGrammar(ctx context.Context, word string) (*models.Wor
 	// headword, so re-query it directly to enrich. Skip when the user already
 	// typed that headword (re-querying the same word can't add anything).
 	if len(best.EntryForms) == 0 && len(best.RelatedEntries) == 0 && !strings.EqualFold(strings.TrimSpace(best.Content), word) {
-		// Enrichment only — a failure here leaves the thin entry we already
-		// have, which is still a real answer and safe to cache.
-		found, _ := b.findGrammarEntries(ctx, best.Content)
-		if enriched := bestGrammarEntry(found, best.Content); enriched != nil {
-			if len(enriched.EntryForms) > 0 || len(enriched.RelatedEntries) > 0 || posFromDetails(enriched.Details) != "" {
-				best = enriched
-			}
+		// Enrichment only, as long as the thin entry we already have says
+		// something: a part of speech is a real answer and safe to cache.
+		found, findErr := b.findGrammarEntries(ctx, best.Content)
+		enriched := bestGrammarEntry(found, best.Content)
+		switch {
+		case enriched != nil && (len(enriched.EntryForms) > 0 || len(enriched.RelatedEntries) > 0 || posFromDetails(enriched.Details) != ""):
+			best = enriched
+		case findErr != nil && posFromDetails(best.Details) == "":
+			// This entry has no forms and no idioms by the branch condition, so
+			// with no part of speech either it renders nothing and falls out
+			// below as "no grammar" — cached for thirty days. The query that
+			// would have filled it is the one that just failed, and an outage
+			// must not be written down as an answer.
+			return nil, findErr
 		}
 	}
 
