@@ -138,9 +138,14 @@ const (
 )
 
 // FoldSearch is NormalizeSearch minus everything a keyboard cannot type:
-// combining marks (long vowel U+0303, Russian stress U+0301) and the palochka
-// itself. It is the key of the folded columns, so a query that dropped one or
-// all of them still matches a stored word.
+// combining marks (long vowel U+0303, Russian stress U+0301), the palochka
+// itself, and ъ. It is the key of the folded columns, so a query that dropped
+// one or all of them still matches a stored word.
+//
+// ъ folds because it is silent to the ear and users drop it — «колам» for
+// «къолам». ь deliberately does NOT: in Chechen it is not a soft sign but half
+// of the vowels аь, оь, уь, so folding it would merge «лоьман» into «ломан» and
+// «аьрзу» into «арзу» — distinct words collapsing into one bucket.
 //
 // NFD is deliberately not applied: it would decompose «й» (U+0439) into «и» +
 // U+0306 and the Mn filter below would eat the breve, turning «йоьшу» into
@@ -149,7 +154,7 @@ const (
 func FoldSearch(text string) string {
 	s := NormalizeSearch(text)
 	s = strings.Map(func(r rune) rune {
-		if r == 'ӏ' || unicode.Is(unicode.Mn, r) {
+		if r == 'ӏ' || r == 'ъ' || unicode.Is(unicode.Mn, r) {
 			return -1
 		}
 		return r

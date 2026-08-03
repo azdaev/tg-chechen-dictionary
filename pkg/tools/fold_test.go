@@ -20,6 +20,13 @@ func TestFoldSearch(t *testing.T) {
 		// «й» must survive: NFD would split it and the Mn filter would eat the
 		// breve, leaving «иоьшу».
 		{"йоьшу", "йоьшу"},
+		// ъ is silent and users drop it: «колам» has to reach «къолам».
+		{"къолам", "колам"},
+		{"колам", "колам"},
+		// ь must survive: in Chechen it is half of аь/оь/уь, not a soft sign.
+		// Folding it would merge «лоьман» into «ломан» and «аьрзу» into «арзу».
+		{"лоьман", "лоьман"},
+		{"аьрзу", "аьрзу"},
 	}
 	for _, c := range cases {
 		if got := FoldSearch(c.in); got != c.want {

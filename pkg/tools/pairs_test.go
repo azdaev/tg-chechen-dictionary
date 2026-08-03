@@ -84,7 +84,7 @@ func TestFormatCard_NeighboursGoToTheFooter(t *testing.T) {
 		{Original: "дом", Translate: "цӀа", OriginalLang: "RUS", TranslateLang: "CHE", Rate: 16, EntryType: "WORD"},
 		{Original: "Домбра", Translate: "домбра", OriginalLang: "RUS", TranslateLang: "CHE", Rate: 100, EntryType: "WORD"},
 	})
-	if !strings.Contains(card, "рядом:") || !strings.Contains(card, "Домбра") {
+	if !strings.Contains(card, "<i>рядом:</i> домбра") {
 		t.Fatalf("neighbour missing from footer:\n%s", card)
 	}
 	if strings.Contains(card, "1. домбра") {

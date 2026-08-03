@@ -32,52 +32,13 @@ func (n *Net) HandleText(ctx context.Context, m *tgbotapi.Message) error {
 		_, sendErr := n.send(tgbotapi.NewMessage(m.Chat.ID, DictionaryUnavailableText))
 		return sendErr
 	}
-	if len(translations) == 0 {
-		cleanWord := tools.NormalizeSearch(m.Text)
-		// Whether the gap is worth recording also decides what we tell the
-		// user: promising that a URL or a whole sentence went on the list would
-		// be a lie, and offering to spellcheck one is no use either.
-		recordable := isRecordableMissingWord(cleanWord)
-		if recordable {
-			// Detached, so the write never delays the reply the user is waiting on.
-			n.bg.Go(func() {
-				if err := n.repo.RecordMissingWord(ctx, cleanWord, strings.TrimSpace(m.Text)); err != nil {
-					n.log.WithError(err).WithField("word", cleanWord).Warn("failed to record missing word")
-				}
-			})
-		}
-
-		text := NoTranslationText
-		if tools.LooksChechen(cleanWord) {
-			text += "\n\n" + PalochkaHintText
-		}
-		if suggestions := n.business.SuggestTranslations(m.Text); len(suggestions) > 0 {
-			// Clamped like every other card: three long glosses clear 4096
-			// characters, and Telegram answers an oversized message by sending
-			// nothing — turning a near miss into a blank screen.
-			text = clampMessage(text + "\n\n" + SuggestionsHeaderText + "\n\n" + tools.FormatPairs(suggestions))
-		}
-		msg := tgbotapi.NewMessage(m.Chat.ID, text)
-		msg.ParseMode = "html"
-
-		// A miss used to be a dead end. It now says what happened to the word
-		// and offers the one thing that most often explains it — a typo, which
-		// the checker already knows how to find.
-		if recordable {
-			msg.Text += "\n\n" + MissingWordRecordedText
-			if n.ai != nil {
-				if data, ok := checkCallbackData(m.Text); ok {
-					msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(
-						tgbotapi.NewInlineKeyboardRow(
-							tgbotapi.NewInlineKeyboardButtonData(CheckSpellingButtonText, data),
-						),
-					)
-				}
-			}
-		}
-
-		_, err := n.send(msg)
-		return err
+	// Pairs coming back is not the same as an answer coming back: dosham's
+	// substring search matches «стрим» inside «гольфстрим» and «лоьма» inside
+	// «Лоьма-кӏорца». The card is what decides, because it is the thing that
+	// knows whether any entry actually means the query.
+	card, neighbours := tools.Card(m.Text, translations)
+	if card == "" {
+		return n.sendMiss(ctx, m, neighbours)
 	}
 
 	// A successful lookup proves the word is covered now — clear it from the
@@ -93,9 +54,8 @@ func (n *Net) HandleText(ctx context.Context, m *tgbotapi.Message) error {
 	// One card holds the whole answer now, so there is no second page to offer:
 	// what «Ещё» used to paginate was the noise dosham's substring search
 	// returns, which the card drops instead of deferring.
-	card := tools.FormatCard(m.Text, translations)
-	if card == "" {
-		card = tools.FormatPairs(translations)
+	if line := tools.FormatNeighbours(neighbours); line != "" {
+		card += "\n\n" + line
 	}
 	msg := tgbotapi.NewMessage(m.Chat.ID, clampMessage(card))
 	msg.ParseMode = "html"
@@ -136,6 +96,63 @@ func (n *Net) HandleText(ctx context.Context, m *tgbotapi.Message) error {
 	}
 
 	return nil
+}
+
+// sendMiss answers a lookup that produced no meaning. Neighbours may still be
+// worth showing, but only as a hint inside the miss — served on their own they
+// read as an answer, and the gap never reached the missing-words report.
+func (n *Net) sendMiss(ctx context.Context, m *tgbotapi.Message, neighbours []string) error {
+	cleanWord := tools.NormalizeSearch(m.Text)
+	// Whether the gap is worth recording also decides what we tell the user:
+	// promising that a URL or a whole sentence went on the list would be a lie,
+	// and offering to spellcheck one is no use either.
+	recordable := isRecordableMissingWord(cleanWord)
+	if recordable {
+		// Detached, so the write never delays the reply the user is waiting on.
+		n.bg.Go(func() {
+			if err := n.repo.RecordMissingWord(ctx, cleanWord, strings.TrimSpace(m.Text)); err != nil {
+				n.log.WithError(err).WithField("word", cleanWord).Warn("failed to record missing word")
+			}
+		})
+	}
+
+	text := NoTranslationText
+	// Straight after the bad news, not below the suggestions, where it read as a
+	// remark about whichever near-miss happened to be last.
+	if recordable {
+		text += "\n\n" + MissingWordRecordedText
+	}
+	if tools.LooksChechen(cleanWord) {
+		text += "\n\n" + PalochkaHintText
+	}
+	if line := tools.FormatNeighbours(neighbours); line != "" {
+		text += "\n\n" + line
+	}
+	if suggestions := n.business.SuggestTranslations(m.Text); len(suggestions) > 0 {
+		text += "\n\n" + SuggestionsHeaderText + "\n\n" + tools.FormatPairs(suggestions)
+	}
+
+	// Clamped like every other card: three long glosses clear 4096 characters,
+	// and Telegram answers an oversized message by sending nothing — turning a
+	// near miss into a blank screen.
+	msg := tgbotapi.NewMessage(m.Chat.ID, clampMessage(text))
+	msg.ParseMode = "html"
+
+	// A miss used to be a dead end. It now says what happened to the word and
+	// offers the one thing that most often explains it — a typo, which the
+	// checker already knows how to find.
+	if recordable && n.ai != nil {
+		if data, ok := checkCallbackData(m.Text); ok {
+			msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(
+				tgbotapi.NewInlineKeyboardRow(
+					tgbotapi.NewInlineKeyboardButtonData(CheckSpellingButtonText, data),
+				),
+			)
+		}
+	}
+
+	_, err := n.send(msg)
+	return err
 }
 
 // shouldHintInline reports whether this user still needs the inline-mode
@@ -293,6 +310,11 @@ func (n *Net) HandleInline(ctx context.Context, iq *tgbotapi.InlineQuery) error 
 		// The sent message gets the same card the text path produces, instead
 		// of dumping the raw gloss ("м 1) цӏа; деревянный ~- …").
 		formatted := clampMessage(tools.FormatCard(translations[i].Original, translations[i:i+1]))
+		if formatted == "" {
+			// Telegram rejects empty message content, and a collocation renders
+			// no card of its own — it is an example, not an entry.
+			formatted = clampMessage(tools.FormatPairs(translations[i : i+1]))
+		}
 		article := tgbotapi.NewInlineQueryResultArticle(iq.ID+strconv.Itoa(i), title, "")
 		// The description comes from the data, not from the rendered card: the
 		// picker shows plain text, so a card carrying <b> would leak the literal
@@ -413,7 +435,8 @@ func (n *Net) HandleMoreTranslations(ctx context.Context, cq *tgbotapi.CallbackQ
 	_ = offset
 	card := tools.FormatCard(word, translations)
 	if card == "" {
-		card = tools.FormatPairs(translations)
+		_, err := n.send(tgbotapi.NewMessage(cq.Message.Chat.ID, NoTranslationText))
+		return err
 	}
 	msg := tgbotapi.NewMessage(cq.Message.Chat.ID, clampMessage(card))
 	msg.ParseMode = "html"

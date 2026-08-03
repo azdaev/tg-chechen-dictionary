@@ -4,6 +4,7 @@ import (
 	"chetoru/internal/models"
 	"fmt"
 	"strings"
+	"unicode"
 )
 
 // One shape for every lookup, both directions, all four source dictionaries:
@@ -35,13 +36,56 @@ const (
 	maxNeighbours       = 12
 )
 
-// FormatCard renders one lookup as a single card.
-func FormatCard(query string, pairs []models.TranslationPairs) string {
+// Card renders one lookup, keeping the neighbours apart from the body. An empty
+// body means dosham matched the query somewhere but no entry actually means it —
+// neighbours alone are not an answer, and serving them as one turned «лоьма»
+// into a bare «рядом: …» that the bot counted as a hit.
+func Card(query string, pairs []models.TranslationPairs) (body string, neighbours []string) {
 	c := collect(query, pairs)
-	if len(c.blocks) == 0 && len(c.neighbours) == 0 {
+	if len(c.blocks) == 0 {
+		return "", c.neighbours
+	}
+	return c.render(), c.neighbours
+}
+
+// FormatCard renders one lookup as a single card, neighbours included.
+func FormatCard(query string, pairs []models.TranslationPairs) string {
+	body, neighbours := Card(query, pairs)
+	if body == "" {
 		return ""
 	}
-	return c.render()
+	if line := FormatNeighbours(neighbours); line != "" {
+		body += "\n\n" + line
+	}
+	return body
+}
+
+// FormatNeighbours renders the "рядом" line: words the dictionary holds that
+// merely start with the query.
+func FormatNeighbours(neighbours []string) string {
+	if len(neighbours) == 0 {
+		return ""
+	}
+	if len(neighbours) > maxNeighbours {
+		neighbours = neighbours[:maxNeighbours]
+	}
+	names := make([]string, len(neighbours))
+	for i, n := range neighbours {
+		names[i] = headCase(n)
+	}
+	return "<i>рядом:</i> " + strings.Join(names, ", ")
+}
+
+// headCase lowercases a headword's first letter. The Russian–Chechen articles
+// store theirs capitalized and the other three corpora do not, so one lookup
+// answered «Карандаш» and the next «телефон».
+func headCase(s string) string {
+	r := []rune(s)
+	if len(r) == 0 {
+		return s
+	}
+	r[0] = unicode.ToLower(r[0])
+	return string(r)
 }
 
 // block is one headword-and-homonym: the unit a card repeats.
@@ -173,7 +217,7 @@ func collect(query string, pairs []models.TranslationPairs) collected {
 		kept[0].examples = append(kept[0].examples, orphaned...)
 	}
 	for _, b := range kept {
-		b.examples = dedupExamples(b.examples, NormalizeSearch(b.head))
+		b.examples = dedupExamples(b.examples, FoldSearch(b.head))
 	}
 	c.blocks = kept
 	c.neighbours = dedupStrings(c.neighbours)
@@ -215,13 +259,6 @@ func (c collected) render() string {
 	for _, b := range c.blocks {
 		out = append(out, b.render())
 	}
-	if len(c.neighbours) > 0 {
-		names := c.neighbours
-		if len(names) > maxNeighbours {
-			names = names[:maxNeighbours]
-		}
-		out = append(out, "<i>рядом:</i> "+strings.Join(names, ", "))
-	}
 	return strings.TrimSpace(strings.Join(out, "\n\n"))
 }
 
@@ -229,7 +266,7 @@ func (b *block) render() string {
 	bold := func(s string) string { return "<b>" + s + "</b>" }
 	var lines []string
 
-	head := b.head
+	head := headCase(b.head)
 	if b.cheHead {
 		head = bold(head)
 	}
@@ -338,7 +375,9 @@ func dedupSenses(senses []string) []string {
 	for _, s := range senses {
 		s = strings.TrimSpace(s)
 		// "рука́ (кисть)" and "рука" are one sense; the fuller wording wins.
-		key := NormalizeSearch(stripParens(s))
+		// Folded, not normalized: the corpora disagree about stress marks, and
+		// «телефо́н» beside «телефон» was reaching the card as two senses.
+		key := FoldSearch(stripParens(s))
 		if s == "" || seen[key] {
 			continue
 		}
@@ -401,7 +440,7 @@ func dedupExamples(examples []example, head string) []example {
 	out := examples[:0]
 	seen := map[string]bool{}
 	for _, ex := range examples {
-		key := NormalizeSearch(ex.chechen)
+		key := FoldSearch(ex.chechen)
 		if ex.chechen == "" || ex.russian == "" || seen[key] || key == head {
 			continue
 		}
