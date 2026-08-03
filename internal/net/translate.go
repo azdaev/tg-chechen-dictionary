@@ -87,37 +87,19 @@ func (n *Net) HandleText(ctx context.Context, m *tgbotapi.Message) error {
 		}
 	})
 
-	firstTranslations := translations
-	if len(translations) > MaxTranslations {
-		firstTranslations = translations[:MaxTranslations]
+	// One card holds the whole answer now, so there is no second page to offer:
+	// what «Ещё» used to paginate was the noise dosham's substring search
+	// returns, which the card drops instead of deferring.
+	card := tools.FormatCard(m.Text, translations)
+	if card == "" {
+		card = tools.FormatPairs(translations)
 	}
-
-	msg := tgbotapi.NewMessage(m.Chat.ID, clampMessage(tools.FormatPairs(firstTranslations)))
+	msg := tgbotapi.NewMessage(m.Chat.ID, clampMessage(card))
 	msg.ParseMode = "html"
 
-	var hintInline bool
-	if len(translations) > MaxTranslations {
-		remainingCount := len(translations) - MaxTranslations
-		// Only attach the "More" button when its callback data fits Telegram's
-		// 64-byte limit; otherwise sending the whole message would fail. The
-		// inline-mode hint below still tells users how to see all translations.
-		if data, ok := moreCallbackData(m.Text, MaxTranslations); ok {
-			msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(
-				tgbotapi.NewInlineKeyboardRow(
-					tgbotapi.NewInlineKeyboardButtonData(
-						fmt.Sprintf(MoreButtonText, remainingCount),
-						data,
-					),
-				),
-			)
-		}
-		// The inline-mode hint is a lesson, not a footer. Once learned it is a
-		// paragraph the reader skips on every long answer, sitting between them
-		// and the translations they asked for.
-		hintInline = n.shouldHintInline(ctx, m.From.ID)
-		if hintInline {
-			msg.Text += "\n\n" + MoreTranslationsHelpText
-		}
+	hintInline := len(translations) > MaxTranslations && n.shouldHintInline(ctx, m.From.ID)
+	if hintInline {
+		msg.Text += "\n\n" + MoreTranslationsHelpText
 	}
 
 	sent, err := n.send(msg)
@@ -139,7 +121,7 @@ func (n *Net) HandleText(ctx context.Context, m *tgbotapi.Message) error {
 	// entry. Sent as a follow-up so it never delays the (usually cached)
 	// translation above, and detached because the update loop processes
 	// messages synchronously while this makes a live API call.
-	headword := firstTranslations[0].Original
+	headword := translations[0].Original
 	n.bg.Go(func() { n.sendGrammarCard(context.Background(), m.Chat.ID, sent.MessageID, headword) })
 
 	// Donation nudge runs detached: it is a DB check plus an extra Telegram
@@ -307,7 +289,7 @@ func (n *Net) HandleInline(ctx context.Context, iq *tgbotapi.InlineQuery) error 
 		}
 		// The sent message gets the same card the text path produces, instead
 		// of dumping the raw gloss ("м 1) цӏа; деревянный ~- …").
-		formatted := clampMessage(tools.FormatPairs(translations[i : i+1]))
+		formatted := clampMessage(tools.FormatCard(translations[i].Original, translations[i:i+1]))
 		article := tgbotapi.NewInlineQueryResultArticle(iq.ID+strconv.Itoa(i), title, "")
 		// The description comes from the data, not from the rendered card: the
 		// picker shows plain text, so a card carrying <b> would leak the literal
@@ -422,38 +404,16 @@ func (n *Net) HandleMoreTranslations(ctx context.Context, cq *tgbotapi.CallbackQ
 		return err
 	}
 
-	// Clamp the offset: the result set may have shrunk since the button was
-	// created (cache expiry, API change), which would otherwise panic on slice.
-	if offset < 0 {
-		offset = 0
+	// New answers carry no «Ещё» button — the card is the whole answer. This
+	// still fires for buttons sitting in older chats, and re-sends that card
+	// rather than a page of the noise the button used to leaf through.
+	_ = offset
+	card := tools.FormatCard(word, translations)
+	if card == "" {
+		card = tools.FormatPairs(translations)
 	}
-	if offset >= len(translations) {
-		return nil // nothing more to show; callback already acked
-	}
-
-	end := min(offset+MaxTranslations, len(translations))
-	nextTranslations := translations[offset:end]
-
-	// Sense numbers continue across the page break: without the offset this page
-	// reopens the same headword at "1.", and for a Russian lookup — where every
-	// gloss is its own pair under one repeated headword — that is the common
-	// case, not an edge one.
-	text := tools.FormatPairsFrom(nextTranslations, tools.ContinuedSenses(translations, offset))
-	msg := tgbotapi.NewMessage(cq.Message.Chat.ID, clampMessage(text))
+	msg := tgbotapi.NewMessage(cq.Message.Chat.ID, clampMessage(card))
 	msg.ParseMode = "html"
-
-	if end < len(translations) {
-		if data, ok := moreCallbackData(word, end); ok {
-			msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(
-				tgbotapi.NewInlineKeyboardRow(
-					tgbotapi.NewInlineKeyboardButtonData(
-						fmt.Sprintf(MoreButtonText, len(translations)-end),
-						data,
-					),
-				),
-			)
-		}
-	}
 
 	if _, err := n.send(msg); err != nil {
 		return fmt.Errorf("bot.Send: %w", err)

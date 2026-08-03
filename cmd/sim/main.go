@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"net/http"
 	"os"
-	"sort"
 	"strings"
 	"unicode/utf8"
 
@@ -16,11 +15,11 @@ import (
 	"chetoru/pkg/tools"
 )
 
-const maxTranslations = 4
-
 type entry struct {
 	Content    string `json:"content"`
 	Type       string `json:"type"`
+	Subtype    int    `json:"subtype"`
+	EntryIndex int    `json:"entryIndex"`
 	Rate       int    `json:"rate"`
 	Details    string `json:"details"`
 	Notes      string `json:"notes"`
@@ -42,7 +41,7 @@ type entry struct {
 }
 
 func find(word string) []entry {
-	q := `query F($t:String!){find(inputText:$t){content type rate details notes entryForms{content} relatedEntries{content translations{content languageCode}} translations{content languageCode notes}}}`
+	q := `query F($t:String!){find(inputText:$t){content type subtype entryIndex rate details notes entryForms{content} relatedEntries{content translations{content languageCode}} translations{content languageCode notes}}}`
 	body, _ := json.Marshal(map[string]any{"query": q, "variables": map[string]string{"t": word}})
 	resp, err := http.Post("https://api.dosham.app/gql", "application/json", bytes.NewReader(body))
 	if err != nil {
@@ -85,10 +84,18 @@ func main() {
 				if normLang(t.LanguageCode) == "" {
 					continue
 				}
-				fmt.Printf("[%s rate=%d forms=%d rel=%d] %s :: %s\n", e.Type, e.Rate, len(e.EntryForms), len(e.RelatedEntries), e.Content, t.Content)
+				fmt.Printf("[%s rate=%d st=%d idx=%d forms=%d rel=%d] %s :: %s\n", e.Type, e.Rate, e.Subtype, e.EntryIndex, len(e.EntryForms), len(e.RelatedEntries), e.Content, t.Content)
+				lang := normLang(t.LanguageCode)
 				pairs = append(pairs, models.TranslationPairs{
-					Original:  tools.EscapeUnclosedTags(e.Content),
-					Translate: tools.EscapeUnclosedTags(t.Content),
+					Original:      tools.EscapeUnclosedTags(e.Content),
+					Translate:     tools.EscapeUnclosedTags(t.Content),
+					OriginalLang:  map[string]string{"CHE": "RUS", "RUS": "CHE"}[lang],
+					TranslateLang: lang,
+					Rate:          e.Rate,
+					EntryType:     e.Type,
+					Subtype:       e.Subtype,
+					EntryIndex:    e.EntryIndex,
+					Notes:         e.Notes,
 				})
 			}
 		}
@@ -96,20 +103,9 @@ func main() {
 		if utf8.RuneCountInString(word) <= 3 && len(pairs) >= 10 {
 			pairs = pairs[:10]
 		}
-		sort.SliceStable(pairs, func(i, j int) bool {
-			return utf8.RuneCountInString(pairs[i].Original) < utf8.RuneCountInString(pairs[j].Original)
-		})
-
-		shown := pairs
-		if len(shown) > maxTranslations {
-			shown = shown[:maxTranslations]
-		}
 
 		fmt.Println("\n--- СООБЩЕНИЕ БОТА ---")
-		fmt.Println(tools.FormatPairs(shown))
-		if len(pairs) > maxTranslations {
-			fmt.Printf("[кнопка «Еще (%d)»]\n", len(pairs)-maxTranslations)
-		}
+		fmt.Println(tools.FormatCard(word, pairs))
 
 		// grammar card (mirrors business.computeGrammar / net.formatGrammarCard)
 		var best *entry

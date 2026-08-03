@@ -522,8 +522,10 @@ func TestFormatTranslationLite_CapsExamplesPerCard(t *testing.T) {
 	if n := strings.Count(got, "<i>"); n > maxCardExamples+1 { // +1 for the tail note
 		t.Errorf("card carries %d example lines, want at most %d:\n%s", n, maxCardExamples, got)
 	}
-	if !strings.Contains(got, "…ещё") {
-		t.Errorf("truncation is silent; the card reads as a thin entry:\n%s", got)
+	// No tail: the «Ещё» button paginates pairs, so a count of hidden examples
+	// would point at a button that shows something else.
+	if strings.Contains(got, "…ещё") {
+		t.Errorf("the card promises examples nothing can reach:\n%s", got)
 	}
 	// Spread, not greedy: a late sense still gets one.
 	if !strings.Contains(got, "масал3a") {
@@ -537,8 +539,5 @@ func TestFormatTranslationLite_CapsExamplesPerCard(t *testing.T) {
 	one := FormatTranslationLite("**Дом** - цӏа; пример1 - масал1; пример2 - масал2; пример3 - масал3", "Дом", true)
 	if n := strings.Count(one, "<i>"); n != 3 {
 		t.Errorf("single-sense card lost examples (%d of 3):\n%s", n, one)
-	}
-	if strings.Contains(one, "…ещё") {
-		t.Errorf("nothing was dropped, so no tail belongs:\n%s", one)
 	}
 }

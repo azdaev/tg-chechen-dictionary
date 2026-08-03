@@ -18,10 +18,31 @@ type TranslationPairs struct {
 	TranslateLang   string `json:"translate_lang,omitempty"`
 	FormattedAI     string `json:"formatted_ai,omitempty"`
 	FormattedChosen string `json:"formatted_chosen,omitempty"`
-	// Rate is dosham's own entry weight, used to order results within a
-	// relevance bucket. Locally stored pairs have no rate, so ordering must
-	// never depend on it alone.
+	// Rate identifies which of dosham's source dictionaries this pair came
+	// from, not how good it is. Measured over 1097 live entries it takes three
+	// values: 10000 is the academic Chechen–Russian dictionary (senses already
+	// atomized one per translation row, stress marks, homonyms numbered), 16 a
+	// compact modern one, 100 both the Russian–Chechen dictionary — whose whole
+	// article arrives as a single Chechen-language blob — and a software
+	// localization glossary. Every tilde and every "1)" in the corpus lives in
+	// exactly one of those, so the corpus decides how a pair must be read.
 	Rate int `json:"rate,omitempty"`
+	// EntryType is dosham's "WORD" or "TEXT": a headword versus a collocation.
+	// TEXT entries are the dictionary's own usage examples, already split into
+	// the two languages, which is why the card never has to mine them out of an
+	// article body.
+	EntryType string `json:"entry_type,omitempty"`
+	// Subtype is the part of speech. Its values map one-to-one onto the key
+	// sets of the `details` JSON (1 verb, 2 noun, 3 adverb, 4 adjective,
+	// 6 pronoun), so the label is readable without the undocumented integer
+	// legend that keeps noun class off the card.
+	Subtype int `json:"subtype,omitempty"`
+	// EntryIndex numbers homonyms: цӀа¹ the noun (дом, комната, семья) and цӀа²
+	// the adverb (домой) are different words and must not merge into one list.
+	EntryIndex int `json:"entry_index,omitempty"`
+	// Notes is dosham's usage note on the entry — most often the plural ending
+	// ("мн. -аш").
+	Notes string `json:"notes,omitempty"`
 }
 
 type ActivityType int8
@@ -94,9 +115,15 @@ type QuizScorer struct {
 
 // GraphQL specific types (dosham.app /gql schema)
 type Entry struct {
-	EntryID      string        `json:"entryId"`
-	Content      string        `json:"content"`
-	Type         string        `json:"type"`
+	EntryID string `json:"entryId"`
+	Content string `json:"content"`
+	Type    string `json:"type"`
+	// Subtype is the part of speech; EntryIndex numbers homonyms. Both are
+	// plain integers dosham fills in, and both survive into TranslationPairs —
+	// see the field docs there for why the card needs them.
+	Subtype      int           `json:"subtype"`
+	EntryIndex   int           `json:"entryIndex"`
+	Notes        string        `json:"notes"`
 	Rate         int           `json:"rate"`
 	Details      string        `json:"details"` // JSON grammar metadata (part of speech, case, etc.)
 	Translations []Translation `json:"translations"`

@@ -11,12 +11,16 @@ func TestInlineCardRendering(t *testing.T) {
 	// The inline-sent message must match the text path's card, not the raw
 	// gloss; the picker description is built from the data behind it.
 	p := models.TranslationPairs{
-		Original:  "Дом",
-		Translate: "м 1) цӏа; деревянный ~- дечиган цӏа",
+		Original:      "Дом",
+		Translate:     "м 1) цӏа; деревянный ~- дечиган цӏа",
+		OriginalLang:  "RUS",
+		TranslateLang: "CHE",
+		EntryType:     "WORD",
+		Rate:          100,
 	}
-	formatted := tools.FormatPairs([]models.TranslationPairs{p})
-	if !strings.HasPrefix(formatted, "<b>Дом</b> — цӏа") {
-		t.Errorf("formatted card = %q, want it to start with %q", formatted, "<b>Дом</b> — цӏа")
+	formatted := tools.FormatCard(p.Original, []models.TranslationPairs{p})
+	if !strings.HasPrefix(formatted, "Дом\n<b>цӏа</b>") {
+		t.Errorf("formatted card = %q, want it to open with the headword and its gloss", formatted)
 	}
 	if strings.Contains(formatted, "~") || strings.Contains(formatted, "1)") {
 		t.Errorf("raw gloss markup leaked into inline card:\n%s", formatted)

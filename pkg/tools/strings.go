@@ -21,7 +21,10 @@ var (
 	// "несов. дала", "тк. мн. собир. …") — metadata, not translation, and
 	// otherwise the first one becomes the card's header. Applied in a loop, so
 	// a chain of them peels off one at a time.
-	verbLabelRe = regexp.MustCompile(`^((не)?сов\.|однокр\.|многокр\.|перех\.|неперех\.|безл\.|нескл\.|т\.к\.|тк\.|мн\.|ед\.|собир\.|кратк\. ф\.|в знач\. сказ\.|кому-чему|кого-что|о ком|о чём|кому|чему|кого|кем|чем|ком|что)([,;]?\s+)`)
+	// Part-of-speech labels join them, period-terminated only — a bare "союз" is
+	// also a real Russian word. The trailing group accepts a colon because
+	// «Заострить» stores "сов.: заострить карандаш - къолам ирбан".
+	verbLabelRe = regexp.MustCompile(`^((не)?сов\.|однокр\.|многокр\.|перех\.|неперех\.|безл\.|нескл\.|нареч\.|числ\.|мест\.|межд\.|предл\.|част\.|прил\.|сущ\.|гл\.|вводн\. сл\.|вводн\.|в разн\. знач\.|разн\. знач\.|т\.к\.|тк\.|мн\.|ед\.|собир\.|кратк\. ф\.|в знач\. сказ\.|в знач\. сущ\.|кому-чему|кого-что|о ком|о чём|кому|чему|кого|кем|чем|ком|что)(?:[,;:]?\s+|:)`)
 	// Sense markers come as "1)" but also as "ӏ. " (palochka standing in for
 	// the digit) and "2. " in live dosham glosses.
 	meaningRe = regexp.MustCompile(`(\d+\)|(?:^|\s)[ӏ\d]\.\s)`)
@@ -263,7 +266,6 @@ func FormatTranslationLite(text string, originalWord string, boldGloss bool) str
 	// scrolls. The budget is spent in sense order, so the examples that survive
 	// are the ones under the senses the reader meets first.
 	budget := maxCardExamples
-	omitted := 0
 	take := func(examples []string) []string {
 		// Per sense as well as per card: spending it greedily let «Идти» give all
 		// six to sense one — which spends them on parenthetical fragments — and
@@ -273,16 +275,13 @@ func FormatTranslationLite(text string, originalWord string, boldGloss bool) str
 			limit = maxExamplesPerSense
 		}
 		if len(examples) > limit {
-			omitted += len(examples) - limit
 			examples = examples[:limit]
 		}
 		budget -= len(examples)
 		return examples
 	}
-	withTail := func(lines []string) string {
-		if omitted > 0 {
-			lines = append(lines, fmt.Sprintf("<i>…ещё %d прим.</i>", omitted))
-		}
+	// The cut is silent: there is no second page to send a count to.
+	render := func(lines []string) string {
 		return strings.TrimSpace(strings.Join(lines, "\n"))
 	}
 
@@ -297,7 +296,7 @@ func FormatTranslationLite(text string, originalWord string, boldGloss bool) str
 		default:
 			lines = append(lines, gloss(senses[0].main))
 		}
-		return withTail(append(lines, renderExamples(take(senses[0].examples))...))
+		return render(append(lines, renderExamples(take(senses[0].examples))...))
 	}
 
 	if word != "" {
@@ -312,7 +311,7 @@ func FormatTranslationLite(text string, originalWord string, boldGloss bool) str
 		lines = append(lines, renderExamples(take(s.examples))...)
 	}
 
-	return withTail(lines)
+	return render(lines)
 }
 
 const (

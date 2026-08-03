@@ -22,9 +22,15 @@ type TranslationPair struct {
 	FormattedAI         sql.NullString
 	FormattedChosen     sql.NullString
 	FormatVersion       sql.NullString
-	// Rate is dosham's entry weight. It is stored rather than kept only in the
-	// cache because the local table is the steady-state read path.
-	Rate int
+	// Rate is dosham's source-dictionary marker, and EntryType/Subtype/
+	// EntryIndex/EntryNotes the entry structure the card renders from. They are
+	// stored rather than kept only in the cache because the local table is the
+	// steady-state read path: a word looked up twice must render identically.
+	Rate       int
+	EntryType  string
+	Subtype    int
+	EntryIndex int
+	EntryNotes string
 }
 
 const selectPairIDQuery = `select id, rate from dictionary_pairs
@@ -83,8 +89,12 @@ func (r *Repository) InsertTranslationPair(ctx context.Context, pair Translation
 			source,
 			source_entry_id,
 			source_translation_id,
-			rate
-		) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`,
+			rate,
+			entry_type,
+			subtype,
+			entry_index,
+			entry_notes
+		) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`,
 		pair.OriginalRaw,
 		pair.OriginalClean,
 		pair.OriginalLang,
@@ -95,6 +105,10 @@ func (r *Repository) InsertTranslationPair(ctx context.Context, pair Translation
 		pair.SourceEntryID,
 		pair.SourceTranslationID,
 		pair.Rate,
+		pair.EntryType,
+		pair.Subtype,
+		pair.EntryIndex,
+		pair.EntryNotes,
 	)
 	if err != nil {
 		return 0, false, err
@@ -292,7 +306,11 @@ func (r *Repository) FindTranslationPairs(ctx context.Context, cleanWord string,
 			translation_lang,
 			formatted_ai,
 			formatted_chosen,
-			rate
+			rate,
+			entry_type,
+			subtype,
+			entry_index,
+			entry_notes
 		from dictionary_pairs
 		where (formatted_chosen is null or formatted_chosen != 'deleted')
 		  and (original_clean = ? or translation_clean = ?)
@@ -308,9 +326,9 @@ func (r *Repository) FindTranslationPairs(ctx context.Context, cleanWord string,
 	results := make([]models.TranslationPairs, 0, limit)
 	for rows.Next() {
 		var originalRaw, originalClean, originalLang, translationRaw, translationClean, translationLang string
-		var formattedAI, formattedChosen sql.NullString
-		var rate int
-		if err := rows.Scan(&originalRaw, &originalClean, &originalLang, &translationRaw, &translationClean, &translationLang, &formattedAI, &formattedChosen, &rate); err != nil {
+		var formattedAI, formattedChosen, entryType, entryNotes sql.NullString
+		var rate, subtype, entryIndex int
+		if err := rows.Scan(&originalRaw, &originalClean, &originalLang, &translationRaw, &translationClean, &translationLang, &formattedAI, &formattedChosen, &rate, &entryType, &subtype, &entryIndex, &entryNotes); err != nil {
 			return nil, err
 		}
 
@@ -322,30 +340,34 @@ func (r *Repository) FindTranslationPairs(ctx context.Context, cleanWord string,
 			chosenText = formattedChosen.String
 		}
 
+		// Subtype, EntryIndex and Notes describe dosham's entry headword, which
+		// for every corpus that fills them in is the Chechen side. They ride
+		// along unchanged through the reverse swap below for exactly that
+		// reason: the swap moves which side leads, not which side is Chechen.
+		pair := models.TranslationPairs{
+			Original:        originalRaw,
+			Translate:       translationRaw,
+			OriginalLang:    originalLang,
+			TranslateLang:   translationLang,
+			FormattedAI:     aiText,
+			FormattedChosen: chosenText,
+			Rate:            rate,
+			EntryType:       entryType.String,
+			Subtype:         subtype,
+			EntryIndex:      entryIndex,
+			Notes:           entryNotes.String,
+		}
+
 		if originalClean == cleanWord {
-			results = append(results, models.TranslationPairs{
-				Original:        originalRaw,
-				Translate:       translationRaw,
-				OriginalLang:    originalLang,
-				TranslateLang:   translationLang,
-				FormattedAI:     aiText,
-				FormattedChosen: chosenText,
-				Rate:            rate,
-			})
+			results = append(results, pair)
 			continue
 		}
 
 		if translationClean == cleanWord {
 			// Reverse hit: the matched side leads, so the languages swap with it.
-			results = append(results, models.TranslationPairs{
-				Original:        translationRaw,
-				Translate:       originalRaw,
-				OriginalLang:    translationLang,
-				TranslateLang:   originalLang,
-				FormattedAI:     aiText,
-				FormattedChosen: chosenText,
-				Rate:            rate,
-			})
+			pair.Original, pair.Translate = pair.Translate, pair.Original
+			pair.OriginalLang, pair.TranslateLang = pair.TranslateLang, pair.OriginalLang
+			results = append(results, pair)
 		}
 	}
 

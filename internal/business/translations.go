@@ -412,6 +412,9 @@ func (b *Business) fetchTranslationsFromAPI(word string) ([]models.TranslationPa
 				entryId
 				content
 				type
+				subtype
+				entryIndex
+				notes
 				rate
 				details
 				translations {
@@ -454,6 +457,10 @@ func (b *Business) fetchTranslationsFromAPI(word string) ([]models.TranslationPa
 				OriginalLang:  inferOriginalLang(normLang),
 				TranslateLang: normLang,
 				Rate:          entry.Rate,
+				EntryType:     entry.Type,
+				Subtype:       entry.Subtype,
+				EntryIndex:    entry.EntryIndex,
+				Notes:         entry.Notes,
 			}
 			translations = append(translations, translationPair)
 
@@ -522,19 +529,13 @@ func rankAndDedup(pairs []models.TranslationPairs, query string) []models.Transl
 		if a.Rate != b.Rate {
 			return a.Rate > b.Rate
 		}
-		// Headword length first (the API path varies here: "Яблоко" before
-		// "Яблоневый"), then gloss length (the local path varies here, because
-		// every headword is the query itself).
-		if la, lb := utf8.RuneCountInString(a.Original), utf8.RuneCountInString(b.Original); la != lb {
-			return la < lb
-		}
-		if la, lb := utf8.RuneCountInString(a.Translate), utf8.RuneCountInString(b.Translate); la != lb {
-			return la < lb
-		}
-		if a.Original != b.Original {
-			return a.Original < b.Original
-		}
-		return a.Translate < b.Translate
+		// Nothing below this line may compare the text itself. Within one source
+		// dictionary the arrival order IS the lexicographer's sense order, and
+		// sorting by gloss length destroyed it: dosham sends куьг as «рука́
+		// (кисть), по́дпись, по́черк, го́лос» and the card showed «го́лос» first
+		// because it is the shortest string. sort.SliceStable keeps the source
+		// order for everything that ties here, which is exactly what is wanted.
+		return false
 	})
 
 	// dosham's search is a substring match, so a very short query sweeps the
@@ -650,6 +651,10 @@ func (b *Business) storeTranslationPair(entry models.Entry, translation models.T
 		SourceEntryID:       toNullString(entry.EntryID),
 		SourceTranslationID: toNullString(translation.TranslationID),
 		Rate:                entry.Rate,
+		EntryType:           entry.Type,
+		Subtype:             entry.Subtype,
+		EntryIndex:          entry.EntryIndex,
+		EntryNotes:          entry.Notes,
 	}
 	if pair.OriginalClean == "" || pair.TranslationClean == "" {
 		return

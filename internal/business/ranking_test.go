@@ -102,15 +102,20 @@ func TestRankAndDedup_ApprovedLeadsItsBucket(t *testing.T) {
 	}
 }
 
-func TestRankAndDedup_ShortestGlossWithinBucket(t *testing.T) {
-	// Local-path shape: every headword is the query, so only the gloss varies.
+// Within one source dictionary the arrival order is the lexicographer's sense
+// order. Ranking used to sort by gloss length here, which is why куьг — sent as
+// «рука́ (кисть), по́дпись, по́черк, го́лос» — opened on «го́лос».
+func TestRankAndDedup_KeepsTheSourceSenseOrder(t *testing.T) {
 	pairs := []models.TranslationPairs{
-		{Original: "Дитт", Translate: "Дерево, растущее у дома"},
-		{Original: "Дитт", Translate: "Древо"},
+		{Original: "куьг", Translate: "рука́ (кисть)", Rate: 10000},
+		{Original: "куьг", Translate: "по́дпись", Rate: 10000},
+		{Original: "куьг", Translate: "го́лос", Rate: 10000},
 	}
-	got := rankAndDedup(pairs, "дитт")
-	if got[0].Translate != "Древо" {
-		t.Fatalf("first result = %q, want the shortest gloss", got[0].Translate)
+	got := rankAndDedup(pairs, "куьг")
+	for i, want := range []string{"рука́ (кисть)", "по́дпись", "го́лос"} {
+		if got[i].Translate != want {
+			t.Fatalf("result %d = %q, want %q", i, got[i].Translate, want)
+		}
 	}
 }
 
