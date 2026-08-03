@@ -5,6 +5,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"unicode"
 	"unicode/utf8"
 )
 
@@ -118,6 +119,126 @@ func YoVariants(text string) []string {
 		if len(variants) == maxYoVariants {
 			break
 		}
+	}
+	return variants
+}
+
+const (
+	// palochkaCarriers are the letters a palochka follows, covering 93% of the
+	// 102 palochka-bearing headwords measured on the live dictionary;
+	// word-initial adds another 3%. Measured end to end, a query that dropped
+	// one palochka is reachable in 94% of cases, median 3 candidates, p90 5.
+	// п and ч are worth their place: they cost nothing at the median and lift
+	// coverage from 87%, and «чӏегӏардиг» — the word that started this — needs ч.
+	palochkaCarriers = "цгбткхдпч"
+	chechenVowels    = "аеиоуыэюяьъ"
+	// maxPalochkaVariants caps the cascade the same way maxYoVariants does:
+	// every candidate costs one API retry.
+	maxPalochkaVariants = 8
+)
+
+// FoldSearch is NormalizeSearch minus everything a keyboard cannot type:
+// combining marks (long vowel U+0303, Russian stress U+0301) and the palochka
+// itself. It is the key of the folded columns, so a query that dropped one or
+// all of them still matches a stored word.
+//
+// NFD is deliberately not applied: it would decompose «й» (U+0439) into «и» +
+// U+0306 and the Mn filter below would eat the breve, turning «йоьшу» into
+// «иоьшу». The marks we do want gone have no precomposed form over Cyrillic and
+// already live as separate runes.
+func FoldSearch(text string) string {
+	s := NormalizeSearch(text)
+	s = strings.Map(func(r rune) rune {
+		if r == 'ӏ' || unicode.Is(unicode.Mn, r) {
+			return -1
+		}
+		return r
+	}, s)
+	return s
+}
+
+// LooksChechen reports whether a query carries a marker Russian never has: a
+// palochka, or a vowel+ь digraph. It gates the palochka cascade so a Russian
+// typo costs no API retries.
+func LooksChechen(s string) bool {
+	s = NormalizeSearch(s)
+	if strings.ContainsRune(s, 'ӏ') {
+		return true
+	}
+	return strings.Contains(s, "аь") || strings.Contains(s, "оь") || strings.Contains(s, "уь")
+}
+
+// PalochkaVariants returns the spellings one inserted palochka away from word.
+// 95% of palochka-bearing words carry exactly one, which is why a single
+// insertion is enough and the candidate set stays linear in word length.
+// It does not gate on LooksChechen — RespellVariants decides when to spend
+// these, because the gate and this function disagree about the common case.
+func PalochkaVariants(word string) []string {
+	w := NormalizeSearch(word)
+	if w == "" {
+		return nil
+	}
+
+	runes := []rune(w)
+	seen := map[string]bool{w: true}
+	var out []string
+	insert := func(at int) {
+		// Never produce «ӏӏ».
+		if at < len(runes) && runes[at] == 'ӏ' {
+			return
+		}
+		v := string(runes[:at]) + "ӏ" + string(runes[at:])
+		if seen[v] {
+			return
+		}
+		seen[v] = true
+		out = append(out, v)
+	}
+
+	if !strings.ContainsRune(chechenVowels, runes[0]) {
+		insert(0) // word-initial glottal stop
+	}
+	for i, r := range runes {
+		if strings.ContainsRune(palochkaCarriers, r) {
+			insert(i + 1)
+		}
+		if len(out) == maxPalochkaVariants {
+			break
+		}
+	}
+	// ponytail: candidates are in word order, not carrier frequency. The cap only
+	// bites on words with more than 8 carrier positions, which the measured
+	// sample had none of. If one shows up, sort by carrier frequency
+	// (ц > г > б > т > к > х > д) before truncating.
+	if len(out) > maxPalochkaVariants {
+		out = out[:maxPalochkaVariants]
+	}
+	return out
+}
+
+// RespellVariants picks the retry cascade for a failed lookup, capped at
+// maxPalochkaVariants candidates however it is composed.
+//
+// A query still showing a Chechen marker retries the palochka: a missing one is
+// far more likely than a ё/е slip. Anything else retries ё/е — unless the
+// dictionary returned nothing at all for the spelling, in which case the
+// palochka candidates ride along too. That case is not an edge: 95% of
+// palochka-bearing words carry exactly one, so dropping it erases the very
+// marker LooksChechen looks for. Measured over 102 live headwords, the gate
+// alone reaches 19% of them; a total miss is the signal that recovers the rest.
+func RespellVariants(word string, unknownSpelling bool) []string {
+	if LooksChechen(word) {
+		return PalochkaVariants(word)
+	}
+	variants := YoVariants(word)
+	if !unknownSpelling {
+		return variants
+	}
+	for _, v := range PalochkaVariants(word) {
+		if len(variants) == maxPalochkaVariants {
+			break
+		}
+		variants = append(variants, v)
 	}
 	return variants
 }

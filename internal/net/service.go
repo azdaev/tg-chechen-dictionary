@@ -32,6 +32,10 @@ const (
 	// lie, and it is the lie that also files the user's word as a vocabulary gap.
 	DictionaryUnavailableText = "Словарь сейчас недоступен. Попробуйте через минуту."
 	MissingWordRecordedText   = "Слово записано — такие пропуски мы разбираем и пополняем словарь."
+	// Palochka Ӏ is in a third of Chechen headwords and on no keyboard. The bot
+	// and the dictionary both accept the digit 1 in its place; people just do
+	// not know that, so a Chechen-looking miss says so.
+	PalochkaHintText          = "💡 Палочку Ӏ можно набрать цифрой 1: <code>г1ала</code> = гӏала."
 	CheckSpellingButtonText   = "✍️ Проверить орфографию"
 	SuggestionsHeaderText     = "🔍 <b>Возможно, вы искали:</b>"
 	MoreButtonText            = "Ещё (%d)"

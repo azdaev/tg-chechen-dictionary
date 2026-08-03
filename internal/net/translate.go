@@ -48,6 +48,9 @@ func (n *Net) HandleText(ctx context.Context, m *tgbotapi.Message) error {
 		}
 
 		text := NoTranslationText
+		if tools.LooksChechen(cleanWord) {
+			text += "\n\n" + PalochkaHintText
+		}
 		if suggestions := n.business.SuggestTranslations(m.Text); len(suggestions) > 0 {
 			// Clamped like every other card: three long glosses clear 4096
 			// characters, and Telegram answers an oversized message by sending

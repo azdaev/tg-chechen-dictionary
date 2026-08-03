@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
+	"golang.org/x/sync/singleflight"
 )
 
 // OnPairReady is called after a new pair is saved and AI formatting completes (or is skipped).
@@ -37,6 +38,16 @@ type Business struct {
 
 	cacheHits   atomic.Int64
 	cacheMisses atomic.Int64
+
+	// miss collapses concurrent lookups of the same failing query into one
+	// cascade. Keyed by the normalized word, same key the cache uses.
+	miss singleflight.Group
+
+	// foldedReady goes true once the folded columns are filled. Until then a
+	// stored word whose palochka the user dropped reads as absent, and caching
+	// that emptiness would pin a wrong answer for the whole negative TTL —
+	// finishing the backfill does not go back and invalidate it.
+	foldedReady atomic.Bool
 
 	// bg tracks detached persistence work (pair storage, AI formatting, cache
 	// writes) so shutdown can wait for it instead of cutting writes mid-flight.
@@ -56,6 +67,7 @@ func (b *Business) TranslationCacheStats() (hits, misses int64) {
 
 type DictionaryRepository interface {
 	FindTranslationPairs(ctx context.Context, cleanWord string, limit int) ([]models.TranslationPairs, error)
+	FindTranslationPairsByFolded(ctx context.Context, folded string, limit int) ([]models.TranslationPairs, error)
 	FindTranslationPairsByPrefix(ctx context.Context, prefix string, limit int) ([]models.TranslationPairs, error)
 	InsertTranslationPair(ctx context.Context, pair repository.TranslationPair) (int64, bool, error)
 	UpdateTranslationPairFormatting(ctx context.Context, id int64, formattedAI, formattedChosen string) error
@@ -104,14 +116,39 @@ func (b *Business) Translate(word string) ([]models.TranslationPairs, error) {
 		return translations, nil
 	}
 
-	translations, err := b.fetchTranslationsWithFallback(word)
+	// The stored headword may carry marks no keyboard has — a palochka, a long
+	// vowel — that the user simply left out. Matching on the folded columns
+	// costs one indexed lookup and no API call.
+	if translations := b.loadFoldedTranslations(ctx, word); len(translations) > 0 {
+		// Deliberately not cached. The cache key is the user's spelling, and a
+		// word has many palochka-less spellings, so moderation's
+		// invalidateCacheForPair — which only knows original_clean and
+		// translation_clean — could never reach them: a pair a moderator deleted
+		// would keep being served under «гала» for the full 30-day TTL. The
+		// lookup it replaces is one indexed read, so caching buys almost nothing.
+		return rankAndDedup(translations, word), nil
+	}
+
+	// A miss is the expensive path: a primary lookup plus a cascade of
+	// respellings. Collapsing concurrent misses on the same query means ten
+	// people typing one typo cost one cascade rather than ten.
+	v, err, _ := b.miss.Do(cacheKey, func() (any, error) {
+		return b.fetchTranslationsWithFallback(word)
+	})
 	if err != nil {
 		return nil, err
 	}
+	translations, _ := v.([]models.TranslationPairs)
 	translations = rankAndDedup(translations, word)
-	b.cacheTranslationsAsync(ctx, cacheKey, translations)
+	if len(translations) > 0 || b.foldedReady.Load() {
+		b.cacheTranslationsAsync(ctx, cacheKey, translations)
+	}
 	return translations, nil
 }
+
+// SetFoldedReady marks the folded columns as filled, so misses may be
+// negative-cached again. Called once, after the startup backfill.
+func (b *Business) SetFoldedReady() { b.foldedReady.Store(true) }
 
 func normalizeText(text string) string {
 	return tools.NormalizeSearch(text)
@@ -176,11 +213,12 @@ func (b *Business) RecheckTranslation(word string) bool {
 }
 
 // fetchTranslationsWithFallback queries the API for word and, when the results
-// lack an exact headword match for a ё/е-ambiguous query, retries with the
-// candidate respellings and puts those results first. The dosham search is a
-// substring match that does not fold ё/е — "елка" matches "Белка" but not
-// "Ёлка" — while Russians routinely type е for ё. Variants are tried one ё at
-// a time ("береза" → "бёреза", "берёза"), stopping at the first exact match.
+// lack an exact headword match, retries with the candidate respellings and puts
+// those results first. The dosham search is a substring match that folds
+// neither ё/е nor the palochka — "елка" matches "Белка" but not "Ёлка", and
+// "чегӏардиг" matches nothing at all — while people routinely type е for ё and
+// leave out a letter their keyboard does not have. tools.RespellVariants picks
+// which defect to retry; the cascade stops at the first exact match.
 func (b *Business) fetchTranslationsWithFallback(word string) ([]models.TranslationPairs, error) {
 	word = strings.TrimSpace(word)
 	translations, err := b.fetchTranslationsFromAPI(word)
@@ -188,7 +226,10 @@ func (b *Business) fetchTranslationsWithFallback(word string) ([]models.Translat
 		return translations, nil
 	}
 
-	variants := tools.YoVariants(word)
+	// A dictionary that returned nothing at all for this spelling is the signal
+	// that the query dropped its only palochka, which is precisely the case
+	// LooksChechen cannot see.
+	variants := tools.RespellVariants(word, err == nil && len(translations) == 0)
 	if len(variants) == 0 {
 		return translations, err
 	}
@@ -196,11 +237,25 @@ func (b *Business) fetchTranslationsWithFallback(word string) ([]models.Translat
 	// The user is already waiting on a miss, so variant lookups run
 	// concurrently instead of chaining API round trips. Merging still follows
 	// variant order, so the result is the same as the sequential version.
+	// The whole cascade gets one budget. Without it the retry pool turns a burst
+	// into a queue: eight callers each holding a handler slot enqueue up to
+	// sixty-four retries, and if dosham is timing out at 15s they drain in eight
+	// waves — over two minutes during which the bot answers nobody. The pool
+	// bounds how much we ask of dosham; this bounds how long we wait for it.
+	ctx, cancel := context.WithTimeout(context.Background(), cascadeBudget)
+	defer cancel()
 	results := make([][]models.TranslationPairs, len(variants))
 	errs := make([]error, len(variants))
 	var wg sync.WaitGroup
 	for i, alt := range variants {
-		wg.Go(func() { results[i], errs[i] = b.fetchTranslationsFromAPI(alt) })
+		wg.Go(func() {
+			results[i], errs[i] = b.fetchRetryFromAPI(ctx, alt)
+			// A hit ends the cascade for real: the rest are cancelled in flight
+			// rather than merely ignored, so dosham never serves them.
+			if hasFoldedOriginal(results[i], word) {
+				cancel()
+			}
+		})
 	}
 	wg.Wait()
 
@@ -212,7 +267,7 @@ func (b *Business) fetchTranslationsWithFallback(word string) ([]models.Translat
 			continue
 		}
 		translations = mergePairs(altPairs, translations)
-		if hasExactOriginal(translations, word) {
+		if hasFoldedOriginal(translations, word) {
 			break
 		}
 	}
@@ -235,6 +290,25 @@ func hasExactOriginal(pairs []models.TranslationPairs, word string) bool {
 	key := normalizeForRank(word)
 	for _, p := range pairs {
 		if normalizeForRank(p.Original) == key {
+			return true
+		}
+	}
+	return false
+}
+
+// hasFoldedOriginal reports whether any pair's headword matches the query once
+// both are folded. It, not hasExactOriginal, is the cascade's stop signal:
+// normalizeForRank keeps the palochka, so «чӏегӏардиг» never reads as an exact
+// match for «чегӏардиг» — the one comparison the palochka cascade exists to
+// make. Judging respellings by the strict key meant nothing ever stopped the
+// cascade and every candidate's substring hits merged into the answer.
+func hasFoldedOriginal(pairs []models.TranslationPairs, word string) bool {
+	key := tools.FoldSearch(word)
+	if key == "" {
+		return false
+	}
+	for _, p := range pairs {
+		if tools.FoldSearch(p.Original) == key {
 			return true
 		}
 	}
@@ -406,6 +480,10 @@ func filterPrefixMatches(pairs []models.TranslationPairs, prefix string) []model
 }
 
 func (b *Business) fetchTranslationsFromAPI(word string) ([]models.TranslationPairs, error) {
+	return b.fetchFromAPI(context.Background(), word)
+}
+
+func (b *Business) fetchFromAPI(ctx context.Context, word string) ([]models.TranslationPairs, error) {
 	query := `
 		query Find($inputText: String!) {
 			find(inputText: $inputText) {
@@ -428,7 +506,7 @@ func (b *Business) fetchTranslationsFromAPI(word string) ([]models.TranslationPa
 	`
 
 	var response models.TranslationResponse
-	if err := doDoshamQuery(context.Background(), query, map[string]any{"inputText": word}, &response); err != nil {
+	if err := doDoshamQuery(ctx, query, map[string]any{"inputText": word}, &response); err != nil {
 		return nil, fmt.Errorf("dosham find %q: %w", word, err)
 	}
 
@@ -583,10 +661,17 @@ func rankPair(p models.TranslationPairs, key string) int {
 		return 0
 	case normalizeForRank(p.Translate) == key:
 		return 1
-	case strings.HasPrefix(original, key):
+	// A folded match is the answer to a query that dropped the palochka: the
+	// user typed «чегардиг» and meant «чӏегӏардиг». Without this bucket every
+	// such hit tied at the bottom with unrelated substring matches, so the word
+	// they were actually looking for did not lead its own card. It ranks below
+	// an exact hit and above a prefix guess.
+	case tools.FoldSearch(original) == tools.FoldSearch(key):
 		return 2
+	case strings.HasPrefix(original, key):
+		return 3
 	}
-	return 3
+	return 4
 }
 
 func normalizeCacheKey(word string) string {
@@ -625,6 +710,27 @@ func (b *Business) loadLocalTranslations(ctx context.Context, word string) []mod
 	translations, err := b.dictRepo.FindTranslationPairs(ctx, cleanWord, 200)
 	if err != nil {
 		b.log.Printf("failed to read dictionary pairs: %v\n", err)
+		return nil
+	}
+	return translations
+}
+
+// loadFoldedTranslations retries the local table with the spelling-insensitive
+// key: the palochka and the combining marks dropped. It is what makes
+// «чегардиг» find «чӏегӏардиг» for any word already stored, at no cost to
+// dosham — and it closes the long-vowel gap too, where a stored «лесто̃» used
+// to be unreachable by typing «лесто».
+func (b *Business) loadFoldedTranslations(ctx context.Context, word string) []models.TranslationPairs {
+	if b.dictRepo == nil {
+		return nil
+	}
+	folded := tools.FoldSearch(word)
+	if folded == "" {
+		return nil
+	}
+	translations, err := b.dictRepo.FindTranslationPairsByFolded(ctx, folded, 200)
+	if err != nil {
+		b.log.Printf("failed to read folded dictionary pairs: %v\n", err)
 		return nil
 	}
 	return translations

@@ -1,6 +1,8 @@
 package business
 
 import (
+	"chetoru/internal/models"
+
 	"bytes"
 	"context"
 	"encoding/json"
@@ -14,6 +16,35 @@ import (
 // reused and every request is bounded by a timeout. Without a timeout a hung
 // API would block request goroutines indefinitely.
 var doshamHTTPClient = &http.Client{Timeout: 15 * time.Second}
+
+// maxRetryRequests caps how many respelling retries may be in flight against
+// dosham at once, process-wide. cascadeBudget caps how long one cascade may
+// spend waiting for them — a pool without a deadline just converts a burst into
+// a long queue when the upstream is slow.
+const (
+	maxRetryRequests = 8
+	cascadeBudget    = 20 * time.Second
+)
+
+// retrySlots is a pool retries take from and primary lookups do not. Primary
+// lookups are already bounded by maxConcurrentUpdates on the handler side, and
+// one shared pool would be a mistake: a cascade of somebody else's respellings
+// could take every slot ahead of a fresh first lookup and make an ordinary
+// search wait on a stranger's typo. Two disjoint pools make that impossible.
+var retrySlots = make(chan struct{}, maxRetryRequests)
+
+// fetchRetryFromAPI runs a respelling lookup under the retry budget, giving up
+// its place the moment ctx is cancelled — which is what the sibling that found
+// an exact match does.
+func (b *Business) fetchRetryFromAPI(ctx context.Context, word string) ([]models.TranslationPairs, error) {
+	select {
+	case retrySlots <- struct{}{}:
+		defer func() { <-retrySlots }()
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+	return b.fetchFromAPI(ctx, word)
+}
 
 // doDoshamQuery runs a GraphQL query against the dosham API and decodes the
 // response into out. It centralizes the endpoint, timeout, and JSON plumbing

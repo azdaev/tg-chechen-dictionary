@@ -46,7 +46,7 @@ const (
 // to the shape of models.TranslationPairs — a stored answer otherwise outlives
 // the release meant to replace it, and callers see the old output for a full
 // TTL. Bump it on every forward roll, including a re-deploy after a revert.
-const translationKeyVersion = 5
+const translationKeyVersion = 6
 
 // translationKey builds the Redis key for a lookup. Key construction lives here
 // rather than in the caller so the read, write, and moderator-invalidation

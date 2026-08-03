@@ -2,6 +2,7 @@ package repository
 
 import (
 	"chetoru/internal/models"
+	"chetoru/pkg/tools"
 	"context"
 	"database/sql"
 	"errors"
@@ -82,9 +83,11 @@ func (r *Repository) InsertTranslationPair(ctx context.Context, pair Translation
 		`insert or ignore into dictionary_pairs (
 			original_raw,
 			original_clean,
+			original_folded,
 			original_lang,
 			translation_raw,
 			translation_clean,
+			translation_folded,
 			translation_lang,
 			source,
 			source_entry_id,
@@ -94,12 +97,14 @@ func (r *Repository) InsertTranslationPair(ctx context.Context, pair Translation
 			subtype,
 			entry_index,
 			entry_notes
-		) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`,
+		) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`,
 		pair.OriginalRaw,
 		pair.OriginalClean,
+		tools.FoldSearch(pair.OriginalClean),
 		pair.OriginalLang,
 		pair.TranslationRaw,
 		pair.TranslationClean,
+		tools.FoldSearch(pair.TranslationClean),
 		pair.TranslationLang,
 		pair.Source,
 		pair.SourceEntryID,
@@ -374,6 +379,153 @@ func (r *Repository) FindTranslationPairs(ctx context.Context, cleanWord string,
 	}
 
 	return results, rows.Err()
+}
+
+// FindTranslationPairsByFolded mirrors FindTranslationPairs but matches on the
+// spelling-insensitive columns, so a query that dropped a palochka or a long
+// vowel mark still reaches a word we already stored. No new ranking is
+// introduced: the caller runs the result through the same rankAndDedup as the
+// exact lookup.
+func (r *Repository) FindTranslationPairsByFolded(ctx context.Context, folded string, limit int) ([]models.TranslationPairs, error) {
+	if folded == "" {
+		return nil, nil
+	}
+	if limit <= 0 {
+		limit = 200
+	}
+
+	rows, err := r.db.QueryContext(
+		ctx,
+		`select
+			original_raw,
+			original_folded,
+			original_lang,
+			translation_raw,
+			translation_folded,
+			translation_lang,
+			formatted_ai,
+			formatted_chosen,
+			rate,
+			entry_type,
+			subtype,
+			entry_index,
+			entry_notes,
+			structured_json
+		from dictionary_pairs
+		where (formatted_chosen is null or formatted_chosen != 'deleted')
+		  and (original_folded = ? or translation_folded = ?)
+		order by (formatted_chosen is null), rate desc, length(translation_raw), id
+		limit ?;`,
+		folded, folded, limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	results := make([]models.TranslationPairs, 0, limit)
+	for rows.Next() {
+		var originalRaw, originalLang, translationRaw, translationLang string
+		var originalFolded, translationFolded, formattedAI, formattedChosen, entryType, entryNotes, structured sql.NullString
+		var rate, subtype, entryIndex int
+		if err := rows.Scan(&originalRaw, &originalFolded, &originalLang, &translationRaw, &translationFolded, &translationLang, &formattedAI, &formattedChosen, &rate, &entryType, &subtype, &entryIndex, &entryNotes, &structured); err != nil {
+			return nil, err
+		}
+
+		pair := models.TranslationPairs{
+			Original:        originalRaw,
+			Translate:       translationRaw,
+			OriginalLang:    originalLang,
+			TranslateLang:   translationLang,
+			FormattedAI:     formattedAI.String,
+			FormattedChosen: formattedChosen.String,
+			Rate:            rate,
+			EntryType:       entryType.String,
+			Subtype:         subtype,
+			EntryIndex:      entryIndex,
+			Notes:           entryNotes.String,
+			Structured:      structured.String,
+		}
+
+		if originalFolded.String != folded {
+			// Reverse hit: the matched side leads, so the languages swap with it.
+			pair.Original, pair.Translate = pair.Translate, pair.Original
+			pair.OriginalLang, pair.TranslateLang = pair.TranslateLang, pair.OriginalLang
+		}
+		results = append(results, pair)
+	}
+
+	return results, rows.Err()
+}
+
+// BackfillFolded fills the folded columns for rows stored before they existed,
+// in batches so no long write transaction forms. It is idempotent: rows are
+// selected on `original_folded is null`, and new rows arrive with the columns
+// already filled, so a concurrent INSERT can never be missed.
+//
+// On error it returns the number of rows already updated along with the error —
+// a partially filled column is correct for the rows it does hold, so the caller
+// logs and keeps serving; the folded lookup simply covers less.
+func (r *Repository) BackfillFolded(ctx context.Context, batch int) (int, error) {
+	if batch <= 0 {
+		batch = 500
+	}
+	total := 0
+	for {
+		rows, err := r.db.QueryContext(
+			ctx,
+			`select id, original_clean, translation_clean from dictionary_pairs
+			 where original_folded is null limit ?;`,
+			batch,
+		)
+		if err != nil {
+			return total, err
+		}
+		type row struct {
+			id                    int64
+			original, translation string
+		}
+		var pending []row
+		for rows.Next() {
+			var v row
+			if err := rows.Scan(&v.id, &v.original, &v.translation); err != nil {
+				rows.Close()
+				return total, err
+			}
+			pending = append(pending, v)
+		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			return total, err
+		}
+		rows.Close()
+		if len(pending) == 0 {
+			return total, nil
+		}
+
+		tx, err := r.db.BeginTx(ctx, nil)
+		if err != nil {
+			return total, err
+		}
+		stmt, err := tx.PrepareContext(ctx,
+			`update dictionary_pairs set original_folded = ?, translation_folded = ? where id = ?;`)
+		if err != nil {
+			tx.Rollback()
+			return total, err
+		}
+		for _, v := range pending {
+			if _, err := stmt.ExecContext(ctx, tools.FoldSearch(v.original), tools.FoldSearch(v.translation), v.id); err != nil {
+				stmt.Close()
+				tx.Rollback()
+				return total, err
+			}
+		}
+		stmt.Close()
+		if err := tx.Commit(); err != nil {
+			return total, err
+		}
+		total += len(pending)
+	}
 }
 
 // FindTranslationPairsByPrefix returns pairs where either side starts with
