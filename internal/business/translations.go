@@ -28,10 +28,12 @@ import (
 type OnPairReady func(pairID int64, cleanWord string)
 
 type Business struct {
-	cache               *cache.Cache
-	dictRepo            DictionaryRepository
-	aiClient            *ai.Client // optional, can be nil
-	aiFormattingEnabled bool
+	cache    *cache.Cache
+	dictRepo DictionaryRepository
+	aiClient *ai.Client // optional, can be nil
+	// atomic: /ai flips it from the admin handler's goroutine while detached
+	// storeTranslationPair goroutines read it.
+	aiFormattingEnabled atomic.Bool
 	log                 *logrus.Logger
 	onPairReady         OnPairReady
 	pool                wordPool
@@ -81,13 +83,14 @@ type DictionaryRepository interface {
 }
 
 func NewBusiness(cache *cache.Cache, dictRepo DictionaryRepository, aiClient *ai.Client, log *logrus.Logger) *Business {
-	return &Business{
-		cache:               cache,
-		dictRepo:            dictRepo,
-		aiClient:            aiClient,
-		aiFormattingEnabled: aiClient != nil,
-		log:                 log,
+	b := &Business{
+		cache:    cache,
+		dictRepo: dictRepo,
+		aiClient: aiClient,
+		log:      log,
 	}
+	b.aiFormattingEnabled.Store(aiClient != nil)
+	return b
 }
 
 // SetOnPairReady sets a callback that fires after a pair is saved and AI-formatted.
@@ -96,30 +99,42 @@ func (b *Business) SetOnPairReady(fn OnPairReady) {
 }
 
 func (b *Business) SetAIFormatting(enabled bool) {
-	b.aiFormattingEnabled = enabled
+	b.aiFormattingEnabled.Store(enabled)
 }
 
 func (b *Business) AIFormattingEnabled() bool {
-	return b.aiFormattingEnabled
+	return b.aiFormattingEnabled.Load()
 }
 
-// Translate returns the ranked pairs for a word. An empty result with a nil
-// error is a real "no such word" and is negative-cached; a non-nil error means
-// the dictionary could not answer, and callers must not read that as absence —
-// it is the difference between telling a user their word is missing and telling
-// them the service is down, and between recording a genuine vocabulary gap and
-// poisoning missing_words with every query made during an outage.
+// Translate returns the ranked pairs for a word, discarding which headword
+// answered. Callers that render a card want TranslateResolved instead.
 func (b *Business) Translate(word string) ([]models.TranslationPairs, error) {
+	pairs, _, err := b.TranslateResolved(word)
+	return pairs, err
+}
+
+// TranslateResolved is Translate plus the headword the answer belongs to, empty
+// when that is the query itself. The card renders against a headword, so an
+// answer reached through a different one — «лоьман» resolved to «лом» — renders
+// empty and gets thrown away unless the caller knows to re-key it.
+//
+// An empty result with a nil error is a real "no such word" and is
+// negative-cached; a non-nil error means the dictionary could not answer, and
+// callers must not read that as absence — it is the difference between telling
+// a user their word is missing and telling them the service is down, and
+// between recording a genuine vocabulary gap and poisoning missing_words with
+// every query made during an outage.
+func (b *Business) TranslateResolved(word string) ([]models.TranslationPairs, string, error) {
 	ctx := context.Background()
 	cacheKey := normalizeCacheKey(word)
 	if translations, ok := b.loadCachedTranslations(ctx, cacheKey); ok {
-		return translations, nil
+		return translations, "", nil
 	}
 
 	if translations := b.loadLocalTranslations(ctx, word); len(translations) > 0 {
 		translations = rankAndDedup(translations, word)
 		b.cacheTranslationsAsync(ctx, cacheKey, translations)
-		return translations, nil
+		return translations, "", nil
 	}
 
 	// The stored headword may carry marks no keyboard has — a palochka, a long
@@ -132,15 +147,15 @@ func (b *Business) Translate(word string) ([]models.TranslationPairs, error) {
 		// translation_clean — could never reach them: a pair a moderator deleted
 		// would keep being served under «гала» for the full 30-day TTL. The
 		// lookup it replaces is one indexed read, so caching buys almost nothing.
-		return rankAndDedup(translations, word), nil
+		return rankAndDedup(translations, word), "", nil
 	}
 
 	// «лоьман» is «лом» declined, and the grammar card has been printing that
 	// paradigm all along without anything indexing it. Not cached, for the same
 	// reason the folded layer is not: the key would be a spelling moderation
 	// cannot reach.
-	if translations := b.loadFormTranslations(ctx, word); len(translations) > 0 {
-		return translations, nil
+	if translations, headword := b.loadFormTranslations(ctx, word); len(translations) > 0 {
+		return translations, headword, nil
 	}
 
 	// A miss is the expensive path: a primary lookup plus a cascade of
@@ -150,14 +165,14 @@ func (b *Business) Translate(word string) ([]models.TranslationPairs, error) {
 		return b.fetchTranslationsWithFallback(word)
 	})
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	translations, _ := v.([]models.TranslationPairs)
 	translations = rankAndDedup(translations, word)
 	if len(translations) > 0 || b.foldedReady.Load() {
 		b.cacheTranslationsAsync(ctx, cacheKey, translations)
 	}
-	return translations, nil
+	return translations, "", nil
 }
 
 // SetFoldedReady marks the folded columns as filled, so misses may be
@@ -753,27 +768,32 @@ func (b *Business) loadFoldedTranslations(ctx context.Context, word string) []mo
 // loadFormTranslations answers an inflected query with its lemma's card. The
 // paradigm comes from whatever grammar cards have already been drawn, so the
 // table warms itself: looking up «лом» is what makes «лоьман» findable later.
-func (b *Business) loadFormTranslations(ctx context.Context, word string) []models.TranslationPairs {
+func (b *Business) loadFormTranslations(ctx context.Context, word string) ([]models.TranslationPairs, string) {
 	if b.dictRepo == nil {
-		return nil
+		return nil, ""
 	}
 	folded := tools.FoldSearch(word)
 	if folded == "" {
-		return nil
+		return nil, ""
 	}
 	headwords, err := b.dictRepo.FindHeadwordsByForm(ctx, folded, maxFormHeadwords)
 	if err != nil {
 		b.log.Printf("failed to read word forms: %v\n", err)
-		return nil
+		return nil, ""
 	}
 
 	var out []models.TranslationPairs
+	answered := ""
 	for _, h := range headwords {
 		// Ranked against the headword, not the form the user typed: the card is
 		// the lemma's, and rankPair measures distance from its own headword.
-		out = append(out, rankAndDedup(b.loadLocalTranslations(ctx, h), h)...)
+		pairs := rankAndDedup(b.loadLocalTranslations(ctx, h), h)
+		if len(pairs) > 0 && answered == "" {
+			answered = h
+		}
+		out = append(out, pairs...)
 	}
-	return out
+	return out, answered
 }
 
 // saveWordForms records a paradigm off the request path. A failure costs the
@@ -830,7 +850,7 @@ func (b *Business) storeTranslationPair(entry models.Entry, translation models.T
 		return
 	}
 
-	if b.aiFormattingEnabled && b.aiClient != nil {
+	if b.aiFormattingEnabled.Load() && b.aiClient != nil {
 		b.bg.Go(func() { b.formatPairWithAI(pairID, pair.OriginalClean, pair.OriginalRaw, pair.TranslationRaw) })
 	} else if b.onPairReady != nil {
 		// No AI client — trigger moderation immediately

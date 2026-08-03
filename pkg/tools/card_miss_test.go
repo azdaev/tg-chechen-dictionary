@@ -83,3 +83,41 @@ func TestCard_HeadwordsAreLowercase(t *testing.T) {
 		t.Fatalf("headword kept the source capitalization:\n%s", card)
 	}
 }
+
+// Every layer that feeds this renderer matches on the folded key — the folded
+// columns, the palochka cascade, rankPair's own folded bucket. The renderer
+// matched only the strict key, so a word the bot had just found came back as
+// «нет перевода». Each of these was verified dead before the fix.
+func TestCard_FoldedHitStillRenders(t *testing.T) {
+	cases := []struct {
+		name, query, original string
+	}{
+		{"палочка опущена", "чегардиг", "Чӏегӏардиг"},
+		{"ъ опущен", "колам", "къолам"},
+		{"долгая гласная", "лесто", "лесто̃"},
+		{"русское ударение", "рука", "ру́ка"},
+	}
+	for _, c := range cases {
+		body, _ := Card(c.query, []models.TranslationPairs{
+			{Original: c.original, Translate: "перевод", OriginalLang: "CHE", TranslateLang: "RUS", Rate: 16, EntryType: "WORD"},
+		})
+		if body == "" {
+			t.Errorf("%s: Card(%q) with stored %q rendered nothing", c.name, c.query, c.original)
+		}
+	}
+
+	// Folding must not swallow the exact match into its block. Order here is
+	// rankAndDedup's job, not the card's — pairs arrive ranked, exact first —
+	// so the contract checked is that both keep their own spelling as a head
+	// and the exact one still leads the card it was ranked to lead.
+	body, _ := Card("лом", []models.TranslationPairs{
+		{Original: "лом", Translate: "лев", OriginalLang: "CHE", TranslateLang: "RUS", Rate: 16, EntryType: "WORD"},
+		{Original: "ло̃м", Translate: "не тот", OriginalLang: "CHE", TranslateLang: "RUS", Rate: 16, EntryType: "WORD"},
+	})
+	if !strings.HasPrefix(body, "<b>лом</b>") {
+		t.Errorf("exact match lost the lead:\n%s", body)
+	}
+	if !strings.Contains(body, "ло̃м") {
+		t.Errorf("folded homograph was absorbed into the exact block:\n%s", body)
+	}
+}

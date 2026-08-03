@@ -206,6 +206,20 @@ func collect(query string, pairs []models.TranslationPairs) collected {
 			b := blockFor(p, translate, p.TranslateLang == "CHE")
 			b.senses = append(b.senses, original)
 
+		// Same, once the marks a keyboard cannot type are folded away. Every
+		// layer that reaches this renderer — the folded columns, the palochka
+		// cascade, rankPair's own folded bucket — matches on the folded key, so
+		// matching only the strict one here threw those answers away and the
+		// user was told the word does not exist. Exact stays above, so a true
+		// headword still wins the block.
+		case FoldSearch(original) == folded:
+			b := blockFor(p, original, p.OriginalLang == "CHE")
+			b.senses = append(b.senses, translate)
+
+		case FoldSearch(translate) == folded:
+			b := blockFor(p, translate, p.TranslateLang == "CHE")
+			b.senses = append(b.senses, original)
+
 		// Neighbour: how dosham's substring search answers «дом» with «Домбра».
 		// Never a card, worth one line at the foot.
 		case p.EntryType != "TEXT" && strings.HasPrefix(NormalizeSearch(original), key):

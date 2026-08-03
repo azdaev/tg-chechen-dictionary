@@ -92,6 +92,7 @@ type AI interface {
 
 type Business interface {
 	Translate(word string) ([]models.TranslationPairs, error)
+	TranslateResolved(word string) ([]models.TranslationPairs, string, error)
 	SuggestTranslations(word string) []models.TranslationPairs
 	SetAIFormatting(enabled bool)
 	AIFormattingEnabled() bool

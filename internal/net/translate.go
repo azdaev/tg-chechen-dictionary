@@ -23,7 +23,7 @@ func (n *Net) HandleText(ctx context.Context, m *tgbotapi.Message) error {
 	// never sit between the user and the translation.
 	defer n.recordActivity(ctx, m.From.ID, m.From.UserName, models.ActivityTypeText)
 
-	translations, err := n.business.Translate(m.Text)
+	translations, resolved, err := n.business.TranslateResolved(m.Text)
 	if err != nil {
 		// Not a miss: nothing gets recorded as a vocabulary gap, and
 		// SuggestTranslations is skipped — it would fan one failed lookup out
@@ -36,7 +36,14 @@ func (n *Net) HandleText(ctx context.Context, m *tgbotapi.Message) error {
 	// substring search matches «стрим» inside «гольфстрим» and «лоьма» inside
 	// «Лоьма-кӏорца». The card is what decides, because it is the thing that
 	// knows whether any entry actually means the query.
-	card, neighbours := tools.Card(m.Text, translations)
+	// Rendered against the headword that answered, not the typed word: the
+	// word-forms layer resolves «лоьман» to «лом», and a card keyed on the form
+	// matches none of the lemma's pairs and comes back empty.
+	renderKey := m.Text
+	if resolved != "" {
+		renderKey = resolved
+	}
+	card, neighbours := tools.Card(renderKey, translations)
 	if card == "" {
 		return n.sendMiss(ctx, m, neighbours)
 	}
