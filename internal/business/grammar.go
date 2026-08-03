@@ -60,6 +60,14 @@ func (b *Business) GrammarFor(ctx context.Context, word string) (*models.WordGra
 
 	cacheKey := normalizeCacheKey(word)
 	if g, err := b.cache.GetGrammar(ctx, cacheKey); err == nil {
+		// Recorded on the cache hit too, not just on compute: the grammar cache
+		// holds thirty days, so skipping it here would leave exactly the
+		// most-looked-up words — the already-cached ones — without a paradigm
+		// for a month. ponytail: a few no-op inserts per lookup, detached; give
+		// it a seen-set if the write rate ever shows up in the logs.
+		if g != nil {
+			b.saveWordForms(g.Headword, g.Forms)
+		}
 		return g, nil
 	} else if !errors.Is(err, cache.ErrMiss) {
 		b.log.Printf("grammar cache get failed for %q: %v\n", cacheKey, err)
@@ -68,6 +76,9 @@ func (b *Business) GrammarFor(ctx context.Context, word string) (*models.WordGra
 	g, err := b.computeGrammar(ctx, word)
 	if err != nil {
 		return nil, err
+	}
+	if g != nil {
+		b.saveWordForms(g.Headword, g.Forms)
 	}
 
 	if err := b.cache.SetGrammar(ctx, cacheKey, g); err != nil {

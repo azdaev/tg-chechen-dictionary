@@ -65,9 +65,15 @@ func (b *Business) TranslationCacheStats() (hits, misses int64) {
 	return b.cacheHits.Load(), b.cacheMisses.Load()
 }
 
+// maxFormHeadwords caps how many lemmas one inflected query may open. A form
+// shared by more than a couple of words is a coincidence, not an answer.
+const maxFormHeadwords = 3
+
 type DictionaryRepository interface {
 	FindTranslationPairs(ctx context.Context, cleanWord string, limit int) ([]models.TranslationPairs, error)
 	FindTranslationPairsByFolded(ctx context.Context, folded string, limit int) ([]models.TranslationPairs, error)
+	FindHeadwordsByForm(ctx context.Context, folded string, limit int) ([]string, error)
+	SaveWordForms(ctx context.Context, headword string, forms []string) error
 	FindTranslationPairsByPrefix(ctx context.Context, prefix string, limit int) ([]models.TranslationPairs, error)
 	InsertTranslationPair(ctx context.Context, pair repository.TranslationPair) (int64, bool, error)
 	UpdateTranslationPairFormatting(ctx context.Context, id int64, formattedAI, formattedChosen string) error
@@ -127,6 +133,14 @@ func (b *Business) Translate(word string) ([]models.TranslationPairs, error) {
 		// would keep being served under «гала» for the full 30-day TTL. The
 		// lookup it replaces is one indexed read, so caching buys almost nothing.
 		return rankAndDedup(translations, word), nil
+	}
+
+	// «лоьман» is «лом» declined, and the grammar card has been printing that
+	// paradigm all along without anything indexing it. Not cached, for the same
+	// reason the folded layer is not: the key would be a spelling moderation
+	// cannot reach.
+	if translations := b.loadFormTranslations(ctx, word); len(translations) > 0 {
+		return translations, nil
 	}
 
 	// A miss is the expensive path: a primary lookup plus a cascade of
@@ -734,6 +748,45 @@ func (b *Business) loadFoldedTranslations(ctx context.Context, word string) []mo
 		return nil
 	}
 	return translations
+}
+
+// loadFormTranslations answers an inflected query with its lemma's card. The
+// paradigm comes from whatever grammar cards have already been drawn, so the
+// table warms itself: looking up «лом» is what makes «лоьман» findable later.
+func (b *Business) loadFormTranslations(ctx context.Context, word string) []models.TranslationPairs {
+	if b.dictRepo == nil {
+		return nil
+	}
+	folded := tools.FoldSearch(word)
+	if folded == "" {
+		return nil
+	}
+	headwords, err := b.dictRepo.FindHeadwordsByForm(ctx, folded, maxFormHeadwords)
+	if err != nil {
+		b.log.Printf("failed to read word forms: %v\n", err)
+		return nil
+	}
+
+	var out []models.TranslationPairs
+	for _, h := range headwords {
+		// Ranked against the headword, not the form the user typed: the card is
+		// the lemma's, and rankPair measures distance from its own headword.
+		out = append(out, rankAndDedup(b.loadLocalTranslations(ctx, h), h)...)
+	}
+	return out
+}
+
+// saveWordForms records a paradigm off the request path. A failure costs the
+// next reader one more miss, which is what happens today anyway.
+func (b *Business) saveWordForms(headword string, forms []string) {
+	if b.dictRepo == nil || headword == "" || len(forms) == 0 {
+		return
+	}
+	b.bg.Go(func() {
+		if err := b.dictRepo.SaveWordForms(context.Background(), headword, forms); err != nil {
+			b.log.Printf("failed to save word forms for %q: %v\n", headword, err)
+		}
+	})
 }
 
 func (b *Business) storeTranslationPair(entry models.Entry, translation models.Translation) {

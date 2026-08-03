@@ -213,6 +213,14 @@ func (r *recordingDictRepo) FindTranslationPairsByFolded(context.Context, string
 	return nil, nil
 }
 
+func (r *recordingDictRepo) FindHeadwordsByForm(context.Context, string, int) ([]string, error) {
+	return nil, nil
+}
+
+func (r *recordingDictRepo) SaveWordForms(context.Context, string, []string) error {
+	return nil
+}
+
 func (r *recordingDictRepo) FindTranslationPairsByPrefix(context.Context, string, int) ([]models.TranslationPairs, error) {
 	return nil, nil
 }

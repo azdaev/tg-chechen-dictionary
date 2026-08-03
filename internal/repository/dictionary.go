@@ -528,6 +528,67 @@ func (r *Repository) BackfillFolded(ctx context.Context, batch int) (int, error)
 	}
 }
 
+// SaveWordForms records a headword's paradigm, keyed by the folded form so a
+// query that dropped the long-vowel tilde («лоьмаш» for «ло̃ьмаш») still lands.
+// The headword itself is skipped — the folded columns already reach it.
+func (r *Repository) SaveWordForms(ctx context.Context, headword string, forms []string) error {
+	headword = strings.TrimSpace(headword)
+	if headword == "" || len(forms) == 0 {
+		return nil
+	}
+	headFolded := tools.FoldSearch(headword)
+
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	stmt, err := tx.PrepareContext(ctx,
+		`insert or ignore into word_forms (form_folded, headword) values (?, ?);`)
+	if err != nil {
+		tx.Rollback()
+		return err
+	}
+	defer stmt.Close()
+	for _, f := range forms {
+		folded := tools.FoldSearch(f)
+		if folded == "" || folded == headFolded {
+			continue
+		}
+		if _, err := stmt.ExecContext(ctx, folded, headword); err != nil {
+			tx.Rollback()
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+// FindHeadwordsByForm returns the headwords whose paradigm contains folded.
+// A form can belong to more than one word, so the caller gets every match.
+func (r *Repository) FindHeadwordsByForm(ctx context.Context, folded string, limit int) ([]string, error) {
+	if folded == "" {
+		return nil, nil
+	}
+	if limit <= 0 {
+		limit = 3
+	}
+	rows, err := r.db.QueryContext(ctx,
+		`select headword from word_forms where form_folded = ? limit ?;`, folded, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []string
+	for rows.Next() {
+		var h string
+		if err := rows.Scan(&h); err != nil {
+			return nil, err
+		}
+		out = append(out, h)
+	}
+	return out, rows.Err()
+}
+
 // FindTranslationPairsByPrefix returns pairs where either side starts with
 // prefix, shortest matches first (closest to a lemma). It backs suggestions
 // for failed searches: the local table holds lemmas ("яблоко") that dosham's
