@@ -59,6 +59,28 @@ func main() {
 	}
 	log.Info("database migrations up to date")
 
+	// Rows stored before the folded columns existed have to be filled in for the
+	// spelling-insensitive lookup to reach them. Detached because the table size
+	// on the host is unknown and a startup that waits on it would be a restart
+	// risk; a partially filled column is correct for the rows it does hold, so
+	// the bot serves normally while this runs and simply covers more as it goes.
+	// Closed only on success: a failed backfill leaves rows unfolded, and the
+	// bot must keep not caching misses rather than pin a wrong "no translation"
+	// for a day. That costs dosham traffic until the next restart, which is the
+	// cheaper of the two mistakes.
+	backfillOK := make(chan struct{})
+	go func() {
+		n, err := repo.BackfillFolded(ctx, 500)
+		if err != nil {
+			log.WithError(err).Warnf("folded backfill stopped after %d rows", n)
+			return
+		}
+		if n > 0 {
+			log.Infof("folded backfill filled %d rows", n)
+		}
+		close(backfillOK)
+	}()
+
 	bot, err := tgbotapi.NewBotAPI(os.Getenv("TG_BOT_TOKEN"))
 	if err != nil {
 		panic(err)
@@ -83,6 +105,10 @@ func main() {
 	}
 
 	translator := business.NewBusiness(redisCache, repo, aiClient, log)
+	go func() {
+		<-backfillOK
+		translator.SetFoldedReady()
+	}()
 
 	var spellChecker net.AI
 	if aiClient != nil {

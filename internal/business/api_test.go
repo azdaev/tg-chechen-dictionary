@@ -209,6 +209,10 @@ func (r *recordingDictRepo) FindTranslationPairs(context.Context, string, int) (
 	return nil, nil
 }
 
+func (r *recordingDictRepo) FindTranslationPairsByFolded(context.Context, string, int) ([]models.TranslationPairs, error) {
+	return nil, nil
+}
+
 func (r *recordingDictRepo) FindTranslationPairsByPrefix(context.Context, string, int) ([]models.TranslationPairs, error) {
 	return nil, nil
 }

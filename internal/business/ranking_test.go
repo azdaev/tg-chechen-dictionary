@@ -146,6 +146,10 @@ func (r *stubDictRepo) FindTranslationPairs(context.Context, string, int) ([]mod
 	return r.pairs, nil
 }
 
+func (r *stubDictRepo) FindTranslationPairsByFolded(context.Context, string, int) ([]models.TranslationPairs, error) {
+	return nil, nil
+}
+
 func TestTranslate_LocalPathRankedAndDeduped(t *testing.T) {
 	// The local table is the steady-state path once a word has been looked up
 	// once, so ranking has to apply there and not only to API results.

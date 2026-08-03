@@ -86,6 +86,23 @@ func TestNoTranslationWithSuggestionsIsClamped(t *testing.T) {
 	}
 }
 
+// The miss message goes out with ParseMode html, so an unbalanced tag in the
+// palochka hint would not garble one line — Telegram rejects the whole message
+// and the user sees nothing at all.
+func TestPalochkaHintIsValidHTML(t *testing.T) {
+	if strings.Count(PalochkaHintText, "<") != strings.Count(PalochkaHintText, ">") {
+		t.Fatalf("unbalanced brackets: %q", PalochkaHintText)
+	}
+	if got := tools.EscapeUnclosedTags(PalochkaHintText); got != PalochkaHintText {
+		t.Fatalf("hint would be mangled before sending: %q", got)
+	}
+	// The hint only rides along on Chechen-looking misses; a Russian typo must
+	// not be told about a letter it has no use for.
+	if !tools.LooksChechen("чегӏардиг") || tools.LooksChechen("сущиствование") {
+		t.Fatal("the gate that decides whether the hint is shown is broken")
+	}
+}
+
 // The button carries the typed word, so a long one blows Telegram's 64-byte
 // callback cap and the send fails with it — the whole miss message lost to a
 // button nobody needed.
