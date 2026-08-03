@@ -65,3 +65,19 @@ func TestArticle_PlainGlossSurvives(t *testing.T) {
 		t.Fatalf("plain example lost:\n%s", card)
 	}
 }
+
+// The LLM article parser hands back the odd sense with the source's own
+// bookkeeping still on it: «Лев» arrived as "2 м лев (Болгарера ахча)" under a
+// card that numbers its senses itself.
+func TestArticle_StructuredGlossLosesItsSenseNumber(t *testing.T) {
+	p := article("Лев", "ӏ м зоол. лом")
+	p.Structured = `{"senses":[{"gloss":"цоькъа лом"},{"gloss":"2 м лев (Болгарера ахча)"}]}`
+	card := FormatCard("лев", []models.TranslationPairs{p})
+
+	if strings.Contains(card, "2 м лев") {
+		t.Fatalf("sense number and gender reached the card:\n%s", card)
+	}
+	if !strings.Contains(card, "лев (Болгарера ахча)") {
+		t.Fatalf("the sense itself was lost:\n%s", card)
+	}
+}

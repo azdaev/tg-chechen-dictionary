@@ -29,7 +29,11 @@ var (
 	// Sense markers come as "1)" but also as "ӏ. " (palochka standing in for
 	// the digit) and "2. " in live dosham glosses.
 	meaningRe = regexp.MustCompile(`(\d+\)|(?:^|\s)[ӏ\d]\.\s)`)
-	tildeRe   = regexp.MustCompile(`~([а-яё]+)`)
+	// senseNumRe peels a sense number off the front of a gloss. The card
+	// numbers its own senses, so "2 м лев" arrives claiming to be sense 2 of a
+	// list the reader cannot see.
+	senseNumRe = regexp.MustCompile(`^\d+[).]?\s+`)
+	tildeRe    = regexp.MustCompile(`~([а-яё]+)`)
 )
 
 func Clean(text string) string {

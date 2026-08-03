@@ -38,6 +38,29 @@ func TestCard_BodyOnlyMentionIsNotAnAnswer(t *testing.T) {
 	}
 }
 
+// A collocation asked for by name is an entry, not somebody's example. Once
+// neighbours-only cards stopped counting as answers, this was the case that
+// would have started answering «нет перевода» to a phrase the dictionary holds.
+func TestCard_CollocationAskedByNameIsAnEntry(t *testing.T) {
+	pairs := []models.TranslationPairs{
+		{Original: "Телефон болх беш яц", Translate: "Телефон не работает", OriginalLang: "CHE", TranslateLang: "RUS", Rate: 100, EntryType: "TEXT"},
+	}
+	body, _ := Card("телефон болх беш яц", pairs)
+	if body == "" {
+		t.Fatal("a collocation the dictionary holds produced no card")
+	}
+	if !strings.Contains(body, "Телефон не работает") {
+		t.Fatalf("the collocation lost its translation:\n%s", body)
+	}
+
+	// Asked for by a word inside it, the same row stays an example.
+	card := FormatCard("телефон", append(pairs,
+		models.TranslationPairs{Original: "телефон", Translate: "телефон", OriginalLang: "CHE", TranslateLang: "RUS", Rate: 16, EntryType: "WORD"}))
+	if !strings.Contains(card, "<i>Телефон болх беш яц → Телефон не работает</i>") {
+		t.Fatalf("collocation stopped being an example of its own word:\n%s", card)
+	}
+}
+
 // The academic corpus writes stress, the others do not. Both spellings reached
 // the card as separate senses: "1. телефо́н 2. телефон".
 func TestCard_StressVariantsAreOneSense(t *testing.T) {

@@ -128,16 +128,21 @@ func articleParts(p models.TranslationPairs, head, body string) ([]string, []exa
 
 	glosses := make([]string, 0, len(st.Senses))
 	for _, s := range st.Senses {
-		if s.Gloss == "" {
+		// The model reads the article well but hands back the odd sense with its
+		// own bookkeeping still attached — «Лев» came out as "2 м лев
+		// (Болгарера ахча)", homonym number and gender and all, under a card
+		// that numbers its senses itself. Same peeling the regex path gets.
+		gloss := stripLabels(senseNumRe.ReplaceAllString(strings.TrimSpace(s.Gloss), ""))
+		if gloss == "" {
 			continue
 		}
 		// The card's own convention for a qualifier: leading parentheses, which
 		// splitQualifiers lifts back out of the bold at render time.
 		if s.Note != "" {
-			glosses = append(glosses, "("+s.Note+") "+s.Gloss)
+			glosses = append(glosses, "("+s.Note+") "+gloss)
 			continue
 		}
-		glosses = append(glosses, s.Gloss)
+		glosses = append(glosses, gloss)
 	}
 
 	examples := make([]example, 0, len(st.Examples))
