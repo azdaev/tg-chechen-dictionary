@@ -20,16 +20,19 @@ import (
 var ErrMiss = errors.New("cache: miss")
 
 const (
-	// translationTTL is a week rather than a month so a bad answer — or a
-	// formatting fix that shipped without a version bump — self-heals in days
-	// instead of outliving the release that fixed it.
-	translationTTL = 7 * 24 * time.Hour
+	// translationTTL is a month. The cached value is the raw pair list, not the
+	// rendered card, so a formatting fix reaches every reader on deploy without
+	// waiting for anything to expire; the one change that does need old answers
+	// gone — ranking — has translationKeyVersion, which drops them all at once.
+	// A short TTL buys neither and costs dosham four times the traffic, on an
+	// API we are a non-commercial guest of.
+	translationTTL = 30 * 24 * time.Hour
 	// negativeTTL keeps "no results" answers briefly: dead-end queries are the
 	// most expensive path (ё-variant fallbacks plus suggestion retries), but
 	// new words do get added to dosham, so misses must expire quickly.
 	negativeTTL = 24 * time.Hour
-	// spellcheckTTL matches translationTTL: the checker prompt evolves, and
-	// stale verdicts should pick up improvements within a week.
+	// spellcheckTTL stays a week: unlike a translation this is our own AI output,
+	// the prompt evolves, and a stale verdict should pick up improvements.
 	spellcheckTTL = 7 * 24 * time.Hour
 	// grammarTTL stays long and independent of translationTTL. Morphology does
 	// not churn, most lookups cache a negative ("no grammar") answer, and every
