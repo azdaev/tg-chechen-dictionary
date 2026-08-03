@@ -50,3 +50,19 @@ func TestInlineDescriptionTruncates(t *testing.T) {
 		t.Errorf("description cut mid-word: %q", desc)
 	}
 }
+
+// An outage used to answer nothing at all, leaving a dead picker with no
+// explanation. Saying so is only safe if Telegram's edge does not keep the
+// message after the outage ends — which is what CacheTime 0 and IsPersonal buy.
+func TestInlineUnavailableIsNotEdgeCached(t *testing.T) {
+	conf := inlineUnavailableConfig("q1")
+	if conf.CacheTime != 0 {
+		t.Errorf("CacheTime = %d, want 0 — an outage must not outlive itself", conf.CacheTime)
+	}
+	if !conf.IsPersonal {
+		t.Error("IsPersonal = false; a shared cache entry would show the outage to everyone")
+	}
+	if len(conf.Results) != 1 {
+		t.Fatalf("got %d results, want one explaining the failure", len(conf.Results))
+	}
+}
