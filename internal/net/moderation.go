@@ -49,6 +49,17 @@ func (n *Net) HandleModerate(ctx context.Context, m *tgbotapi.Message) error {
 }
 
 func (n *Net) HandleModerationCallback(ctx context.Context, cq *tgbotapi.CallbackQuery) error {
+	// callback_data comes from the client, not from the keyboard we drew: a
+	// custom client can send any string, and every /quiz or /random card gives
+	// it a message to attach to. Without this the handler wrote straight to the
+	// dictionary — «mod_delete_<id>» over a walk of the integer ids emptied the
+	// local table for everyone. Chat.ID is stamped by Telegram, so requiring the
+	// press to come from the moderation chat is the guard the data cannot forge,
+	// and it keeps the whole chat moderating rather than only TG_ADMIN_ID.
+	if cq.Message == nil || cq.Message.Chat.ID != moderationChatID() {
+		return nil
+	}
+
 	data := cq.Data
 	parts := strings.Split(data, "_")
 	if len(parts) != 3 {
