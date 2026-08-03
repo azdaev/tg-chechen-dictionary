@@ -2,6 +2,7 @@ package tools
 
 import (
 	"chetoru/internal/models"
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -502,5 +503,42 @@ func TestFirstExample(t *testing.T) {
 		if got != c.want || ok != c.ok {
 			t.Errorf("%s: FirstExample = %q/%v, want %q/%v", c.name, got, ok, c.want, c.ok)
 		}
+	}
+}
+
+// parseExamples caps each sense at five, which is fine until «Идти» brings
+// twenty-six senses and the card runs to fifty-eight lines. The card needs its
+// own ceiling, and it has to be spread: spent greedily, sense one takes all six
+// and the twenty-one senses under it show none.
+func TestFormatTranslationLite_CapsExamplesPerCard(t *testing.T) {
+	var b strings.Builder
+	b.WriteString("**Идти** -")
+	for i := 1; i <= 10; i++ {
+		fmt.Fprintf(&b, " %d) значение%d; пример%da - масал%da; пример%db - масал%db; пример%dc - масал%dc",
+			i, i, i, i, i, i, i, i)
+	}
+	got := FormatTranslationLite(b.String(), "Идти", true)
+
+	if n := strings.Count(got, "<i>"); n > maxCardExamples+1 { // +1 for the tail note
+		t.Errorf("card carries %d example lines, want at most %d:\n%s", n, maxCardExamples, got)
+	}
+	if !strings.Contains(got, "…ещё") {
+		t.Errorf("truncation is silent; the card reads as a thin entry:\n%s", got)
+	}
+	// Spread, not greedy: a late sense still gets one.
+	if !strings.Contains(got, "масал3a") {
+		t.Errorf("the first sense ate the whole budget:\n%s", got)
+	}
+	if strings.Contains(got, "масал1c") {
+		t.Errorf("one sense took more than %d:\n%s", maxExamplesPerSense, got)
+	}
+
+	// A single-sense card is not the problem and keeps its examples.
+	one := FormatTranslationLite("**Дом** - цӏа; пример1 - масал1; пример2 - масал2; пример3 - масал3", "Дом", true)
+	if n := strings.Count(one, "<i>"); n != 3 {
+		t.Errorf("single-sense card lost examples (%d of 3):\n%s", n, one)
+	}
+	if strings.Contains(one, "…ещё") {
+		t.Errorf("nothing was dropped, so no tail belongs:\n%s", one)
 	}
 }

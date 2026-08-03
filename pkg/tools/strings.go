@@ -258,6 +258,34 @@ func FormatTranslationLite(text string, originalWord string, boldGloss bool) str
 		return s
 	}
 
+	// parseExamples caps each sense at five, which is fine until a word has
+	// twenty-six of them: «Идти» ran to fifty-eight lines, well past what anyone
+	// scrolls. The budget is spent in sense order, so the examples that survive
+	// are the ones under the senses the reader meets first.
+	budget := maxCardExamples
+	omitted := 0
+	take := func(examples []string) []string {
+		// Per sense as well as per card: spending it greedily let «Идти» give all
+		// six to sense one — which spends them on parenthetical fragments — and
+		// nothing to the twenty-one senses under it.
+		limit := budget
+		if len(senses) > 1 && limit > maxExamplesPerSense {
+			limit = maxExamplesPerSense
+		}
+		if len(examples) > limit {
+			omitted += len(examples) - limit
+			examples = examples[:limit]
+		}
+		budget -= len(examples)
+		return examples
+	}
+	withTail := func(lines []string) string {
+		if omitted > 0 {
+			lines = append(lines, fmt.Sprintf("<i>…ещё %d прим.</i>", omitted))
+		}
+		return strings.TrimSpace(strings.Join(lines, "\n"))
+	}
+
 	var lines []string
 	// One sense stays a one-liner — the common case, and a numbered list of one
 	// is noise. Two or more put the headword on its own line so the numbers
@@ -269,8 +297,7 @@ func FormatTranslationLite(text string, originalWord string, boldGloss bool) str
 		default:
 			lines = append(lines, gloss(senses[0].main))
 		}
-		lines = append(lines, renderExamples(senses[0].examples)...)
-		return strings.TrimSpace(strings.Join(lines, "\n"))
+		return withTail(append(lines, renderExamples(take(senses[0].examples))...))
 	}
 
 	if word != "" {
@@ -282,11 +309,18 @@ func FormatTranslationLite(text string, originalWord string, boldGloss bool) str
 			number++
 			lines = append(lines, fmt.Sprintf("%d. %s", number, gloss(s.main)))
 		}
-		lines = append(lines, renderExamples(s.examples)...)
+		lines = append(lines, renderExamples(take(s.examples))...)
 	}
 
-	return strings.TrimSpace(strings.Join(lines, "\n"))
+	return withTail(lines)
 }
+
+const (
+	// maxCardExamples caps how many usage examples one card may carry, across
+	// all its senses; maxExamplesPerSense keeps one sense from taking them all.
+	maxCardExamples     = 6
+	maxExamplesPerSense = 2
+)
 
 // renderExamples prefixes a sense's examples. A lone example sits flush under
 // its sense; three or more get an indent (Telegram keeps leading spaces) so a
