@@ -275,10 +275,8 @@ func (n *Net) HandleInline(ctx context.Context, iq *tgbotapi.InlineQuery) error 
 
 	translations, err := n.business.Translate(iq.Query)
 	if err != nil {
-		// Answer nothing rather than an empty picker: Telegram edge-caches a
-		// delivered answer for an hour, so an outage rendered as "no results"
-		// would outlive the outage. Not answering caches nothing.
-		return fmt.Errorf("translate %q: %w", iq.Query, err)
+		n.log.WithError(err).WithField("query", iq.Query).Warn("inline lookup failed")
+		return n.answerInlineUnavailable(iq)
 	}
 
 	// A dead-end inline query used to show nothing at all; rescue it the same
@@ -340,6 +338,26 @@ func (n *Net) HandleInline(ctx context.Context, iq *tgbotapi.InlineQuery) error 
 
 	n.recordActivity(ctx, iq.From.ID, iq.From.UserName, models.ActivityTypeInline)
 	return nil
+}
+
+// answerInlineUnavailable tells the user the dictionary is down instead of
+// leaving a dead picker with no explanation. CacheTime is zero and the answer
+// is personal, so Telegram's edge does not keep an outage on screen after it
+// ends — the reason the failure path used to answer nothing at all.
+func (n *Net) answerInlineUnavailable(iq *tgbotapi.InlineQuery) error {
+	return n.answerInline(inlineUnavailableConfig(iq.ID))
+}
+
+func inlineUnavailableConfig(queryID string) tgbotapi.InlineConfig {
+	article := tgbotapi.NewInlineQueryResultArticle(queryID+"_down", "⚠️ Словарь недоступен", "")
+	article.Description = "Попробуйте через минуту"
+	article.InputMessageContent = tgbotapi.InputTextMessageContent{Text: DictionaryUnavailableText}
+	return tgbotapi.InlineConfig{
+		InlineQueryID: queryID,
+		IsPersonal:    true,
+		CacheTime:     0,
+		Results:       []any{article},
+	}
 }
 
 // answerInlineDiscovery responds to an empty inline query with a few random
@@ -416,7 +434,12 @@ func (n *Net) HandleMoreTranslations(ctx context.Context, cq *tgbotapi.CallbackQ
 	end := min(offset+MaxTranslations, len(translations))
 	nextTranslations := translations[offset:end]
 
-	msg := tgbotapi.NewMessage(cq.Message.Chat.ID, clampMessage(tools.FormatPairs(nextTranslations)))
+	// Sense numbers continue across the page break: without the offset this page
+	// reopens the same headword at "1.", and for a Russian lookup — where every
+	// gloss is its own pair under one repeated headword — that is the common
+	// case, not an edge one.
+	text := tools.FormatPairsFrom(nextTranslations, tools.ContinuedSenses(translations, offset))
+	msg := tgbotapi.NewMessage(cq.Message.Chat.ID, clampMessage(text))
 	msg.ParseMode = "html"
 
 	if end < len(translations) {

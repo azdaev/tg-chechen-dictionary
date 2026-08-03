@@ -111,3 +111,37 @@ func TestHasDictionaryMarkup(t *testing.T) {
 		}
 	}
 }
+
+// A Russian lookup is one headword with a gloss per pair, so "Ещё" always lands
+// mid-block. Numbering from 1 again there shows the same word with the same
+// numbers and different meanings — a repeat, as far as the reader can tell.
+func TestFormatPairsFrom_NumberingSurvivesThePageBreak(t *testing.T) {
+	pairs := make([]models.TranslationPairs, 0, 8)
+	for _, gloss := range []string{"дитт", "гӏа", "стом", "орам", "коьрта", "тӏам", "буц", "хи"} {
+		pairs = append(pairs, models.TranslationPairs{
+			Original: "Дерево", Translate: gloss,
+			OriginalLang: "RUS", TranslateLang: "CHE",
+		})
+	}
+
+	if got := FormatPairs(pairs[:4]); !strings.Contains(got, "4. <b>орам</b>") {
+		t.Fatalf("first page = %q", got)
+	}
+
+	shown := ContinuedSenses(pairs, 4)
+	if shown != 4 {
+		t.Fatalf("ContinuedSenses = %d, want 4", shown)
+	}
+	got := FormatPairsFrom(pairs[4:], shown)
+	if !strings.Contains(got, "5. <b>коьрта</b>") || !strings.Contains(got, "8. <b>хи</b>") {
+		t.Errorf("second page restarts the numbering:\n%s", got)
+	}
+
+	// A page break that also changes headword starts a fresh block at 1.
+	other := append(append([]models.TranslationPairs{}, pairs[:4]...),
+		models.TranslationPairs{Original: "Куст", Translate: "коьллаш", OriginalLang: "RUS", TranslateLang: "CHE"},
+		models.TranslationPairs{Original: "Куст", Translate: "буц", OriginalLang: "RUS", TranslateLang: "CHE"})
+	if n := ContinuedSenses(other, 4); n != 0 {
+		t.Errorf("ContinuedSenses across a headword change = %d, want 0", n)
+	}
+}

@@ -17,16 +17,40 @@ import (
 // It is the single source of truth for translation formatting, shared by the
 // net handlers (HandleText, HandleMoreTranslations).
 func FormatPairs(pairs []models.TranslationPairs) string {
+	return FormatPairsFrom(pairs, 0)
+}
+
+// FormatPairsFrom renders a page of pairs whose first block continues a
+// headword the reader has already seen. shown is how many of that headword's
+// senses came before, so "Ещё" numbers its senses 5..8 instead of opening a
+// second "Дерево 1..4" — same word, same numbers, different meanings. Use
+// ContinuedSenses to compute it.
+func FormatPairsFrom(pairs []models.TranslationPairs, shown int) string {
 	var b strings.Builder
 	for i := 0; i < len(pairs); {
 		j := i + 1
 		for j < len(pairs) && sameHeadword(pairs[i], pairs[j]) {
 			j++
 		}
-		b.WriteString(formatBlock(pairs[i:j]))
+		b.WriteString(formatBlock(pairs[i:j], shown))
+		shown = 0
 		i = j
 	}
 	return strings.TrimSpace(b.String())
+}
+
+// ContinuedSenses counts the pairs immediately before offset that belong to the
+// same headword block as the pair at offset — the number FormatPairsFrom needs
+// to keep sense numbering running across a page break.
+func ContinuedSenses(pairs []models.TranslationPairs, offset int) int {
+	if offset <= 0 || offset >= len(pairs) {
+		return 0
+	}
+	n := 0
+	for i := offset - 1; i >= 0 && sameHeadword(pairs[i], pairs[offset]); i-- {
+		n++
+	}
+	return n
 }
 
 // sameHeadword reports whether two pairs can share one headword block. Only
@@ -48,9 +72,12 @@ func hasAIFormatting(t models.TranslationPairs) bool {
 }
 
 // formatBlock renders one headword's worth of pairs, including the trailing
-// blank-line separator.
-func formatBlock(group []models.TranslationPairs) string {
-	if len(group) == 1 {
+// blank-line separator. shown offsets the sense numbers for a block continued
+// from the previous page.
+func formatBlock(group []models.TranslationPairs, shown int) string {
+	// A lone sense is a one-liner — unless it continues a numbered block, where
+	// dropping back to "Дерево — хи" would hide that it is sense five.
+	if len(group) == 1 && (shown == 0 || !plainPair(group[0])) {
 		return formatPair(group[0])
 	}
 
@@ -67,7 +94,7 @@ func formatBlock(group []models.TranslationPairs) string {
 		if boldGloss {
 			gloss = "<b>" + gloss + "</b>"
 		}
-		fmt.Fprintf(&b, "%d. %s\n", i+1, gloss)
+		fmt.Fprintf(&b, "%d. %s\n", shown+i+1, gloss)
 	}
 	b.WriteString("\n")
 	return b.String()
