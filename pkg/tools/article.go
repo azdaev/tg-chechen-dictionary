@@ -32,7 +32,15 @@ func ParseArticle(head, body string) (glosses []string, examples []example) {
 			main, rest = part[:i], part[i+1:]
 		}
 
-		if gloss := expandAbbreviations(cleanTranslation(main)); gloss != "" {
+		// A sense whose own first clause carries an example separator is not a
+		// gloss at all: «Трезвонит» stores "телефон - ӏуьйранна дуьйна телефон
+		// ека" as its whole first sense, and that string became a headword.
+		if _, _, ok := splitExample(main); ok {
+			rest = strings.TrimSpace(main + ";" + rest)
+			main = ""
+		}
+
+		if gloss := dropLabelTail(expandAbbreviations(cleanTranslation(main))); gloss != "" {
 			if expanded, exact := replaceTildeWithWord(gloss, head); exact {
 				glosses = append(glosses, expanded)
 			}
@@ -40,6 +48,26 @@ func ParseArticle(head, body string) (glosses []string, examples []example) {
 		examples = append(examples, articleExamples(rest, head)...)
 	}
 	return glosses, examples
+}
+
+// dropLabelTail cuts a gloss back to its last period. Every abbreviation the
+// card knows is expanded by the time this runs, so a surviving period is a
+// grammar label stripLabels has no pattern for — «Телефонировать» opens "сов. и
+// несов., что, о чём и без доп. телефон тоха, телефон етта", and chasing that
+// vocabulary one abbreviation at a time is a race with a paper dictionary.
+// The real translation is always what follows the last one.
+func dropLabelTail(gloss string) string {
+	i := strings.LastIndex(gloss, ".")
+	if i == -1 {
+		return gloss
+	}
+	// A period inside the last few characters is punctuation, not a label, and
+	// cutting there would leave nothing.
+	rest := strings.TrimSpace(gloss[i+1:])
+	if rest == "" {
+		return gloss
+	}
+	return rest
 }
 
 // articleExamples reads a sense's semicolon-separated example list. The source
