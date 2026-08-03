@@ -105,7 +105,7 @@ func collect(query string, pairs []models.TranslationPairs) collected {
 		// The Russian–Chechen article: the one corpus that packs a whole entry
 		// into one string, so the only place left that parses text.
 		if isArticle {
-			glosses, examples := ParseArticle(original, translate)
+			glosses, examples := articleParts(p, original, translate)
 			switch {
 			// The user typed the article's own Russian headword.
 			case NormalizeSearch(original) == key:

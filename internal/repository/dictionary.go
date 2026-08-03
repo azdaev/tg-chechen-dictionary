@@ -310,7 +310,8 @@ func (r *Repository) FindTranslationPairs(ctx context.Context, cleanWord string,
 			entry_type,
 			subtype,
 			entry_index,
-			entry_notes
+			entry_notes,
+			structured_json
 		from dictionary_pairs
 		where (formatted_chosen is null or formatted_chosen != 'deleted')
 		  and (original_clean = ? or translation_clean = ?)
@@ -326,9 +327,9 @@ func (r *Repository) FindTranslationPairs(ctx context.Context, cleanWord string,
 	results := make([]models.TranslationPairs, 0, limit)
 	for rows.Next() {
 		var originalRaw, originalClean, originalLang, translationRaw, translationClean, translationLang string
-		var formattedAI, formattedChosen, entryType, entryNotes sql.NullString
+		var formattedAI, formattedChosen, entryType, entryNotes, structured sql.NullString
 		var rate, subtype, entryIndex int
-		if err := rows.Scan(&originalRaw, &originalClean, &originalLang, &translationRaw, &translationClean, &translationLang, &formattedAI, &formattedChosen, &rate, &entryType, &subtype, &entryIndex, &entryNotes); err != nil {
+		if err := rows.Scan(&originalRaw, &originalClean, &originalLang, &translationRaw, &translationClean, &translationLang, &formattedAI, &formattedChosen, &rate, &entryType, &subtype, &entryIndex, &entryNotes, &structured); err != nil {
 			return nil, err
 		}
 
@@ -356,6 +357,7 @@ func (r *Repository) FindTranslationPairs(ctx context.Context, cleanWord string,
 			Subtype:         subtype,
 			EntryIndex:      entryIndex,
 			Notes:           entryNotes.String,
+			Structured:      structured.String,
 		}
 
 		if originalClean == cleanWord {

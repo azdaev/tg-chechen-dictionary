@@ -70,13 +70,11 @@ func TestRetireAIRenderings_RoundTrip(t *testing.T) {
 		return v.String
 	}
 
-	// Roll back past the retire migration so it re-applies over the test rows.
-	// Down is one step per call, so this has to keep pace with every migration
-	// added after it.
-	for range 2 {
-		if err := Down(db); err != nil {
-			t.Fatalf("Down: %v", err)
-		}
+	// Roll back to just before the retire migration so it re-applies over the
+	// test rows, by version rather than by step count.
+	const beforeRetire = 20260802000000
+	if err := DownTo(db, beforeRetire); err != nil {
+		t.Fatalf("DownTo: %v", err)
 	}
 	insert("карандаш", "ai")
 	insert("удалённая", "deleted")
@@ -108,10 +106,8 @@ func TestRetireAIRenderings_RoundTrip(t *testing.T) {
 		t.Error("formatted_ai was wiped; the migration is no longer reversible")
 	}
 
-	for range 2 {
-		if err := Down(db); err != nil {
-			t.Fatalf("Down after Up: %v", err)
-		}
+	if err := DownTo(db, beforeRetire); err != nil {
+		t.Fatalf("DownTo after Up: %v", err)
 	}
 	if got := chosen("карандаш"); got != "ai" {
 		t.Errorf("Down left %q, want ai", got)

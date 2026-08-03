@@ -1,6 +1,10 @@
 package tools
 
-import "strings"
+import (
+	"chetoru/internal/models"
+	"encoding/json"
+	"strings"
+)
 
 // ParseArticle splits a Russian–Chechen article into Chechen glosses and
 // examples:
@@ -78,4 +82,42 @@ func stripLabels(text string) string {
 			return text
 		}
 	}
+}
+
+// articleParts prefers the structure cmd/parse_articles wrote at ingest and
+// falls back to ParseArticle. The model reads what the regex cannot: a gloss
+// that carries its example without a semicolon, and a tilde under a stem
+// Russian spelling does not determine. Only the fill changes — the card's shape
+// is the same through either door.
+func articleParts(p models.TranslationPairs, head, body string) ([]string, []example) {
+	if p.Structured == "" {
+		return ParseArticle(head, body)
+	}
+	var st models.ArticleStructure
+	if err := json.Unmarshal([]byte(p.Structured), &st); err != nil {
+		return ParseArticle(head, body)
+	}
+
+	glosses := make([]string, 0, len(st.Senses))
+	for _, s := range st.Senses {
+		if s.Gloss == "" {
+			continue
+		}
+		// The card's own convention for a qualifier: leading parentheses, which
+		// splitQualifiers lifts back out of the bold at render time.
+		if s.Note != "" {
+			glosses = append(glosses, "("+s.Note+") "+s.Gloss)
+			continue
+		}
+		glosses = append(glosses, s.Gloss)
+	}
+
+	examples := make([]example, 0, len(st.Examples))
+	for _, ex := range st.Examples {
+		if ex.Chechen == "" || ex.Russian == "" {
+			continue
+		}
+		examples = append(examples, example{chechen: ex.Chechen, russian: ex.Russian})
+	}
+	return glosses, examples
 }

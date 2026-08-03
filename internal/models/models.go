@@ -43,6 +43,10 @@ type TranslationPairs struct {
 	// Notes is dosham's usage note on the entry — most often the plural ending
 	// ("мн. -аш").
 	Notes string `json:"notes,omitempty"`
+	// Structured is an ArticleStructure as JSON, filled in by the offline
+	// cmd/parse_articles pass. Empty means the card falls back to the regex
+	// parser; the shape of the card is the same either way.
+	Structured string `json:"structured,omitempty"`
 }
 
 type ActivityType int8
@@ -134,4 +138,29 @@ type Translation struct {
 	Content       string `json:"content"`
 	LanguageCode  string `json:"languageCode"` // ISO codes: "ce" (Chechen), "ru" (Russian)
 	Notes         string `json:"notes"`
+}
+
+// ArticleStructure is a Russian–Chechen dictionary article after it has been
+// broken into parts. The corpus stores a whole article as one string, and the
+// regex parser in pkg/tools only gets so far: it cannot tell a gloss from an
+// example when the source omits the semicolon, and it refuses to expand a tilde
+// under a stem Russian spelling does not determine. Both are jobs for a model,
+// run once over a finite corpus at ingest — never at render, which is what made
+// the retired AI formatter produce a second, competing layout.
+type ArticleStructure struct {
+	Senses   []ArticleSense   `json:"senses"`
+	Examples []ArticleExample `json:"examples"`
+}
+
+// ArticleSense is one Chechen equivalent. Note carries the Russian qualifier
+// the source prints beside it ("учреждение", "почерк"), kept apart so the card
+// can leave it outside the bold that marks Chechen.
+type ArticleSense struct {
+	Gloss string `json:"gloss"`
+	Note  string `json:"note,omitempty"`
+}
+
+type ArticleExample struct {
+	Chechen string `json:"ce"`
+	Russian string `json:"ru"`
 }

@@ -37,6 +37,19 @@ func Up(db *sql.DB) error {
 }
 
 // Down rolls back the most recently applied migration.
+// DownTo rolls back every migration newer than version. Tests that re-apply a
+// specific migration use it instead of counting Down steps, which silently
+// broke every time a newer migration was added.
+func DownTo(db *sql.DB, version int64) error {
+	if err := configure(); err != nil {
+		return err
+	}
+	if err := goose.DownTo(db, ".", version); err != nil {
+		return fmt.Errorf("goose.DownTo: %w", err)
+	}
+	return nil
+}
+
 func Down(db *sql.DB) error {
 	if err := configure(); err != nil {
 		return err
