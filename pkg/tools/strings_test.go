@@ -343,30 +343,14 @@ func TestReplaceTildeWithWord(t *testing.T) {
 		text     string
 		word     string
 		expected string
+		exact    bool
 	}{
 		{
-			name:     "simple tilde replacement",
+			name:     "bare tilde is the headword verbatim",
 			text:     "фруктовое ~ → стоьмийн дитт",
 			word:     "дерево",
 			expected: "фруктовое дерево → стоьмийн дитт",
-		},
-		{
-			name:     "tilde with ending",
-			text:     "самопишущая ~а → ша язден ручка",
-			word:     "ручка",
-			expected: "самопишущая ручка → ша язден ручка",
-		},
-		{
-			name:     "multiple tildes with different endings",
-			text:     "дверная ~а → наьӏаран тӏам; ~и дивана → диванан тӏаьмнаш",
-			word:     "ручка",
-			expected: "дверная ручка → наьӏаран тӏам; ручки дивана → диванан тӏаьмнаш",
-		},
-		{
-			name:     "tilde with complex endings",
-			text:     "говорить о ~е; в ~ах; ~ами",
-			word:     "слово",
-			expected: "говорить о слове; в словах; словами",
+			exact:    true,
 		},
 		{
 			// Real dosham data: the "Дом" gloss glues a whole word to the tilde
@@ -375,60 +359,82 @@ func TestReplaceTildeWithWord(t *testing.T) {
 			text:     "~культуры → культуран цӏа",
 			word:     "дом",
 			expected: "дом культуры → культуран цӏа",
+			exact:    true,
+		},
+		{
+			name:     "vowel-final stem is regular",
+			text:     "дверная ~а → наьӏаран тӏам; ~и дивана → диванан тӏаьмнаш",
+			word:     "ручка",
+			expected: "дверная ручка → наьӏаран тӏам; ручки дивана → диванан тӏаьмнаш",
+			exact:    true,
+		},
+		{
+			name:     "adjective stem is regular",
+			text:     "~ое кричать",
+			word:     "оглушительный",
+			expected: "оглушительное кричать",
+			exact:    true,
+		},
+		{
+			// Fleeting vowel: «силки», not «силокки». Spelling does not say so.
+			name:     "consonant-final headword is not derivable",
+			text:     "ставить ~ки → хӏиттае",
+			word:     "силок",
+			expected: "ставить силок → хӏиттае",
+			exact:    false,
+		},
+		{
+			// The infinitive is not the present stem: «визжит», not «визжаит».
+			name:     "verb infinitive is not derivable",
+			text:     "щенок ~ит",
+			word:     "визжать",
+			expected: "щенок визжать",
+			exact:    false,
 		},
 		{
 			name:     "no tilde",
 			text:     "обычный текст без тильды",
 			word:     "слово",
 			expected: "обычный текст без тильды",
+			exact:    true,
 		},
 		{
 			name:     "empty word",
 			text:     "текст с ~ тильдой",
 			word:     "",
 			expected: "текст с ~ тильдой",
+			exact:    true,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := replaceTildeWithWord(tt.text, tt.word)
-			if result != tt.expected {
-				t.Errorf("replaceTildeWithWord() = %q, want %q", result, tt.expected)
+			result, exact := replaceTildeWithWord(tt.text, tt.word)
+			if result != tt.expected || exact != tt.exact {
+				t.Errorf("replaceTildeWithWord() = %q/%v, want %q/%v", result, exact, tt.expected, tt.exact)
 			}
 		})
 	}
 }
 
-func TestGetWordBase(t *testing.T) {
-	tests := []struct {
-		word     string
-		expected string
-	}{
-		{"ручка", "ручк"},
-		{"дерево", "дерев"},
-		{"стол", "стол"},
-		{"дом", "дом"},
-		{"мама", "мам"},
-		{"папа", "пап"},
-		{"", ""},
-		{"а", "а"},
-		// Every verb entry is headed by its infinitive, so keeping the -ть made
-		// «Блистать» + «~ли звёзды» read «блистатьли звёзды» on a whole class
-		// of cards, not an odd one.
-		{"блистать", "блиста"},
-		{"брызнуть", "брызну"},
-		{"распрячь", "распря"},
-		{"идти", "ид"},
+// An example built on a stem we cannot derive is dropped, not printed with a
+// guess — the sense it illustrates still gets shown.
+func TestFormatTranslationLite_DropsExampleWithUnderivableStem(t *testing.T) {
+	got := FormatTranslationLite("**Силок** - хӏокха; ставить ~ки - хӏокхаш хӏиттае", "Силок", true)
+	if strings.Contains(got, "силокки") {
+		t.Errorf("invented a word that does not exist: %q", got)
+	}
+	if strings.Contains(got, "хӏокхаш хӏиттае") {
+		t.Errorf("kept an example it could not render truthfully: %q", got)
+	}
+	if !strings.Contains(got, "хӏокха") {
+		t.Errorf("the sense itself must survive: %q", got)
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.word, func(t *testing.T) {
-			result := getWordBase(tt.word)
-			if result != tt.expected {
-				t.Errorf("getWordBase(%q) = %q, want %q", tt.word, result, tt.expected)
-			}
-		})
+	// A bare tilde needs no stem, so its example stays.
+	got = FormatTranslationLite("**Дерево** - дитт; фруктовое ~ - стоьмийн дитт", "Дерево", true)
+	if !strings.Contains(got, "фруктовое дерево") {
+		t.Errorf("an exact expansion must survive: %q", got)
 	}
 }
 

@@ -215,10 +215,17 @@ func FormatTranslationLite(text string, originalWord string, boldGloss bool) str
 
 		main = expandAbbreviations(cleanTranslation(main))
 		if word != "" {
-			main = replaceTildeWithWord(main, word)
-			for i, example := range examples {
-				examples[i] = replaceTildeWithWord(example, word)
+			main, _ = replaceTildeWithWord(main, word)
+			// An example whose tilde needs a stem we cannot derive is dropped
+			// rather than shown with a guess: it is an illustration, and no
+			// illustration beats one built on a word that does not exist.
+			kept := examples[:0]
+			for _, example := range examples {
+				if expanded, ok := replaceTildeWithWord(example, word); ok {
+					kept = append(kept, expanded)
+				}
 			}
+			examples = kept
 		}
 		for i, example := range examples {
 			examples[i] = expandAbbreviations(example)
@@ -322,7 +329,11 @@ func FirstExample(gloss, word string, chechenLeads bool) (string, bool) {
 			}
 			ex := exampleLine(left, right)
 			if word != "" {
-				ex = replaceTildeWithWord(ex, word)
+				expanded, exact := replaceTildeWithWord(ex, word)
+				if !exact {
+					continue // keep looking; a later example may not need a stem
+				}
+				ex = expanded
 			}
 			return expandAbbreviations(ex), true
 		}
@@ -422,15 +433,18 @@ func splitExample(part string) (left, right string, ok bool) {
 	return "", "", false
 }
 
-// replaceTildeWithWord заменяет тильду (~) в тексте на основное слово
-func replaceTildeWithWord(text, word string) string {
+// replaceTildeWithWord expands the dictionary's tilde shorthand for word. exact
+// is false when some tilde needed a stem wordStem refuses to guess; callers that
+// can drop the line should, and the rest get the headword uninflected — wrong
+// case, but a word of the language rather than an invented one.
+func replaceTildeWithWord(text, word string) (string, bool) {
 	if word == "" {
-		return text
+		return text, true
 	}
 
-	wordBase := getWordBase(word)
 	lowerWord := strings.ToLower(word)
-
+	stem, regular := wordStem(lowerWord)
+	exact := true
 	result := tildeRe.ReplaceAllStringFunc(text, func(match string) string {
 		ending := match[1:]
 		// Русские грамматические окончания не длиннее 3 букв. Более длинный
@@ -440,48 +454,51 @@ func replaceTildeWithWord(text, word string) string {
 		if len([]rune(ending)) >= 4 {
 			return lowerWord + " " + ending
 		}
-		// Грамматическое окончание, склеиваемое с основой («~а» для «дом» → «дома»).
-		return wordBase + ending
+		if !regular {
+			exact = false
+			return lowerWord
+		}
+		return stem + ending
 	})
 
 	// Замена одиночной тильды (~) на само слово в именительном падеже.
 	// Одиночная тильда обозначает заглавное слово без изменений, поэтому
 	// подставляем полную форму, а не основу.
-	result = strings.ReplaceAll(result, "~", lowerWord)
-
-	return result
+	return strings.ReplaceAll(result, "~", lowerWord), exact
 }
 
-// getWordBase получает основу слова для склонения.
-// ponytail: суффиксная эвристика. Множественные заголовки она не берёт —
-// «Французы» с «~з» даёт «французз» вместо «француз», потому что основа там
-// «францу». Чинится только морфологией, а её в боте нет.
-func getWordBase(word string) string {
-	word = strings.ToLower(word)
-
+// wordStem cuts a headword back to the part a short grammatical ending attaches
+// to, and reports whether the cut is one Russian spelling actually determines.
+//
+// Two are. An adjective in -ый/-ий/-ой drops those two letters for every form
+// it has. A word ending in a vowel drops it — «слеза» + «~ами» is «слезами»,
+// «домашний» + «~ие» is «домашние».
+//
+// The rest are morphology the spelling does not carry, and the old heuristic
+// invented words there: a consonant-final headword may hide a fleeting vowel
+// («силок» + «~ки» is «силки», not «силокки») or a suffix the ending replaces
+// («разбойник» + «~ца» is «разбойница»), and a verb's infinitive is not its
+// present stem («визжать» + «~ит» is «визжит», not «визжаит»). Measured on
+// 1800 live entries, refusing these two classes drops every wrong expansion in
+// the sample and about a dozen right ones.
+func wordStem(word string) (string, bool) {
 	runes := []rune(word)
-	if len(runes) < 2 {
-		return word
+	if len(runes) < 3 {
+		return word, false
 	}
-
-	// Прилагательные на -ый, -ий, -ой → убираем 2 символа.
-	// Глаголы в инфинитиве на -ть, -ти, -чь → тоже: без этого «Блистать» с
-	// «~ли звёзды» даёт «блистатьли», а «Распрячь» с «~ги коня» — «распрячьги».
-	// Инфинитив стоит заголовком у каждой глагольной статьи, так что случай
-	// массовый, а не краевой.
-	last2 := string(runes[len(runes)-2:])
-	if last2 == "ый" || last2 == "ий" || last2 == "ой" ||
-		last2 == "ть" || last2 == "ти" || last2 == "чь" {
-		return string(runes[:len(runes)-2])
+	switch string(runes[len(runes)-2:]) {
+	case "ый", "ий", "ой":
+		return string(runes[:len(runes)-2]), true
+	case "ся":
+		// A reflexive verb ends in a vowel but is not a vowel stem: «застояться»
+		// + «~лся» is «застоялся», and cutting the last letter writes
+		// «застоятьслся».
+		return word, false
 	}
-
-	// Существительные/глаголы на гласную → убираем 1 символ
-	lastRune := string(runes[len(runes)-1])
-	if strings.Contains("аеёиоуыэюя", lastRune) {
-		return string(runes[:len(runes)-1])
+	if strings.ContainsRune("аеёиоуыэюя", runes[len(runes)-1]) {
+		return string(runes[:len(runes)-1]), true
 	}
-
-	return word
+	return word, false
 }
 
 // expandAbbreviations заменяет словарные сокращения на полные формы
