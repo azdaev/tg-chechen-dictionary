@@ -79,13 +79,16 @@ func (n *Net) HandleText(ctx context.Context, m *tgbotapi.Message) error {
 		})
 	}
 
-	// Grammar card for the headword the user is actually looking at — not for
-	// what they typed, which may be an inflected form that matched a different
-	// entry. Sent as a follow-up so it never delays the (usually cached)
-	// translation above, and detached because the update loop processes
-	// messages synchronously while this makes a live API call.
+	// Grammar for the headword the user is actually looking at — not for what
+	// they typed, which may be an inflected form that matched a different entry.
+	// Detached so it never delays the translation above, then edited into that
+	// same message: the update loop is synchronous and this makes a live API
+	// call, but the answer stays one message.
 	headword := translations[0].Original
-	n.bg.Go(func() { n.sendGrammarCard(context.Background(), m.Chat.ID, sent.MessageID, headword) })
+	cardText := msg.Text
+	n.bg.Go(func() {
+		n.sendGrammarCard(context.Background(), m.Chat.ID, sent.MessageID, cardText, headword)
+	})
 
 	// Donation nudge runs detached: it is a DB check plus an extra Telegram
 	// message per lookup, and was the last synchronous roundtrip in this tail.
@@ -482,7 +485,7 @@ const maxGrammarForms = 12
 // translation it belongs to — unattached, it reads as a message about nothing.
 // It is a no-op when the word has no analyzed grammar, so most TEXT/phrase
 // lookups send nothing.
-func (n *Net) sendGrammarCard(ctx context.Context, chatID int64, replyTo int, word string) {
+func (n *Net) sendGrammarCard(ctx context.Context, chatID int64, messageID int, card, word string) {
 	// Optional enrichment on top of a translation already delivered, so a
 	// failure just means no card — logged, never surfaced.
 	g, err := n.business.GrammarFor(ctx, word)
@@ -490,41 +493,43 @@ func (n *Net) sendGrammarCard(ctx context.Context, chatID int64, replyTo int, wo
 		n.log.WithError(err).WithField("word", word).Debug("grammar lookup failed")
 		return
 	}
-	if g == nil {
+	block := formatGrammarBlock(g, card)
+	if block == "" {
 		return
 	}
-	text := formatGrammarCard(g)
-	if text == "" {
-		return
-	}
-	msg := tgbotapi.NewMessage(chatID, text)
-	msg.ParseMode = "html"
-	msg.DisableNotification = true
-	msg.ReplyToMessageID = replyTo
-	// The translation can be gone by now — the card is detached and the user may
-	// have deleted it. Without this, a missing parent turns the whole card into
-	// a "message to reply not found" error instead of a plain message.
-	msg.AllowSendingWithoutReply = true
-	if _, err := n.send(msg); err != nil {
-		n.log.WithError(err).Warn("failed to send grammar card")
+	// Grown into the translation rather than sent after it. As a second message
+	// it arrived whenever the API answered, which in a fast exchange put the
+	// grammar for one word underneath the answer to the next one.
+	edit := tgbotapi.NewEditMessageText(chatID, messageID, clampMessage(card+"\n\n"+block))
+	edit.ParseMode = "html"
+	if _, err := n.send(edit); err != nil {
+		n.log.WithError(err).Debug("failed to append grammar to the card")
 	}
 }
 
 // formatGrammarCard renders a WordGrammar as a small Telegram-HTML card. Only
 // facts safe to show without the dosham integer-code legend are included: the
 // part of speech (when confidently known) and the inflected forms.
-func formatGrammarCard(g *models.WordGrammar) string {
+func formatGrammarBlock(g *models.WordGrammar, card string) string {
 	if g == nil || g.Headword == "" {
 		return ""
 	}
+
+	var lines []string
+	// The header only earns its place when the card above does not already name
+	// the word: appended to «телефон · сущ.», a «🔤 телефон · существительное»
+	// line says the same thing twice.
 	// 🔤, not 📖: the book belongs to the Word of the Day, and a subscriber who
 	// gets both opens the grammar card reading it as today's word.
-	header := "🔤 <b>" + tools.Clean(g.Headword) + "</b>"
-	if g.POS != "" {
-		header += " · " + g.POS
+	headerNeeded := !strings.Contains(card, tools.Clean(g.Headword))
+	if headerNeeded {
+		header := "🔤 <b>" + tools.Clean(g.Headword) + "</b>"
+		if g.POS != "" {
+			header += " · " + g.POS
+		}
+		lines = append(lines, header)
 	}
 
-	lines := []string{header}
 	if len(g.Forms) > 0 {
 		forms := g.Forms
 		more := 0
@@ -543,15 +548,23 @@ func formatGrammarCard(g *models.WordGrammar) string {
 		lines = append(lines, line)
 	}
 
-	if len(g.Idioms) > 0 {
-		lines = append(lines, "\n💬 <b>Выражения:</b>")
-		for _, idiom := range g.Idioms {
-			lines = append(lines, "• "+tools.FormatExample(tools.Clean(idiom.Chechen), tools.Clean(idiom.Russian)))
+	// Set phrases the card already lists are dropped: «телефон» used to answer
+	// with three examples and then repeat all three under «Выражения».
+	var idioms []string
+	for _, idiom := range g.Idioms {
+		che := tools.Clean(idiom.Chechen)
+		if strings.Contains(card, che) {
+			continue
 		}
+		idioms = append(idioms, "• "+tools.FormatExample(che, tools.Clean(idiom.Russian)))
+	}
+	if len(idioms) > 0 {
+		lines = append(lines, "\n💬 <b>Выражения:</b>")
+		lines = append(lines, idioms...)
 	}
 
-	if len(lines) == 1 && g.POS == "" {
-		return "" // only a bare headword — nothing useful to show
+	if len(lines) == 0 || (headerNeeded && len(lines) == 1 && g.POS == "") {
+		return "" // nothing the card does not already say
 	}
 	return strings.Join(lines, "\n")
 }

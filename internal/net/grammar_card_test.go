@@ -6,14 +6,14 @@ import (
 	"testing"
 )
 
-func TestFormatGrammarCard(t *testing.T) {
+func TestFormatGrammarBlock(t *testing.T) {
 	t.Run("noun with forms", func(t *testing.T) {
 		g := &models.WordGrammar{
 			Headword: "дог",
 			POS:      "существительное",
 			Forms:    []string{"деган", "дагна", "дегнаш"},
 		}
-		got := formatGrammarCard(g)
+		got := formatGrammarBlock(g, "")
 		want := "🔤 <b>дог</b> · существительное\nФормы: деган, дагна, дегнаш"
 		if got != want {
 			t.Errorf("got %q, want %q", got, want)
@@ -22,7 +22,7 @@ func TestFormatGrammarCard(t *testing.T) {
 
 	t.Run("forms without confident POS", func(t *testing.T) {
 		g := &models.WordGrammar{Headword: "къайлаха", Forms: []string{"къайлахо"}}
-		got := formatGrammarCard(g)
+		got := formatGrammarBlock(g, "")
 		if !strings.HasPrefix(got, "🔤 <b>къайлаха</b>") || strings.Contains(got, "·") {
 			t.Errorf("unexpected card without POS: %q", got)
 		}
@@ -33,7 +33,7 @@ func TestFormatGrammarCard(t *testing.T) {
 
 	t.Run("bare headword is suppressed", func(t *testing.T) {
 		g := &models.WordGrammar{Headword: "дог"}
-		if got := formatGrammarCard(g); got != "" {
+		if got := formatGrammarBlock(g, ""); got != "" {
 			t.Errorf("expected empty card for bare headword, got %q", got)
 		}
 	})
@@ -44,7 +44,7 @@ func TestFormatGrammarCard(t *testing.T) {
 			forms[i] = "ф"
 		}
 		g := &models.WordGrammar{Headword: "x", POS: "существительное", Forms: forms}
-		got := formatGrammarCard(g)
+		got := formatGrammarBlock(g, "")
 		if !strings.Contains(got, "… (+5)") {
 			t.Errorf("expected overflow marker, got %q", got)
 		}
@@ -59,7 +59,7 @@ func TestFormatGrammarCard(t *testing.T) {
 				{Chechen: "дог эца", Russian: "утешить"},
 			},
 		}
-		got := formatGrammarCard(g)
+		got := formatGrammarBlock(g, "")
 		if !strings.Contains(got, "💬 <b>Выражения:</b>") {
 			t.Errorf("missing idioms header: %q", got)
 		}
@@ -73,16 +73,63 @@ func TestFormatGrammarCard(t *testing.T) {
 			Headword: "x",
 			Idioms:   []models.Idiom{{Chechen: "a", Russian: "b"}},
 		}
-		if got := formatGrammarCard(g); !strings.Contains(got, "• <i>a → b</i>") {
+		if got := formatGrammarBlock(g, ""); !strings.Contains(got, "• <i>a → b</i>") {
 			t.Errorf("expected idiom-only card to render, got %q", got)
 		}
 	})
 
 	t.Run("nil", func(t *testing.T) {
-		if got := formatGrammarCard(nil); got != "" {
+		if got := formatGrammarBlock(nil, ""); got != "" {
 			t.Errorf("expected empty for nil, got %q", got)
 		}
 	})
+}
+
+// Appended to a card, the block must not repeat what the card already says.
+// «телефон» used to answer with three examples and then send a second message
+// listing the same three under «Выражения».
+func TestFormatGrammarBlock_MergedIntoTheCard(t *testing.T) {
+	card := "телефон · <i>сущ.</i>\n<b>телефон</b>\n\n<i>телефон етта → звонить по телефону</i>"
+	g := &models.WordGrammar{
+		Headword: "телефон",
+		POS:      "существительное",
+		Forms:    []string{"телефонан", "телефонаш"},
+		Idioms: []models.Idiom{
+			{Chechen: "телефон етта", Russian: "звонить по телефону"},
+			{Chechen: "телефон яло", Russian: "провести телефон"},
+		},
+	}
+	got := formatGrammarBlock(g, card)
+
+	if strings.Contains(got, "🔤") {
+		t.Errorf("header repeated a word the card already names:\n%s", got)
+	}
+	if strings.Count(got, "телефон етта") != 0 {
+		t.Errorf("idiom already shown on the card was repeated:\n%s", got)
+	}
+	if !strings.Contains(got, "телефон яло") {
+		t.Errorf("a new idiom was dropped:\n%s", got)
+	}
+	if !strings.Contains(got, "Формы: телефонан, телефонаш") {
+		t.Errorf("the paradigm is the whole point and it is missing:\n%s", got)
+	}
+
+	// Nothing new to add means no edit at all.
+	covered := &models.WordGrammar{
+		Headword: "телефон",
+		POS:      "существительное",
+		Idioms:   []models.Idiom{{Chechen: "телефон етта", Russian: "звонить по телефону"}},
+	}
+	if got := formatGrammarBlock(covered, card); got != "" {
+		t.Errorf("block rendered nothing the card lacked: %q", got)
+	}
+
+	// A grammar entry for a different word keeps its header, or the forms would
+	// look like they belong to the card's headword.
+	other := &models.WordGrammar{Headword: "тилпу", POS: "существительное", Forms: []string{"тилпуш"}}
+	if got := formatGrammarBlock(other, card); !strings.Contains(got, "🔤 <b>тилпу</b>") {
+		t.Errorf("forms for another word lost their header:\n%s", got)
+	}
 }
 
 func TestGrammarSummaryLine(t *testing.T) {
