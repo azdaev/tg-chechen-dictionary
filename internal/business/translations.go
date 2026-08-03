@@ -537,8 +537,21 @@ func rankAndDedup(pairs []models.TranslationPairs, query string) []models.Transl
 		return a.Translate < b.Translate
 	})
 
+	// dosham's search is a substring match, so a very short query sweeps the
+	// dictionary: «ца» returns 252 pairs, and the card's «Ещё (248)» promises a
+	// list nobody will page through. The old cap did this before ranking and
+	// kept an arbitrary ten; here the ten are the ranked ones.
+	if utf8.RuneCountInString(strings.TrimSpace(query)) <= shortQueryRunes && len(out) > shortQueryResults {
+		out = out[:shortQueryResults]
+	}
+
 	return out
 }
+
+const (
+	shortQueryRunes   = 3
+	shortQueryResults = 10
+)
 
 func normalizeForRank(s string) string {
 	return stripStressMarks(tools.NormalizeSearch(s))

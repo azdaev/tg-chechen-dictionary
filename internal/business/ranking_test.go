@@ -4,6 +4,7 @@ import (
 	"chetoru/internal/cache"
 	"chetoru/internal/models"
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/sirupsen/logrus"
@@ -161,4 +162,30 @@ func TestTranslate_LocalPathRankedAndDeduped(t *testing.T) {
 		t.Fatalf("first result = %+v, want the exact headword match", got[0])
 	}
 	b.WaitBackground()
+}
+
+// dosham's search is a substring match, so «ца» swept up 252 pairs and the card
+// offered «Ещё (248)». The cap runs after ranking, so what survives is the top
+// of the list rather than whatever the API happened to return first.
+func TestRankAndDedup_ShortQueryIsCapped(t *testing.T) {
+	pairs := make([]models.TranslationPairs, 0, 40)
+	pairs = append(pairs, models.TranslationPairs{Original: "Ца", Translate: "стена"})
+	for i := range 39 {
+		pairs = append(pairs, models.TranslationPairs{
+			Original: fmt.Sprintf("Цанаш%02d", i), Translate: "покос",
+		})
+	}
+
+	got := rankAndDedup(pairs, "ца")
+	if len(got) != shortQueryResults {
+		t.Fatalf("len = %d, want %d", len(got), shortQueryResults)
+	}
+	if got[0].Original != "Ца" {
+		t.Errorf("the exact match was capped away: %+v", got[0])
+	}
+
+	// A four-letter query is a real word, not a sweep, and keeps everything.
+	if n := len(rankAndDedup(pairs, "цана")); n != 40 {
+		t.Errorf("len = %d, want the full list for a longer query", n)
+	}
 }
