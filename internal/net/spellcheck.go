@@ -124,7 +124,26 @@ func (n *Net) HandleSpellcheckRequest(ctx context.Context, cq *tgbotapi.Callback
 	if !found || text == "" {
 		return fmt.Errorf("invalid spellcheck callback data: %q", cq.Data)
 	}
-	return n.runSpellcheck(ctx, cq.Message.Chat.ID, cq.Message.MessageID, text)
+
+	// Metered, unlike /check. The button sits under every failed lookup, so
+	// without a quota one typo-prone session is an unbounded number of AI calls
+	// nobody chose to make — /check at least has to be typed.
+	allowed, err := n.canUseSpellcheck(ctx, cq.From.ID)
+	if err != nil {
+		n.log.WithError(err).Warn("canUseSpellcheck button")
+	}
+	if !allowed {
+		msg := tgbotapi.NewMessage(cq.Message.Chat.ID, fmt.Sprintf(
+			"Бесплатный лимит проверок исчерпан (%d/мес). Безлимитная подписка — %s/мес: /subscribe",
+			FreeSpellcheckLimit, SubscriptionPriceFormatted))
+		_, err := n.send(msg)
+		return err
+	}
+	if err := n.runSpellcheck(ctx, cq.Message.Chat.ID, cq.Message.MessageID, text); err != nil {
+		return err
+	}
+	n.trackSpellcheckUsage(ctx, cq.From.ID)
+	return nil
 }
 
 // spellcheckDebounceDelay is how long an inline spellcheck query must stay the
