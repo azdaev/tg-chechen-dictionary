@@ -42,3 +42,25 @@ func TestExpandAbbreviations_LongerOnesWin(t *testing.T) {
 		}
 	}
 }
+
+// The bold on a card means Chechen and nothing else, and Russian government
+// notation was reaching it: «идти» offered «куда (отправляться) даха» and
+// «тӏекарчо» arrived as «на что тӏекарчо» — 7 of 489 bold strings across the
+// sampled cards were a Russian preposition wearing the mark for Chechen.
+func TestCard_RussianGovernmentIsNotChechen(t *testing.T) {
+	cases := []struct{ gloss, want string }{
+		{"на что тӏекарчо", "тӏекарчо"},
+		{"во что чуӏотта, чудолла", "чуӏотта, чудолла"},
+		{"за кем-чем, (переносное) новкъа даха", "(переносное) новкъа даха"},
+		{"куда (отправляться) даха", "(отправляться) даха"},
+		// «куда» opens Russian phrases too, and those are somebody's
+		// translation, not a label: only the one introducing a qualifier goes.
+		{"куда угодно", "куда угодно"},
+		{"латта", "латта"},
+	}
+	for _, c := range cases {
+		if got := stripLabels(c.gloss); got != c.want {
+			t.Errorf("stripLabels(%q) = %q, want %q", c.gloss, got, c.want)
+		}
+	}
+}

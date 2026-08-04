@@ -192,6 +192,7 @@ func stripLabels(text string) string {
 		text = strings.TrimSpace(crossRefRe.ReplaceAllString(text, ""))
 		text = strings.TrimSpace(grammarRe.ReplaceAllString(text, ""))
 		text = strings.TrimSpace(verbLabelRe.ReplaceAllString(text, ""))
+		text = strings.TrimSpace(govParenRe.ReplaceAllString(text, "$1"))
 		if text == before {
 			return text
 		}

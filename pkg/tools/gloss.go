@@ -27,10 +27,16 @@ var (
 	// — «Обрить» opens "сов, что [дӏа]даша" — and it is the label a gloss is
 	// most likely to open with, so a miss shows the reader "сов, что дӏадаша"
 	// as the Chechen for «обрить».
-	verbLabelRe = regexp.MustCompile(`^((не)?сов[.,]|однокр\.|многокр\.|перех\.|неперех\.|безл\.|нескл\.|нареч\.|числ\.|мест\.|межд\.|предл\.|част\.|прил\.|сущ\.|гл\.|вводн\. сл\.|вводн\.|частица|междометие|союз|предлог|в разн\. знач\.|разн\. знач\.|т\.к\.|тк\.|мн\.|ед\.|собир\.|кратк\. ф\.|в знач\. сказ\.|в знач\. сущ\.|кому-чему|кого-что|о ком|о чём|кому|чему|кого|кем|чем|ком|что)(?:[,;:]?\s+|:)`)
+	verbLabelRe = regexp.MustCompile(`^((не)?сов[.,]|однокр\.|многокр\.|перех\.|неперех\.|безл\.|нескл\.|нареч\.|числ\.|мест\.|межд\.|предл\.|част\.|прил\.|сущ\.|гл\.|вводн\. сл\.|вводн\.|частица|междометие|союз|предлог|в разн\. знач\.|разн\. знач\.|т\.к\.|тк\.|мн\.|ед\.|собир\.|кратк\. ф\.|в знач\. сказ\.|в знач\. сущ\.|кому-чему|кого-что|о ком|о чём|кому|чему|кого|кем|чем|ком|что|(?:в|во|на|за|о|об|от|до|для|к|ко|с|со|у|по|при|над|под|про|из|без|через)\s+(?:кого|кому|ком|кем|что|чего|чему|чём|чем)(?:-(?:кого|кому|ком|кем|что|чего|чему|чём|чем))?)(?:[,;:]?\s+|:)`)
 	// crossRefRe strips a reference to another entry along with the entry it
 	// points at: «Камешек» opens "м уменьш. от камень тӏулг", and cutting only
 	// the abbreviation left «от камень тӏулг» standing in as the Chechen word.
+	// govParenRe strips a bare Russian interrogative that only introduces a
+	// parenthesized qualifier: «Идти» stores "2) куда (отправляться) даха", and
+	// «куда» reached the card inside the bold that means Chechen. Anchored on
+	// the parenthesis, because «куда» on its own opens Russian phrases too
+	// («куда угодно») and those are somebody's translation.
+	govParenRe = regexp.MustCompile(`^(?:куда|где|откуда|зачем|когда)\s+(\()`)
 	crossRefRe = regexp.MustCompile(`^(уменьш\.|увелич\.|ласк\.|унич\.|см\.)(\s+от)?\s+(\p{Cyrillic}+\s+)?`)
 	// Sense markers come as "1)" but also as "ӏ. " (palochka standing in for
 	// the digit) and "2. " in live dosham glosses.
