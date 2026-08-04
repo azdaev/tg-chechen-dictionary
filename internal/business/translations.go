@@ -127,8 +127,17 @@ func (b *Business) TranslateResolved(word string) ([]models.TranslationPairs, st
 		return translations, "", nil
 	}
 
-	if translations := b.loadLocalTranslations(ctx, word); len(translations) > 0 {
-		translations = rankAndDedup(translations, word)
+	// A layer that could not read is not a layer that found nothing. Only the
+	// second kind may be negative-cached, and only the second kind may be
+	// reported to the user as a missing word: a database hiccup would otherwise
+	// pin «нет перевода» on a word the dictionary holds for the whole 30-day
+	// TTL, and file it as a gap in the coverage report on the way out.
+	degraded := false
+
+	local, err := b.loadLocalTranslations(ctx, word)
+	degraded = degraded || err != nil
+	if len(local) > 0 {
+		translations := rankAndDedup(local, word)
 		b.cacheTranslationsAsync(ctx, cacheKey, translations)
 		return translations, "", nil
 	}
@@ -136,22 +145,26 @@ func (b *Business) TranslateResolved(word string) ([]models.TranslationPairs, st
 	// The stored headword may carry marks no keyboard has — a palochka, a long
 	// vowel — that the user simply left out. Matching on the folded columns
 	// costs one indexed lookup and no API call.
-	if translations := b.loadFoldedTranslations(ctx, word); len(translations) > 0 {
+	folded, err := b.loadFoldedTranslations(ctx, word)
+	degraded = degraded || err != nil
+	if len(folded) > 0 {
 		// Deliberately not cached. The cache key is the user's spelling, and a
 		// word has many palochka-less spellings, so moderation's
 		// invalidateCacheForPair — which only knows original_clean and
 		// translation_clean — could never reach them: a pair a moderator deleted
 		// would keep being served under «гала» for the full 30-day TTL. The
 		// lookup it replaces is one indexed read, so caching buys almost nothing.
-		return rankAndDedup(translations, word), "", nil
+		return rankAndDedup(folded, word), "", nil
 	}
 
 	// «лоьман» is «лом» declined, and the grammar card has been printing that
 	// paradigm all along without anything indexing it. Not cached, for the same
 	// reason the folded layer is not: the key would be a spelling moderation
 	// cannot reach.
-	if translations, headword := b.loadFormTranslations(ctx, word); len(translations) > 0 {
-		return translations, headword, nil
+	forms, headword, err := b.loadFormTranslations(ctx, word)
+	degraded = degraded || err != nil
+	if len(forms) > 0 {
+		return forms, headword, nil
 	}
 
 	// A miss is the expensive path: a primary lookup plus a cascade of
@@ -179,11 +192,22 @@ func (b *Business) TranslateResolved(word string) ([]models.TranslationPairs, st
 		return stemmed, headword, nil
 	}
 
+	// Nothing found, and part of the dictionary never answered. Reporting that
+	// as «нет перевода» is the same lie the API path refuses to tell during an
+	// outage, so it takes the same exit: an error the caller must not read as
+	// absence.
+	if degraded {
+		return nil, "", errDictionaryDegraded
+	}
+
 	if b.foldedReady.Load() {
 		b.cacheTranslationsAsync(ctx, cacheKey, translations)
 	}
 	return translations, "", nil
 }
+
+// errDictionaryDegraded means a lookup layer failed rather than found nothing.
+var errDictionaryDegraded = errors.New("dictionary lookup degraded: a storage layer could not be read")
 
 // SetFoldedReady marks the folded columns as filled, so misses may be
 // negative-cached again. Called once, after the startup backfill.
@@ -230,20 +254,20 @@ func (b *Business) cacheTranslationsAsync(ctx context.Context, cacheKey string, 
 	})
 }
 
-func (b *Business) loadLocalTranslations(ctx context.Context, word string) []models.TranslationPairs {
+func (b *Business) loadLocalTranslations(ctx context.Context, word string) ([]models.TranslationPairs, error) {
 	if b.dictRepo == nil {
-		return nil
+		return nil, nil
 	}
 	cleanWord := tools.NormalizeSearch(word)
 	if cleanWord == "" {
-		return nil
+		return nil, nil
 	}
 	translations, err := b.dictRepo.FindTranslationPairs(ctx, cleanWord, 200)
 	if err != nil {
 		b.log.Printf("failed to read dictionary pairs: %v\n", err)
-		return nil
+		return nil, err
 	}
-	return translations
+	return translations, nil
 }
 
 // loadFoldedTranslations retries the local table with the spelling-insensitive
@@ -251,49 +275,55 @@ func (b *Business) loadLocalTranslations(ctx context.Context, word string) []mod
 // «чегардиг» find «чӏегӏардиг» for any word already stored, at no cost to
 // dosham — and it closes the long-vowel gap too, where a stored «лесто̃» used
 // to be unreachable by typing «лесто».
-func (b *Business) loadFoldedTranslations(ctx context.Context, word string) []models.TranslationPairs {
+func (b *Business) loadFoldedTranslations(ctx context.Context, word string) ([]models.TranslationPairs, error) {
 	if b.dictRepo == nil {
-		return nil
+		return nil, nil
 	}
 	folded := tools.FoldSearch(word)
 	if folded == "" {
-		return nil
+		return nil, nil
 	}
 	translations, err := b.dictRepo.FindTranslationPairsByFolded(ctx, folded, 200)
 	if err != nil {
 		b.log.Printf("failed to read folded dictionary pairs: %v\n", err)
-		return nil
+		return nil, err
 	}
-	return translations
+	return translations, nil
 }
 
 // loadFormTranslations answers an inflected query with its lemma's card. The
 // paradigm comes from whatever grammar cards have already been drawn, so the
 // table warms itself: looking up «лом» is what makes «лоьман» findable later.
-func (b *Business) loadFormTranslations(ctx context.Context, word string) ([]models.TranslationPairs, string) {
+func (b *Business) loadFormTranslations(ctx context.Context, word string) ([]models.TranslationPairs, string, error) {
 	if b.dictRepo == nil {
-		return nil, ""
+		return nil, "", nil
 	}
 	folded := tools.FoldSearch(word)
 	if folded == "" {
-		return nil, ""
+		return nil, "", nil
 	}
 	headwords, err := b.dictRepo.FindHeadwordsByForm(ctx, folded, maxFormHeadwords)
 	if err != nil {
 		b.log.Printf("failed to read word forms: %v\n", err)
-		return nil, ""
+		return nil, "", err
 	}
 
 	var out []models.TranslationPairs
 	answered := ""
+	var readErr error
 	for _, h := range headwords {
 		// Ranked against the headword, not the form the user typed: the card is
 		// the lemma's, and rankPair measures distance from its own headword.
-		pairs := rankAndDedup(b.loadLocalTranslations(ctx, h), h)
+		lemma, err := b.loadLocalTranslations(ctx, h)
+		if err != nil {
+			readErr = err
+			continue
+		}
+		pairs := rankAndDedup(lemma, h)
 		if len(pairs) > 0 && answered == "" {
 			answered = h
 		}
 		out = append(out, pairs...)
 	}
-	return out, answered
+	return out, answered, readErr
 }

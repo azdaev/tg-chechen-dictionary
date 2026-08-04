@@ -87,7 +87,11 @@ func (b *Business) loadStemTranslations(ctx context.Context, word string) ([]mod
 
 	// Ranked against the lemma, not the form the user typed: the card is the
 	// lemma's, and rankPair measures distance from its own headword.
-	pairs := rankAndDedup(b.loadLocalTranslations(ctx, lemma), lemma)
+	found, err := b.loadLocalTranslations(ctx, lemma)
+	if err != nil {
+		return nil, ""
+	}
+	pairs := rankAndDedup(found, lemma)
 	if len(pairs) == 0 {
 		return nil, ""
 	}
