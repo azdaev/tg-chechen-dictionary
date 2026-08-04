@@ -31,7 +31,7 @@ func (b *Business) SuggestTranslations(word string) []models.TranslationPairs {
 		return b.suggestFromPhraseWords(words)
 	}
 
-	prefixes := prefixCandidates(word)
+	prefixes := prefixCandidates(word, maxSuggestTrims)
 	if len(prefixes) == 0 {
 		return nil
 	}
@@ -124,16 +124,16 @@ func (b *Business) suggestFromPhraseWords(words []string) []models.TranslationPa
 	return out
 }
 
-// prefixCandidates returns the query with 1..maxSuggestTrims trailing runes
-// removed, longest first. Single words only — trimming a phrase is meaningless.
-func prefixCandidates(word string) []string {
+// prefixCandidates returns the query with 1..trims trailing runes removed,
+// longest first. Single words only — trimming a phrase is meaningless.
+func prefixCandidates(word string, trims int) []string {
 	word = strings.TrimSpace(word)
 	if strings.ContainsAny(word, " \t\n") {
 		return nil
 	}
 	runes := []rune(word)
 	var out []string
-	for range maxSuggestTrims {
+	for range trims {
 		if len(runes)-1 < minSuggestPrefix {
 			break
 		}

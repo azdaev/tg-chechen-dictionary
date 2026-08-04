@@ -218,7 +218,7 @@ func TestPrefixCandidates(t *testing.T) {
 		"":          nil,
 	}
 	for in, want := range cases {
-		if got := prefixCandidates(in); !slices.Equal(got, want) {
+		if got := prefixCandidates(in, maxSuggestTrims); !slices.Equal(got, want) {
 			t.Errorf("prefixCandidates(%q) = %q, want %q", in, got, want)
 		}
 	}

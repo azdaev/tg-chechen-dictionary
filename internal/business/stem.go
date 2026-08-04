@@ -14,6 +14,13 @@ import (
 // different word.
 const maxLemmaOvershoot = 3
 
+// maxStemTrims is how much of the query the lemma search may cut. It is the
+// stem layer's own budget, deliberately not the suggestion list's: a suggestion
+// is offered as a guess and can afford to reach further, while this is served
+// as the answer. Sharing one constant meant a UX tweak to «возможно, вы искали»
+// would silently change which word the bot states as fact.
+const maxStemTrims = 3
+
 // sameStem reports whether two words differ only in their endings — the
 // relation a form has to its lemma, and the one the prefix search does not
 // check on its own. prefixCandidates trims up to four letters, which is right
@@ -52,7 +59,7 @@ func (b *Business) loadStemTranslations(ctx context.Context, word string) ([]mod
 
 	typed := tools.NormalizeSearch(word)
 	lemma := ""
-	for _, stem := range prefixCandidates(word) {
+	for _, stem := range prefixCandidates(word, maxStemTrims) {
 		key := tools.NormalizeSearch(stem)
 		pairs, err := b.dictRepo.FindTranslationPairsByPrefix(ctx, key, maxSuggestions)
 		if err != nil {
