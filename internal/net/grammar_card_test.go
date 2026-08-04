@@ -131,6 +131,18 @@ func TestFormatGrammarBlock_MergedIntoTheCard(t *testing.T) {
 		t.Errorf("forms for another word lost their header:\n%s", got)
 	}
 
+	// The corpora spell the same phrase differently — the academic one writes
+	// long vowels — so «рука» answered with «беран куьг лаца» on the card and
+	// repeated it as «бе̃ран куьг ла̃ца» under Выражения.
+	marked := &models.WordGrammar{
+		Headword: "телефон",
+		POS:      "существительное",
+		Idioms:   []models.Idiom{{Chechen: "телефо̃н етта", Russian: "звонить по телефону"}},
+	}
+	if got := formatGrammarBlock(marked, card); got != "" {
+		t.Errorf("the same phrase spelled with marks was shown twice:\n%s", got)
+	}
+
 	// A Russian lookup gets the paradigm of its Chechen gloss, so the word is on
 	// the card but is not what heads it. Unlabelled, «Формы: къоламо̃…» under
 	// «карандаш» reads as the forms of «карандаш».

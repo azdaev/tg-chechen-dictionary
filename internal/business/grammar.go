@@ -41,7 +41,13 @@ type grammarTranslation struct {
 }
 
 // maxIdioms caps how many set phrases the grammar card carries.
-const maxIdioms = 5
+// maxIdioms caps the set phrases a grammar card carries. Examples are the
+// scarce thing in Chechen — dosham holds 20 for «куьг» and 38 for «хи» — and
+// they cost nothing extra: the paradigm query already returned them.
+// Cached entries keep the old count until their thirty days run out; the key is
+// deliberately unversioned, because bumping it would spend one live dosham query
+// per word to gain three lines.
+const maxIdioms = 8
 
 // GrammarFor looks up lightweight grammar (part of speech + inflected forms) for
 // the Chechen headword most relevant to word. Grammar cards are only meaningful

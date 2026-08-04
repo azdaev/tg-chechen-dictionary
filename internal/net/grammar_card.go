@@ -88,10 +88,15 @@ func formatGrammarBlock(g *models.WordGrammar, card string) string {
 
 	// Set phrases the card already lists are dropped: «телефон» used to answer
 	// with three examples and then repeat all three under «Выражения».
+	//
+	// Compared folded, because the corpora disagree about the marks: «рука»
+	// answered with «беран куьг лаца» and then repeated it as «бе̃ран куьг ла̃ца»,
+	// the same phrase spelled by the academic corpus, which reads as two.
+	folded := tools.FoldSearch(card)
 	var idioms []string
 	for _, idiom := range g.Idioms {
 		che := tools.Clean(idiom.Chechen)
-		if strings.Contains(card, che) {
+		if strings.Contains(folded, tools.FoldSearch(che)) {
 			continue
 		}
 		idioms = append(idioms, "• "+tools.FormatExample(che, tools.Clean(idiom.Russian)))

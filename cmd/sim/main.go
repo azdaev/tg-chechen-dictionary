@@ -158,7 +158,7 @@ func main() {
 				}
 				fmt.Printf("• %s — %s\n", r.Content, ru)
 				n++
-				if n >= 5 {
+				if n >= 8 {
 					break
 				}
 			}
