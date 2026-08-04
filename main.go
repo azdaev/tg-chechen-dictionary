@@ -10,6 +10,7 @@ import (
 
 	"context"
 	"database/sql"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
@@ -81,7 +82,13 @@ func main() {
 		close(backfillOK)
 	}()
 
-	bot, err := tgbotapi.NewBotAPI(os.Getenv("TG_BOT_TOKEN"))
+	// The library's default client has no timeout of any kind, and every send
+	// runs inside one of the eight dispatcher slots. One stalled request holds
+	// its slot until the connection dies on its own; eight and the bot stops
+	// answering anyone at all. Longer than the long poll, which shares this
+	// client and legitimately waits a minute for nothing to happen.
+	client := &http.Client{Timeout: (net.UpdatePollSeconds + 30) * time.Second}
+	bot, err := tgbotapi.NewBotAPIWithClient(os.Getenv("TG_BOT_TOKEN"), tgbotapi.APIEndpoint, client)
 	if err != nil {
 		panic(err)
 	}

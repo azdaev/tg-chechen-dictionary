@@ -61,13 +61,18 @@ const maxConcurrentUpdates = 8
 // past this is worth a look in the logs.
 const slowUpdateThreshold = 5 * time.Second
 
+// UpdatePollSeconds is how long Telegram holds a getUpdates request open when
+// there is nothing to send. Exported because the HTTP client that carries it
+// must outlast it — a client timeout below this aborts every idle poll.
+const UpdatePollSeconds = 60
+
 func (n *Net) Start(ctx context.Context) {
 	n.log.Info("starting service")
 
 	n.registerBotCommands()
 
 	u := tgbotapi.NewUpdate(0)
-	u.Timeout = 60
+	u.Timeout = UpdatePollSeconds
 
 	updates := n.bot.GetUpdatesChan(u)
 
