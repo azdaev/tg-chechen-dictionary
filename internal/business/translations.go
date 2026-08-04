@@ -121,6 +121,30 @@ func (b *Business) Translate(word string) ([]models.TranslationPairs, error) {
 // between recording a genuine vocabulary gap and poisoning missing_words with
 // every query made during an outage.
 func (b *Business) TranslateResolved(word string) ([]models.TranslationPairs, string, error) {
+	pairs, headword, err := b.translateResolved(word)
+	if err != nil || len(pairs) == 0 {
+		return pairs, headword, err
+	}
+
+	// «ваха» is stored as "см. даха" and nothing else, so the reader was handed
+	// a card that names another word and translates neither. Followed once, and
+	// only when no entry under this headword translates it for real.
+	key := word
+	if headword != "" {
+		key = headword
+	}
+	target := tools.CrossRef(key, pairs)
+	if target == "" {
+		return pairs, headword, err
+	}
+	referred, _, refErr := b.translateResolved(target)
+	if refErr != nil || !tools.Render(target, referred).Glossed {
+		return pairs, headword, err
+	}
+	return referred, target, nil
+}
+
+func (b *Business) translateResolved(word string) ([]models.TranslationPairs, string, error) {
 	ctx := context.Background()
 	cacheKey := normalizeCacheKey(word)
 	if translations, ok := b.loadCachedTranslations(ctx, cacheKey); ok {

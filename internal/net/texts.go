@@ -25,9 +25,14 @@ const (
 	// Palochka Ӏ is in a third of Chechen headwords and on no keyboard. The bot
 	// and the dictionary both accept the digit 1 in its place; people just do
 	// not know that, so a Chechen-looking miss says so.
-	PalochkaHintText          = "💡 Палочку Ӏ можно набрать цифрой 1: <code>г1ала</code> = гӏала."
-	CheckSpellingButtonText   = "✍️ Проверить орфографию"
-	SuggestionsHeaderText     = "🔍 <b>Возможно, вы искали:</b>"
+	PalochkaHintText        = "💡 Палочку Ӏ можно набрать цифрой 1: <code>г1ала</code> = гӏала."
+	CheckSpellingButtonText = "✍️ Проверить орфографию"
+	SuggestionsHeaderText   = "🔍 <b>Возможно, вы искали:</b>"
+	// The card is headed by the entry that answered, which is not always the
+	// word that was typed: «кемсана» is filed under «кемс», and Chechen marks
+	// noun class on the verb, so «ваха» is filed under «даха». Without a line
+	// saying so the reader is handed a different word and no reason for it.
+	ResolvedQueryFormat       = "<i>по запросу «%s»:</i>"
 	MissingWordsLimit         = 30
 	MissingWordsHeader        = "<b>🔍 Слова без перевода</b>\n\n<i>Слова, которые искали пользователи, но в словаре не нашлось перевода. Это подсказывает, какие слова стоит добавить.</i>\n\n"
 	MissingWordsEmpty         = "Пока нет слов без перевода 🎉"

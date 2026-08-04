@@ -62,6 +62,9 @@ func (n *Net) HandleText(ctx context.Context, m *tgbotapi.Message) error {
 	// what «Ещё» used to paginate was the noise dosham's substring search
 	// returns, which the card drops instead of deferring.
 	card := rendered.Body
+	if tools.NormalizeSearch(renderKey) != tools.NormalizeSearch(m.Text) {
+		card = fmt.Sprintf(ResolvedQueryFormat, tgbotapi.EscapeText(tgbotapi.ModeHTML, m.Text)) + "\n\n" + card
+	}
 	if line := tools.FormatNeighbours(rendered.Neighbours); line != "" {
 		card += "\n\n" + line
 	}

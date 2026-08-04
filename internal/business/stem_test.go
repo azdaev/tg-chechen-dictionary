@@ -292,3 +292,54 @@ func TestTranslate_LemmaComesOffWhatDoshamAnswered(t *testing.T) {
 		t.Fatalf("got %+v, want the lemma's pairs", got)
 	}
 }
+
+// Chechen marks noun class on the verb, so «ваха», «яха», «баха» and «даха» are
+// one word; the dictionary spells out the д-form and files the rest under it
+// with «см. даха». The card printed that pointer as if it were a translation —
+// a dead end on 21 of 545 sampled Chechen entries, among them the most ordinary
+// verbs there are.
+func TestTranslate_FollowsSeeAlso(t *testing.T) {
+	probe := &doshamProbe{
+		primaries: map[string]bool{"ваха": true, "даха": true},
+		entries:   map[string]string{"ваха": "ваха", "даха": "даха"},
+		glosses:   map[string]string{"ваха": "см. даха", "даха": "жить"},
+	}
+	probe.start(t)
+	b := newStemBusiness(&stemDictRepo{})
+
+	got, resolved, err := b.TranslateResolved("ваха")
+	if err != nil {
+		t.Fatalf("translate: %v", err)
+	}
+	if resolved != "даха" {
+		t.Fatalf("resolved = %q, want the entry the pointer names", resolved)
+	}
+	if len(got) == 0 || got[0].Translate != "жить" {
+		t.Fatalf("got %+v, want the referred entry's translation", got)
+	}
+}
+
+// Following the pointer must not cost a card that says something on its own:
+// «мукъаниг» points at «мукъа» and is itself glossed «гласный».
+func TestTranslate_KeepsACardThatAlsoTranslates(t *testing.T) {
+	probe := &doshamProbe{
+		primaries: map[string]bool{"мукъаниг": true},
+		entries:   map[string]string{"мукъаниг": "мукъаниг"},
+		glosses:   map[string]string{"мукъаниг": "см. мукъа"},
+	}
+	probe.start(t)
+	repo := &stemDictRepo{byWord: map[string][]models.TranslationPairs{
+		"мукъаниг": {
+			{Original: "мукъаниг", Translate: "см. мукъа", OriginalLang: "CHE", TranslateLang: "RUS", EntryType: "WORD"},
+			{Original: "мукъаниг", Translate: "гласный", OriginalLang: "CHE", TranslateLang: "RUS", EntryType: "WORD"},
+		},
+	}}
+
+	_, resolved, err := newStemBusiness(repo).TranslateResolved("мукъаниг")
+	if err != nil {
+		t.Fatalf("translate: %v", err)
+	}
+	if resolved != "" {
+		t.Errorf("resolved = %q; the word has a translation of its own", resolved)
+	}
+}

@@ -30,6 +30,8 @@ type doshamProbe struct {
 	// texts answers a word with a collocation that merely contains it, the way
 	// dosham answers an inflected Russian form.
 	texts map[string]string
+	// glosses overrides what an entry translates to; empty means "перевод".
+	glosses map[string]string
 
 	mu        sync.Mutex
 	calls     map[string]int
@@ -90,7 +92,11 @@ func (p *doshamProbe) start(t *testing.T) {
 		if text, ok := p.texts[word]; ok {
 			find = fmt.Sprintf(`[{"entryId":"e1","content":%q,"type":"TEXT","translations":[{"translationId":"t1","content":%q,"languageCode":"ru"}]}]`, text, "перевод "+word)
 		} else if headword, ok := p.entries[word]; ok {
-			find = fmt.Sprintf(`[{"entryId":"e1","content":%q,"type":"WORD","translations":[{"translationId":"t1","content":"перевод","languageCode":"ru"}]}]`, headword)
+			gloss := p.glosses[word]
+			if gloss == "" {
+				gloss = "перевод"
+			}
+			find = fmt.Sprintf(`[{"entryId":"e1","content":%q,"type":"WORD","translations":[{"translationId":"t1","content":%q,"languageCode":"ru"}]}]`, headword, gloss)
 		}
 		fmt.Fprintf(w, `{"data":{"find":%s}}`, find)
 	}))
