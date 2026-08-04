@@ -90,6 +90,18 @@ func firstVariant(s string) string {
 	return strings.TrimSpace(s)
 }
 
+// foldPhrase is FoldSearch for whole phrases: the punctuation an entry carries
+// and a query never does is dropped. dosham holds «Муха ду гӀуллакхаш? — Как
+// дела?», and comparing that question mark against a query without one left
+// «как дела» with an empty card and «нет перевода» under it.
+func foldPhrase(s string) string {
+	return trimPunct(FoldSearch(s))
+}
+
+func trimPunct(s string) string {
+	return strings.Trim(s, " .,;:!?…\"'«»()")
+}
+
 // FormatNeighbours renders the "рядом" line: words the dictionary holds that
 // merely start with the query.
 func FormatNeighbours(neighbours []string) string {
@@ -142,7 +154,7 @@ type collected struct {
 // scanning the text for "1)" and "~" the way the old renderer did.
 func collect(query string, pairs []models.TranslationPairs) collected {
 	key := NormalizeSearch(query)
-	folded := FoldSearch(query)
+	folded := foldPhrase(query)
 	var c collected
 	blocks := map[string]*block{}
 
@@ -153,7 +165,10 @@ func collect(query string, pairs []models.TranslationPairs) collected {
 		// Direction is part of the identity: «лом» is a Russian crowbar and a
 		// Chechen lion, and one key for both put «лев» in the list of Chechen
 		// translations of «лом».
-		k := fmt.Sprintf("%s\x00%d\x00%t", NormalizeSearch(head), idx, cheHead)
+		// Punctuation is not identity either: dosham holds «Ӏуьйре дика хуьлда!»
+		// twice, once glossed «доброе утро» and once «доброе утро!», and keeping
+		// the mark in the key printed the same greeting as two cards.
+		k := fmt.Sprintf("%s\x00%d\x00%t", NormalizeSearch(trimPunct(head)), idx, cheHead)
 		b, ok := blocks[k]
 		if !ok {
 			b = &block{head: head, cheHead: cheHead, index: idx}
@@ -212,11 +227,11 @@ func collect(query string, pairs []models.TranslationPairs) collected {
 		// Asked for by name it is an entry — «телефон болх беш яц» is a phrase
 		// the dictionary holds, and rendering it only as somebody else's example
 		// left the query with no card at all.
-		case p.EntryType == "TEXT" && FoldSearch(original) == folded:
+		case p.EntryType == "TEXT" && foldPhrase(original) == folded:
 			b := blockFor(p, original, p.OriginalLang == "CHE")
 			b.senses = append(b.senses, translate)
 
-		case p.EntryType == "TEXT" && FoldSearch(translate) == folded:
+		case p.EntryType == "TEXT" && foldPhrase(translate) == folded:
 			b := blockFor(p, translate, p.TranslateLang == "CHE")
 			b.senses = append(b.senses, original)
 
@@ -242,11 +257,11 @@ func collect(query string, pairs []models.TranslationPairs) collected {
 		// matching only the strict one here threw those answers away and the
 		// user was told the word does not exist. Exact stays above, so a true
 		// headword still wins the block.
-		case FoldSearch(original) == folded:
+		case foldPhrase(original) == folded:
 			b := blockFor(p, original, p.OriginalLang == "CHE")
 			b.senses = append(b.senses, translate)
 
-		case FoldSearch(translate) == folded:
+		case foldPhrase(translate) == folded:
 			b := blockFor(p, translate, p.TranslateLang == "CHE")
 			b.senses = append(b.senses, original)
 

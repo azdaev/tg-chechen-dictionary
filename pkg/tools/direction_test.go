@@ -112,3 +112,24 @@ func TestCard_ExampleGoesToTheSenseItIllustrates(t *testing.T) {
 		t.Errorf("the adverb's own example left its block:\n%s", card)
 	}
 }
+
+// dosham holds «Как дела?» with the question mark a user never types, and the
+// card compared the two raw: the phrase came back from the API, matched nothing,
+// and the bot answered «нет перевода» while holding the exact translation.
+func TestCard_PhrasePunctuationIsNotIdentity(t *testing.T) {
+	card := FormatCard("как дела", []models.TranslationPairs{
+		{Original: "Муха ду гӏуллакхаш?", Translate: "Как дела?", OriginalLang: "CHE", TranslateLang: "RUS", EntryType: "TEXT", Rate: 100},
+	})
+	if !strings.Contains(card, "Муха ду гӏуллакхаш?") {
+		t.Fatalf("the phrase dosham holds did not make a card:\n%s", card)
+	}
+
+	// The same greeting, glossed twice with and without the mark, is one entry.
+	greeting := FormatCard("доброе утро", []models.TranslationPairs{
+		{Original: "Ӏуьйре дика хуьлда!", Translate: "доброе утро", OriginalLang: "CHE", TranslateLang: "RUS", EntryType: "TEXT", Rate: 16},
+		{Original: "Ӏуьйре дика хуьлда!", Translate: "доброе утро!", OriginalLang: "CHE", TranslateLang: "RUS", EntryType: "TEXT", Rate: 16},
+	})
+	if n := strings.Count(greeting, "Ӏуьйре дика хуьлда!"); n != 1 {
+		t.Errorf("the greeting is printed %d times:\n%s", n, greeting)
+	}
+}
