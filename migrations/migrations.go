@@ -59,3 +59,7 @@ func Down(db *sql.DB) error {
 	}
 	return nil
 }
+
+// Quiet silences goose's per-migration output. Callers that own the terminal —
+// cmd/simbot draws a chat in it — do not want twenty lines of DDL first.
+func Quiet() { goose.SetLogger(goose.NopLogger()) }

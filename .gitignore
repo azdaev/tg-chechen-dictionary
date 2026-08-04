@@ -9,3 +9,5 @@ tmp_resp.json
 /migrate
 database.db
 .context
+sim.db
+sim.db-*
