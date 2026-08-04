@@ -145,3 +145,38 @@ func TestRender_ExamplesWithoutAGlossAreNotGlossed(t *testing.T) {
 		t.Error("a card that names the translation does not report it")
 	}
 }
+
+// The academic corpus writes the long vowel and the stress, the compact one
+// does not, so one word arrived as two entries and the card printed it twice,
+// one line apart: «гаьзло — левша» above «гаьзло̃ — левша́». Four of 39 sampled
+// Chechen cards did this.
+func TestCard_OneWordSpelledTwiceIsOneBlock(t *testing.T) {
+	body := Render("гаьзло", []models.TranslationPairs{
+		{Original: "гаьзло", Translate: "левша", OriginalLang: "CHE", TranslateLang: "RUS", Rate: 16, EntryType: "WORD"},
+		{Original: "гаьзло̃", Translate: "левша́", OriginalLang: "CHE", TranslateLang: "RUS", Rate: 10000, EntryType: "WORD"},
+	}).Body
+	if strings.Count(body, "·") != 1 {
+		t.Fatalf("one word rendered as two entries:\n%s", body)
+	}
+
+	// The letters matching is not enough. «лом» is a lion and «ло̃м» is not, and
+	// a keyboard cannot tell them apart — which is why the block key normalizes
+	// instead of folding in the first place.
+	body = Render("лом", []models.TranslationPairs{
+		{Original: "лом", Translate: "лев", OriginalLang: "CHE", TranslateLang: "RUS", Rate: 16, EntryType: "WORD"},
+		{Original: "ло̃м", Translate: "не тот", OriginalLang: "CHE", TranslateLang: "RUS", Rate: 10000, EntryType: "WORD"},
+	}).Body
+	if strings.Count(body, "·") != 2 {
+		t.Fatalf("two words merged into one entry:\n%s", body)
+	}
+
+	// Merged, the richer gloss stands in for the plainer one instead of being
+	// numbered beside it: «силу — дубитель» and «силу̃ — дуби́тель, заква́ска».
+	body = Render("силу", []models.TranslationPairs{
+		{Original: "силу", Translate: "дубитель", OriginalLang: "CHE", TranslateLang: "RUS", Rate: 16, EntryType: "WORD"},
+		{Original: "силу̃", Translate: "дуби́тель, заква́ска (кожи)", OriginalLang: "CHE", TranslateLang: "RUS", Rate: 10000, EntryType: "WORD"},
+	}).Body
+	if strings.Contains(body, "1.") {
+		t.Fatalf("one meaning numbered twice:\n%s", body)
+	}
+}

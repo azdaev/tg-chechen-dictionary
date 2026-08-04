@@ -282,6 +282,7 @@ func collect(query string, pairs []models.TranslationPairs) collected {
 		b.senses = dedupSenses(b.senses)
 		kept = append(kept, b)
 	}
+	kept = mergeSpellings(kept)
 
 	// A phrase the dictionary only ever shows inside somebody else's entry is
 	// still the answer. «спокойной ночи» is glossed «буьйса декъала хуьлда!»
@@ -682,6 +683,81 @@ func dedupStrings(items []string) []string {
 		}
 		seen[key] = true
 		out = append(out, s)
+	}
+	return out
+}
+
+// mergeSpellings folds together two blocks that are one word spelled twice. The
+// academic corpus writes the long vowel and the stress and the compact one does
+// not, so «гаьзло — левша» and «гаьзло̃ — левша́» arrived as separate entries and
+// the card printed the same word twice, one line apart — 4 of 39 sampled
+// Chechen cards.
+//
+// The meanings have to agree as well as the letters. Folded alone, «лом — лев»
+// would swallow «ло̃м», and «гонахьара — описанный» would swallow
+// «го̃нахьа̃ра — периферийный»: different words that a keyboard cannot tell
+// apart, which is exactly why the block key normalizes rather than folds.
+func mergeSpellings(blocks []*block) []*block {
+	var kept []*block
+	for _, b := range blocks {
+		merged := false
+		for _, into := range kept {
+			if !oneWordTwice(into, b) {
+				continue
+			}
+			into.senses = dedupSenses(keepRicher(append(into.senses, b.senses...)))
+			into.examples = append(into.examples, b.examples...)
+			if b.rate > into.rate {
+				into.head, into.rate = b.head, b.rate
+			}
+			if into.notes == "" {
+				into.notes = b.notes
+			}
+			if into.pos == 0 {
+				into.pos = b.pos
+			}
+			merged = true
+			break
+		}
+		if !merged {
+			kept = append(kept, b)
+		}
+	}
+	return kept
+}
+
+func oneWordTwice(a, b *block) bool {
+	if a.index != b.index || a.cheHead != b.cheHead || len(a.senses) == 0 || len(b.senses) == 0 {
+		return false
+	}
+	_, an := splitQualifiers(a.head)
+	_, bn := splitQualifiers(b.head)
+	return FoldSearch(trimPunct(an)) == FoldSearch(trimPunct(bn)) &&
+		FoldSearch(firstVariant(a.senses[0])) == FoldSearch(firstVariant(b.senses[0]))
+}
+
+// keepRicher drops a sense another one already contains. The two spellings of a
+// word rarely carry identical glosses — «силу — дубитель» merges with «силу̃ —
+// дуби́тель, заква́ска (кожи)» — and listing both numbers the same meaning twice.
+// Only inside a merge: elsewhere two senses sharing a first word are two
+// senses, and «дом» would lose «цӏа (учреждение)» to «цӏа».
+func keepRicher(senses []string) []string {
+	out := senses[:0]
+	for _, s := range senses {
+		covered := false
+		for i, kept := range out {
+			if FoldSearch(firstVariant(s)) != FoldSearch(firstVariant(kept)) {
+				continue
+			}
+			covered = true
+			if len(s) > len(kept) {
+				out[i] = s
+			}
+			break
+		}
+		if !covered {
+			out = append(out, s)
+		}
 	}
 	return out
 }
