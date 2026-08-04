@@ -188,7 +188,9 @@ func (b *Business) TranslateResolved(word string) ([]models.TranslationPairs, st
 	// spelling. Guessing earlier answers «столб», a word of its own, with «стол».
 	// Not cached: the key is the form the user typed, which moderation cannot
 	// reach, and the layer is one indexed read anyway.
-	if stemmed, headword := b.loadStemTranslations(ctx, word); len(stemmed) > 0 {
+	stemmed, headword, err := b.loadStemTranslations(ctx, word)
+	degraded = degraded || err != nil
+	if len(stemmed) > 0 {
 		return stemmed, headword, nil
 	}
 

@@ -34,12 +34,23 @@ func (n *Net) spellcheck(ctx context.Context, text string) (*ai.SpellCheckResult
 	return result, nil
 }
 
-func (n *Net) HandleCheck(ctx context.Context, m *tgbotapi.Message) error {
-	// Try command arguments first, then raw message text (for dot-prefix mode)
-	text := strings.TrimSpace(m.CommandArguments())
-	if text == "" {
-		text = strings.TrimSpace(m.Text)
+// checkTarget is the text /check should run on: its arguments, or the whole
+// message in dot-prefix mode («.дала безам бу»). A bare /check has neither, and
+// used to fall through to the message itself — spending one of the five free
+// monthly checks to be told that «/check» is misspelled, and never reaching the
+// usage text sitting right below.
+func checkTarget(m *tgbotapi.Message) string {
+	if args := strings.TrimSpace(m.CommandArguments()); args != "" {
+		return args
 	}
+	if m.IsCommand() {
+		return ""
+	}
+	return strings.TrimSpace(m.Text)
+}
+
+func (n *Net) HandleCheck(ctx context.Context, m *tgbotapi.Message) error {
+	text := checkTarget(m)
 	if text == "" {
 		msg := tgbotapi.NewMessage(m.Chat.ID,
 			"Использование: /check <текст на чеченском>\n\nПример: /check дала безам бу хьо\n\nИли просто начни сообщение с точки:\n.дала безам бу хьо")

@@ -71,3 +71,33 @@ func TestTranslate_StorageFailureIsQuietWhenTheAPIAnswers(t *testing.T) {
 	}
 	b.WaitBackground()
 }
+
+// The stem layer is the last one to run, and it swallowed its read errors: a
+// prefix scan that failed returned exactly what a genuine miss returns, so the
+// degraded flag never got set. The lookup then reported «нет перевода», the
+// word went into the gap report, and the empty answer was negative-cached for
+// the day — the outcome every other layer was fixed to avoid.
+type brokenPrefixRepo struct {
+	recordingDictRepo
+}
+
+func (r *brokenPrefixRepo) FindTranslationPairsByPrefix(context.Context, string, int) ([]models.TranslationPairs, error) {
+	return nil, errors.New("database is locked")
+}
+
+func (r *brokenPrefixRepo) InsertTranslationPair(context.Context, repository.TranslationPair) (int64, bool, error) {
+	return 0, false, nil
+}
+
+func TestTranslate_StemFailureIsNotAbsence(t *testing.T) {
+	probe := &doshamProbe{primaries: map[string]bool{"домами": true}}
+	probe.start(t)
+
+	b := &Business{log: logrus.New(), cache: cache.NewCache("127.0.0.1:1", ""), dictRepo: &brokenPrefixRepo{}}
+	b.SetFoldedReady()
+
+	got, _, err := b.TranslateResolved("домами")
+	if err == nil {
+		t.Fatalf("got %d pairs and no error; an unreadable index was reported as a missing word", len(got))
+	}
+}

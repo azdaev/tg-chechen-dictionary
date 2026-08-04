@@ -153,8 +153,10 @@ func (n *Net) Start(ctx context.Context) {
 			continue
 		}
 
-		// Inline queries
-		if update.InlineQuery != nil && update.InlineQuery.Query != "" {
+		// Inline queries. An empty one is the «@bot » moment in someone else's
+		// chat — HandleInline answers it with discovery words, and dropping it
+		// here meant that whole branch never ran and the picker stayed blank.
+		if update.InlineQuery != nil {
 			iq := update.InlineQuery
 			dispatch("inline", func() { n.routeInline(handlerCtx, iq) })
 			continue

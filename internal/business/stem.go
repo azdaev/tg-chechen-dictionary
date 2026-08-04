@@ -52,9 +52,9 @@ func sameStem(typed, head string) bool {
 // Runs last, after dosham has said it holds nothing under the typed spelling —
 // a guess must never pre-empt the dictionary. Placed before it, this layer
 // answered «столб» with «стол».
-func (b *Business) loadStemTranslations(ctx context.Context, word string) ([]models.TranslationPairs, string) {
+func (b *Business) loadStemTranslations(ctx context.Context, word string) ([]models.TranslationPairs, string, error) {
 	if b.dictRepo == nil {
-		return nil, ""
+		return nil, "", nil
 	}
 
 	typed := tools.NormalizeSearch(word)
@@ -64,7 +64,7 @@ func (b *Business) loadStemTranslations(ctx context.Context, word string) ([]mod
 		pairs, err := b.dictRepo.FindTranslationPairsByPrefix(ctx, key, maxSuggestions)
 		if err != nil {
 			b.log.Printf("stem lookup failed for %q: %v\n", stem, err)
-			return nil, ""
+			return nil, "", err
 		}
 		for _, p := range pairs {
 			// FindTranslationPairsByPrefix leads with the side that matched, so
@@ -82,18 +82,18 @@ func (b *Business) loadStemTranslations(ctx context.Context, word string) ([]mod
 		}
 	}
 	if lemma == "" || lemma == tools.NormalizeSearch(word) {
-		return nil, ""
+		return nil, "", nil
 	}
 
 	// Ranked against the lemma, not the form the user typed: the card is the
 	// lemma's, and rankPair measures distance from its own headword.
 	found, err := b.loadLocalTranslations(ctx, lemma)
 	if err != nil {
-		return nil, ""
+		return nil, "", err
 	}
 	pairs := rankAndDedup(found, lemma)
 	if len(pairs) == 0 {
-		return nil, ""
+		return nil, "", nil
 	}
-	return pairs, lemma
+	return pairs, lemma, nil
 }
