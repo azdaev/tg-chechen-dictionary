@@ -81,3 +81,23 @@ func TestArticle_StructuredGlossLosesItsSenseNumber(t *testing.T) {
 		t.Fatalf("the sense itself was lost:\n%s", card)
 	}
 }
+
+// «Спасибо» is one word — баркалла — and the card offered five senses:
+// «частица баркалла», «, кому баркалла ду», «с баркалла» and two real ones.
+// Cutting a gloss back to its last period leaves it starting mid-label, and
+// every stripping pattern is anchored, so a leading comma stopped all of them.
+func TestParseArticle_LabelRemnantsAreNotGlosses(t *testing.T) {
+	glosses, _ := ParseArticle("спасибо",
+		"ӏ. частица баркалла; ~ за внимание -ладогӏарна баркалла; "+
+			"2. в знач. сказ., кому баркалла ду; большое вам ~! - доккха баркалла ду шуна!; "+
+			"3. в знач. сущ. с баркалла; [он] и ~ не сказал - [цо] баркалла а ца элира")
+
+	if len(glosses) == 0 {
+		t.Fatal("the article lost every meaning")
+	}
+	for _, g := range glosses {
+		if !strings.HasPrefix(g, "баркалла") {
+			t.Errorf("gloss %q is not the word, it is what was left of a label", g)
+		}
+	}
+}

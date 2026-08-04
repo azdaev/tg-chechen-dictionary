@@ -40,7 +40,11 @@ func ParseArticle(head, body string) (glosses []string, examples []example) {
 			main = ""
 		}
 
-		if gloss := dropLabelTail(expandAbbreviations(cleanTranslation(main))); gloss != "" {
+		// stripLabels again after the tail cut: what the cut leaves behind starts
+		// mid-label. «Спасибо» stores "2. в знач. сказ., кому баркалла ду", and
+		// cutting at the last period yields ", кому баркалла ду" — a comma, a case
+		// marker, and only then the word.
+		if gloss := stripLabels(dropLabelTail(expandAbbreviations(cleanTranslation(main)))); gloss != "" {
 			if expanded, exact := replaceTildeWithWord(gloss, head); exact {
 				glosses = append(glosses, expanded)
 			}
@@ -103,6 +107,9 @@ func articleExamples(text, head string) []example {
 func stripLabels(text string) string {
 	for {
 		before := text
+		// A label the previous pass cut in half leaves its punctuation behind, and
+		// every pattern below is anchored, so the comma alone stops the loop dead.
+		text = strings.TrimSpace(strings.TrimLeft(text, ",;:-— "))
 		text = strings.TrimSpace(endingsRe.ReplaceAllString(text, ""))
 		text = strings.TrimSpace(grammarRe.ReplaceAllString(text, ""))
 		text = strings.TrimSpace(verbLabelRe.ReplaceAllString(text, ""))
