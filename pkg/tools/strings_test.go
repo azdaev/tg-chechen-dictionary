@@ -279,3 +279,23 @@ func TestFirstExampleFor(t *testing.T) {
 		t.Error("an entry with no examples reported one")
 	}
 }
+
+// The source brackets the optional half of a word — «зарыть» is stored as
+// "[дӏа]долла" — and the card offered that verbatim as the Chechen to learn.
+// The dictionary's own compact corpus spells the same entry «дӏадолла».
+func TestClean_OptionalBracketsAreWrittenOut(t *testing.T) {
+	cases := []struct{ name, in, want string }{
+		{"приставка", "[дӏа]долла", "дӏадолла"},
+		{"второе слово", "орца [даккхар]", "орца даккхар"},
+		{"окончание", "эхь хета[ш долу]", "эхь хеташ долу"},
+		// «[как]~а на сене»: the tilde stands for a whole headword, so a
+		// bracket glued to it is a missing space, not a prefix.
+		{"перед подстановкой", "[как]~а на сене", "как ~а на сене"},
+		{"без скобок", "ручка (для письма)", "ручка (для письма)"},
+	}
+	for _, c := range cases {
+		if got := Clean(c.in); got != c.want {
+			t.Errorf("%s: Clean(%q) = %q, want %q", c.name, c.in, got, c.want)
+		}
+	}
+}

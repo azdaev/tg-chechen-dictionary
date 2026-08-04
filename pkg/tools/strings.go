@@ -11,17 +11,28 @@ import (
 var (
 	tagRe  = regexp.MustCompile(`<[^>]*>`)
 	boldRe = regexp.MustCompile(`\*\*([^*]+)\*\*`)
+
+	// The source brackets the part of a word or phrase it considers optional —
+	// "[дӏа]долла", "орца [даккхар]", "эхь хета[ш долу]". Written out the
+	// bracket is the full form, which is the word a learner needs; left in, the
+	// card offers «[дӏа]долла» as the Chechen for «зарыть», which is nothing
+	// anyone can say or type. The dictionary's own other corpus spells that
+	// entry «дӏадолла». A bracket welded to the headword placeholder — "[как]~а
+	// на сене" — is the source missing a space: the placeholder stands for a
+	// whole word, so nothing can be prefixed onto it.
+	optionalBrackets = strings.NewReplacer("]~", " ~", "[", "", "]", "")
 )
 
 func Clean(text string) string {
 	// Most dictionary strings carry no markup at all; skip the regex for them.
-	if !strings.ContainsAny(text, "<\n") {
+	if !strings.ContainsAny(text, "<\n[]") {
 		return text
 	}
 	// tagRe already consumed "<>" and "<br />" by the time the old explicit
 	// replacements for them ran, so they never fired.
 	output := tagRe.ReplaceAllString(text, "")
-	return strings.ReplaceAll(output, "\n", " ")
+	output = strings.ReplaceAll(output, "\n", " ")
+	return optionalBrackets.Replace(output)
 }
 
 // StripTags removes HTML tags but keeps the line structure. It backs the
