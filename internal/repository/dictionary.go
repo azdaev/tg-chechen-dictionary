@@ -1,293 +1,13 @@
+// Dictionary lookups: the exact key, the folded key, prefixes and counts.
 package repository
 
 import (
 	"chetoru/internal/models"
-	"chetoru/pkg/tools"
 	"context"
 	"database/sql"
-	"errors"
+	"fmt"
 	"strings"
 )
-
-type TranslationPair struct {
-	ID                  int64
-	OriginalRaw         string
-	OriginalClean       string
-	OriginalLang        string
-	TranslationRaw      string
-	TranslationClean    string
-	TranslationLang     string
-	Source              string
-	SourceEntryID       sql.NullString
-	SourceTranslationID sql.NullString
-	FormattedAI         sql.NullString
-	FormattedChosen     sql.NullString
-	FormatVersion       sql.NullString
-	// Rate is dosham's source-dictionary marker, and EntryType/Subtype/
-	// EntryIndex/EntryNotes the entry structure the card renders from. They are
-	// stored rather than kept only in the cache because the local table is the
-	// steady-state read path: a word looked up twice must render identically.
-	Rate       int
-	EntryType  string
-	Subtype    int
-	EntryIndex int
-	EntryNotes string
-}
-
-const selectPairIDQuery = `select id, rate from dictionary_pairs
-	where original_clean = ? and original_lang = ?
-	  and translation_clean = ? and translation_lang = ?
-	limit 1;`
-
-func (r *Repository) lookupPairID(ctx context.Context, pair TranslationPair) (int64, int, error) {
-	var id int64
-	var rate int
-	err := r.db.QueryRowContext(
-		ctx,
-		selectPairIDQuery,
-		pair.OriginalClean,
-		pair.OriginalLang,
-		pair.TranslationClean,
-		pair.TranslationLang,
-	).Scan(&id, &rate)
-	return id, rate, err
-}
-
-// InsertTranslationPair stores a pair, reporting whether it was newly inserted
-// or already existed so callers can skip re-processing duplicates. Duplicates
-// are the common case — API fetches keep re-seeing stored pairs — so it checks
-// read-only first instead of opening a write transaction per pair.
-func (r *Repository) InsertTranslationPair(ctx context.Context, pair TranslationPair) (int64, bool, error) {
-	existingID, existingRate, err := r.lookupPairID(ctx, pair)
-	if err == nil {
-		// Backfill once: rows stored before rate existed would otherwise keep
-		// ordering at zero forever, since a stored pair is never re-inserted.
-		// Guarded on rate = 0 so the common duplicate costs no write.
-		if existingRate == 0 && pair.Rate > 0 {
-			if _, err := r.db.ExecContext(
-				ctx,
-				`update dictionary_pairs set rate = ? where id = ? and rate = 0;`,
-				pair.Rate, existingID,
-			); err != nil {
-				return existingID, false, err
-			}
-		}
-		return existingID, false, nil
-	}
-	if !errors.Is(err, sql.ErrNoRows) {
-		return 0, false, err
-	}
-
-	result, err := r.db.ExecContext(
-		ctx,
-		`insert or ignore into dictionary_pairs (
-			original_raw,
-			original_clean,
-			original_folded,
-			original_lang,
-			translation_raw,
-			translation_clean,
-			translation_folded,
-			translation_lang,
-			source,
-			source_entry_id,
-			source_translation_id,
-			rate,
-			entry_type,
-			subtype,
-			entry_index,
-			entry_notes
-		) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`,
-		pair.OriginalRaw,
-		pair.OriginalClean,
-		tools.FoldSearch(pair.OriginalClean),
-		pair.OriginalLang,
-		pair.TranslationRaw,
-		pair.TranslationClean,
-		tools.FoldSearch(pair.TranslationClean),
-		pair.TranslationLang,
-		pair.Source,
-		pair.SourceEntryID,
-		pair.SourceTranslationID,
-		pair.Rate,
-		pair.EntryType,
-		pair.Subtype,
-		pair.EntryIndex,
-		pair.EntryNotes,
-	)
-	if err != nil {
-		return 0, false, err
-	}
-
-	// An ignored INSERT OR IGNORE must be detected via RowsAffected:
-	// LastInsertId keeps the connection's previous rowid, so with a pooled
-	// sql.DB it can return a stale ID belonging to an unrelated insert.
-	affected, err := result.RowsAffected()
-	if err != nil {
-		return 0, false, err
-	}
-	if affected > 0 {
-		id, err := result.LastInsertId()
-		if err != nil {
-			return 0, false, err
-		}
-		return id, true, nil
-	}
-
-	// Lost an insert race with a concurrent writer; the row exists now.
-	existingID, _, err = r.lookupPairID(ctx, pair)
-	if err != nil {
-		return 0, false, err
-	}
-	return existingID, false, nil
-}
-
-func (r *Repository) ListPendingTranslationPairs(ctx context.Context, limit int) ([]TranslationPair, error) {
-	if limit <= 0 {
-		limit = 20
-	}
-
-	rows, err := r.db.QueryContext(
-		ctx,
-		`select
-			id,
-			original_raw,
-			original_clean,
-			original_lang,
-			translation_raw,
-			translation_clean,
-			translation_lang,
-			source,
-			source_entry_id,
-			source_translation_id,
-			formatted_ai,
-			formatted_chosen,
-			format_version
-		from dictionary_pairs
-		where formatted_chosen is null and formatted_ai is not null
-		limit ?;`,
-		limit,
-	)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	result := make([]TranslationPair, 0, limit)
-	for rows.Next() {
-		var pair TranslationPair
-		if err := rows.Scan(
-			&pair.ID,
-			&pair.OriginalRaw,
-			&pair.OriginalClean,
-			&pair.OriginalLang,
-			&pair.TranslationRaw,
-			&pair.TranslationClean,
-			&pair.TranslationLang,
-			&pair.Source,
-			&pair.SourceEntryID,
-			&pair.SourceTranslationID,
-			&pair.FormattedAI,
-			&pair.FormattedChosen,
-			&pair.FormatVersion,
-		); err != nil {
-			return nil, err
-		}
-		result = append(result, pair)
-	}
-
-	return result, rows.Err()
-}
-
-func (r *Repository) ListPendingTranslationPairsByWord(ctx context.Context, cleanWord string, limit int) ([]TranslationPair, error) {
-	if limit <= 0 {
-		limit = 20
-	}
-
-	rows, err := r.db.QueryContext(
-		ctx,
-		`select
-			id,
-			original_raw,
-			original_clean,
-			original_lang,
-			translation_raw,
-			translation_clean,
-			translation_lang,
-			source,
-			source_entry_id,
-			source_translation_id,
-			formatted_ai,
-			formatted_chosen,
-			format_version
-		from dictionary_pairs
-		where formatted_chosen is null
-		  and formatted_ai is not null
-		  and (original_clean = ? or translation_clean = ?)
-		limit ?;`,
-		cleanWord, cleanWord, limit,
-	)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	result := make([]TranslationPair, 0, limit)
-	for rows.Next() {
-		var pair TranslationPair
-		if err := rows.Scan(
-			&pair.ID,
-			&pair.OriginalRaw,
-			&pair.OriginalClean,
-			&pair.OriginalLang,
-			&pair.TranslationRaw,
-			&pair.TranslationClean,
-			&pair.TranslationLang,
-			&pair.Source,
-			&pair.SourceEntryID,
-			&pair.SourceTranslationID,
-			&pair.FormattedAI,
-			&pair.FormattedChosen,
-			&pair.FormatVersion,
-		); err != nil {
-			return nil, err
-		}
-		result = append(result, pair)
-	}
-
-	return result, rows.Err()
-}
-
-func (r *Repository) SetTranslationPairFormattingChoice(ctx context.Context, id int64, choice string) error {
-	_, err := r.db.ExecContext(
-		ctx,
-		`update dictionary_pairs
-		set formatted_chosen = ?
-		where id = ?;`,
-		choice,
-		id,
-	)
-	return err
-}
-
-func (r *Repository) UpdateTranslationPairFormatting(ctx context.Context, id int64, formattedAI, formattedChosen string) error {
-	var chosenVal any
-	if formattedChosen != "" {
-		chosenVal = formattedChosen
-	}
-	_, err := r.db.ExecContext(
-		ctx,
-		`update dictionary_pairs
-		set formatted_ai = ?,
-		    formatted_chosen = ?,
-		    format_version = 'ai_v1'
-		where id = ?;`,
-		formattedAI,
-		chosenVal,
-		id,
-	)
-	return err
-}
 
 // FindTranslationPairs returns stored pairs for a normalized word. The order by
 // decides which rows survive the limit, not what the user finally sees —
@@ -295,99 +15,21 @@ func (r *Repository) UpdateTranslationPairFormatting(ctx context.Context, id int
 // apply the same preference (moderated, then dosham's rate, then the shortest
 // translation) so the truncated set and the displayed set agree; change one and
 // change the other.
-func (r *Repository) FindTranslationPairs(ctx context.Context, cleanWord string, limit int) ([]models.TranslationPairs, error) {
-	if limit <= 0 {
-		limit = 200
-	}
+// pairKey names the column pair a lookup matches on: the exact clean spelling,
+// or the folded one that survives a palochka or a long-vowel mark the user
+// could not type.
+type pairKey string
 
-	rows, err := r.db.QueryContext(
-		ctx,
-		`select
-			original_raw,
-			original_clean,
-			original_lang,
-			translation_raw,
-			translation_clean,
-			translation_lang,
-			formatted_ai,
-			formatted_chosen,
-			rate,
-			entry_type,
-			subtype,
-			entry_index,
-			entry_notes,
-			structured_json
-		from dictionary_pairs
-		where (formatted_chosen is null or formatted_chosen != 'deleted')
-		  and (original_clean = ? or translation_clean = ?)
-		order by (formatted_chosen is null), rate desc, length(translation_raw), id
-		limit ?;`,
-		cleanWord, cleanWord, limit,
-	)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
+const (
+	keyClean  pairKey = "clean"
+	keyFolded pairKey = "folded"
+)
 
-	results := make([]models.TranslationPairs, 0, limit)
-	for rows.Next() {
-		var originalRaw, originalClean, originalLang, translationRaw, translationClean, translationLang string
-		var formattedAI, formattedChosen, entryType, entryNotes, structured sql.NullString
-		var rate, subtype, entryIndex int
-		if err := rows.Scan(&originalRaw, &originalClean, &originalLang, &translationRaw, &translationClean, &translationLang, &formattedAI, &formattedChosen, &rate, &entryType, &subtype, &entryIndex, &entryNotes, &structured); err != nil {
-			return nil, err
-		}
-
-		var aiText, chosenText string
-		if formattedAI.Valid {
-			aiText = formattedAI.String
-		}
-		if formattedChosen.Valid {
-			chosenText = formattedChosen.String
-		}
-
-		// Subtype, EntryIndex and Notes describe dosham's entry headword, which
-		// for every corpus that fills them in is the Chechen side. They ride
-		// along unchanged through the reverse swap below for exactly that
-		// reason: the swap moves which side leads, not which side is Chechen.
-		pair := models.TranslationPairs{
-			Original:        originalRaw,
-			Translate:       translationRaw,
-			OriginalLang:    originalLang,
-			TranslateLang:   translationLang,
-			FormattedAI:     aiText,
-			FormattedChosen: chosenText,
-			Rate:            rate,
-			EntryType:       entryType.String,
-			Subtype:         subtype,
-			EntryIndex:      entryIndex,
-			Notes:           entryNotes.String,
-			Structured:      structured.String,
-		}
-
-		if originalClean == cleanWord {
-			results = append(results, pair)
-			continue
-		}
-
-		if translationClean == cleanWord {
-			// Reverse hit: the matched side leads, so the languages swap with it.
-			pair.Original, pair.Translate = pair.Translate, pair.Original
-			pair.OriginalLang, pair.TranslateLang = pair.TranslateLang, pair.OriginalLang
-			results = append(results, pair)
-		}
-	}
-
-	return results, rows.Err()
-}
-
-// FindTranslationPairsByFolded mirrors FindTranslationPairs but matches on the
-// spelling-insensitive columns, so a query that dropped a palochka or a long
-// vowel mark still reaches a word we already stored. No new ranking is
-// introduced: the caller runs the result through the same rankAndDedup as the
-// exact lookup.
-func (r *Repository) FindTranslationPairsByFolded(ctx context.Context, folded string, limit int) ([]models.TranslationPairs, error) {
-	if folded == "" {
+// findPairs returns stored pairs whose original or translation side matches key,
+// with the matched side leading. Deleted pairs are excluded, moderated ones sort
+// first, then the source dictionary's rate.
+func (r *Repository) findPairs(ctx context.Context, col pairKey, key string, limit int) ([]models.TranslationPairs, error) {
+	if key == "" {
 		return nil, nil
 	}
 	if limit <= 0 {
@@ -396,12 +38,11 @@ func (r *Repository) FindTranslationPairsByFolded(ctx context.Context, folded st
 
 	rows, err := r.db.QueryContext(
 		ctx,
-		`select
+		fmt.Sprintf(`select
 			original_raw,
-			original_folded,
+			original_%[1]s,
 			original_lang,
 			translation_raw,
-			translation_folded,
 			translation_lang,
 			formatted_ai,
 			formatted_chosen,
@@ -413,10 +54,10 @@ func (r *Repository) FindTranslationPairsByFolded(ctx context.Context, folded st
 			structured_json
 		from dictionary_pairs
 		where (formatted_chosen is null or formatted_chosen != 'deleted')
-		  and (original_folded = ? or translation_folded = ?)
+		  and (original_%[1]s = ? or translation_%[1]s = ?)
 		order by (formatted_chosen is null), rate desc, length(translation_raw), id
-		limit ?;`,
-		folded, folded, limit,
+		limit ?;`, col),
+		key, key, limit,
 	)
 	if err != nil {
 		return nil, err
@@ -426,12 +67,16 @@ func (r *Repository) FindTranslationPairsByFolded(ctx context.Context, folded st
 	results := make([]models.TranslationPairs, 0, limit)
 	for rows.Next() {
 		var originalRaw, originalLang, translationRaw, translationLang string
-		var originalFolded, translationFolded, formattedAI, formattedChosen, entryType, entryNotes, structured sql.NullString
+		var originalKey, formattedAI, formattedChosen, entryType, entryNotes, structured sql.NullString
 		var rate, subtype, entryIndex int
-		if err := rows.Scan(&originalRaw, &originalFolded, &originalLang, &translationRaw, &translationFolded, &translationLang, &formattedAI, &formattedChosen, &rate, &entryType, &subtype, &entryIndex, &entryNotes, &structured); err != nil {
+		if err := rows.Scan(&originalRaw, &originalKey, &originalLang, &translationRaw, &translationLang, &formattedAI, &formattedChosen, &rate, &entryType, &subtype, &entryIndex, &entryNotes, &structured); err != nil {
 			return nil, err
 		}
 
+		// Subtype, EntryIndex and Notes describe dosham's entry headword, which
+		// for every corpus that fills them in is the Chechen side. They ride
+		// along unchanged through the reverse swap below for exactly that
+		// reason: the swap moves which side leads, not which side is Chechen.
 		pair := models.TranslationPairs{
 			Original:        originalRaw,
 			Translate:       translationRaw,
@@ -447,7 +92,7 @@ func (r *Repository) FindTranslationPairsByFolded(ctx context.Context, folded st
 			Structured:      structured.String,
 		}
 
-		if originalFolded.String != folded {
+		if originalKey.String != key {
 			// Reverse hit: the matched side leads, so the languages swap with it.
 			pair.Original, pair.Translate = pair.Translate, pair.Original
 			pair.OriginalLang, pair.TranslateLang = pair.TranslateLang, pair.OriginalLang
@@ -458,135 +103,17 @@ func (r *Repository) FindTranslationPairsByFolded(ctx context.Context, folded st
 	return results, rows.Err()
 }
 
-// BackfillFolded fills the folded columns for rows stored before they existed,
-// in batches so no long write transaction forms. It is idempotent: rows are
-// selected on `original_folded is null`, and new rows arrive with the columns
-// already filled, so a concurrent INSERT can never be missed.
-//
-// On error it returns the number of rows already updated along with the error —
-// a partially filled column is correct for the rows it does hold, so the caller
-// logs and keeps serving; the folded lookup simply covers less.
-func (r *Repository) BackfillFolded(ctx context.Context, batch int) (int, error) {
-	if batch <= 0 {
-		batch = 500
-	}
-	total := 0
-	for {
-		rows, err := r.db.QueryContext(
-			ctx,
-			`select id, original_clean, translation_clean from dictionary_pairs
-			 where original_folded is null limit ?;`,
-			batch,
-		)
-		if err != nil {
-			return total, err
-		}
-		type row struct {
-			id                    int64
-			original, translation string
-		}
-		var pending []row
-		for rows.Next() {
-			var v row
-			if err := rows.Scan(&v.id, &v.original, &v.translation); err != nil {
-				rows.Close()
-				return total, err
-			}
-			pending = append(pending, v)
-		}
-		if err := rows.Err(); err != nil {
-			rows.Close()
-			return total, err
-		}
-		rows.Close()
-		if len(pending) == 0 {
-			return total, nil
-		}
-
-		tx, err := r.db.BeginTx(ctx, nil)
-		if err != nil {
-			return total, err
-		}
-		stmt, err := tx.PrepareContext(ctx,
-			`update dictionary_pairs set original_folded = ?, translation_folded = ? where id = ?;`)
-		if err != nil {
-			tx.Rollback()
-			return total, err
-		}
-		for _, v := range pending {
-			if _, err := stmt.ExecContext(ctx, tools.FoldSearch(v.original), tools.FoldSearch(v.translation), v.id); err != nil {
-				stmt.Close()
-				tx.Rollback()
-				return total, err
-			}
-		}
-		stmt.Close()
-		if err := tx.Commit(); err != nil {
-			return total, err
-		}
-		total += len(pending)
-	}
+func (r *Repository) FindTranslationPairs(ctx context.Context, cleanWord string, limit int) ([]models.TranslationPairs, error) {
+	return r.findPairs(ctx, keyClean, cleanWord, limit)
 }
 
-// SaveWordForms records a headword's paradigm, keyed by the folded form so a
-// query that dropped the long-vowel tilde («лоьмаш» for «ло̃ьмаш») still lands.
-// The headword itself is skipped — the folded columns already reach it.
-func (r *Repository) SaveWordForms(ctx context.Context, headword string, forms []string) error {
-	headword = strings.TrimSpace(headword)
-	if headword == "" || len(forms) == 0 {
-		return nil
-	}
-	headFolded := tools.FoldSearch(headword)
-
-	tx, err := r.db.BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	stmt, err := tx.PrepareContext(ctx,
-		`insert or ignore into word_forms (form_folded, headword) values (?, ?);`)
-	if err != nil {
-		tx.Rollback()
-		return err
-	}
-	defer stmt.Close()
-	for _, f := range forms {
-		folded := tools.FoldSearch(f)
-		if folded == "" || folded == headFolded {
-			continue
-		}
-		if _, err := stmt.ExecContext(ctx, folded, headword); err != nil {
-			tx.Rollback()
-			return err
-		}
-	}
-	return tx.Commit()
-}
-
-// FindHeadwordsByForm returns the headwords whose paradigm contains folded.
-// A form can belong to more than one word, so the caller gets every match.
-func (r *Repository) FindHeadwordsByForm(ctx context.Context, folded string, limit int) ([]string, error) {
-	if folded == "" {
-		return nil, nil
-	}
-	if limit <= 0 {
-		limit = 3
-	}
-	rows, err := r.db.QueryContext(ctx,
-		`select headword from word_forms where form_folded = ? limit ?;`, folded, limit)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var out []string
-	for rows.Next() {
-		var h string
-		if err := rows.Scan(&h); err != nil {
-			return nil, err
-		}
-		out = append(out, h)
-	}
-	return out, rows.Err()
+// FindTranslationPairsByFolded mirrors FindTranslationPairs but matches on the
+// spelling-insensitive columns, so a query that dropped a palochka or a long
+// vowel mark still reaches a word we already stored. No new ranking is
+// introduced: the caller runs the result through the same rankAndDedup as the
+// exact lookup.
+func (r *Repository) FindTranslationPairsByFolded(ctx context.Context, folded string, limit int) ([]models.TranslationPairs, error) {
+	return r.findPairs(ctx, keyFolded, folded, limit)
 }
 
 // FindTranslationPairsByPrefix returns pairs where either side starts with
@@ -722,12 +249,4 @@ func (r *Repository) GetPairCleanWords(ctx context.Context, pairID int64) ([]str
 		return nil, err
 	}
 	return []string{origClean, transClean}, nil
-}
-
-func (r *Repository) StoreSpellcheckFeedback(ctx context.Context, userID int64, originalText, correctedText, feedback string) error {
-	_, err := r.db.ExecContext(ctx,
-		`INSERT INTO spellcheck_feedback (user_id, original_text, corrected_text, feedback) VALUES (?, ?, ?, ?)`,
-		userID, originalText, correctedText, feedback,
-	)
-	return err
 }
