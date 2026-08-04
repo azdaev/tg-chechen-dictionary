@@ -56,20 +56,23 @@ const (
 	// No 🇨🇪: CE is unassigned in ISO 3166-1, so it is not a flag anywhere —
 	// clients render two letter tiles. And no <i>: the card above already
 	// spends italic on its usage example.
-	WordOfDayFooter            = "Учите чеченский каждый день!"
-	WotdStatusOnText           = "📖 <b>Слово дня</b>\n\nВы подписаны ✅ — каждый день в 9:00 будете получать новое чеченское слово."
-	WotdStatusOffText          = "📖 <b>Слово дня</b>\n\nПодпишитесь, чтобы каждое утро получать новое чеченское слово и пополнять словарный запас."
-	WotdChatStatusOnText       = "📖 <b>Слово дня</b>\n\nЭтот чат подписан ✅ — каждое утро в 9:00 сюда приходит новое чеченское слово."
-	WotdChatStatusOffText      = "📖 <b>Слово дня</b>\n\nПодпишите этот чат, чтобы каждое утро здесь появлялось новое чеченское слово."
-	WotdSubscribeButton        = "🔔 Подписаться"
-	WotdUnsubscribeButton      = "🔕 Отписаться"
-	WotdSubscribedToast        = "Вы подписались на слово дня! 🔔"
-	WotdUnsubscribedToast      = "Вы отписались от слова дня"
-	WotdNudgeText              = "📖 Кстати! Каждое утро бот может присылать вам одно чеченское слово с переводом — маленький шаг к языку каждый день."
-	WotdNudgeMinLookups        = 5
-	DonationMessageFormat      = "🌱 Чтобы наш проект мог продолжить работать, вы можете помочь нам"
-	DefaultModerationChat      = int64(-5204234916)
-	BroadcastParseMode         = "html"
+	WordOfDayFooter       = "Учите чеченский каждый день!"
+	WotdStatusOnText      = "📖 <b>Слово дня</b>\n\nВы подписаны ✅ — каждый день в 9:00 будете получать новое чеченское слово."
+	WotdStatusOffText     = "📖 <b>Слово дня</b>\n\nПодпишитесь, чтобы каждое утро получать новое чеченское слово и пополнять словарный запас."
+	WotdChatStatusOnText  = "📖 <b>Слово дня</b>\n\nЭтот чат подписан ✅ — каждое утро в 9:00 сюда приходит новое чеченское слово."
+	WotdChatStatusOffText = "📖 <b>Слово дня</b>\n\nПодпишите этот чат, чтобы каждое утро здесь появлялось новое чеченское слово."
+	WotdSubscribeButton   = "🔔 Подписаться"
+	WotdUnsubscribeButton = "🔕 Отписаться"
+	WotdSubscribedToast   = "Вы подписались на слово дня! 🔔"
+	WotdUnsubscribedToast = "Вы отписались от слова дня"
+	WotdNudgeText         = "📖 Кстати! Каждое утро бот может присылать вам одно чеченское слово с переводом — маленький шаг к языку каждый день."
+	WotdNudgeMinLookups   = 5
+	DonationMessageFormat = "🌱 Чтобы наш проект мог продолжить работать, вы можете помочь нам"
+	DefaultModerationChat = int64(-5204234916)
+	BroadcastParseMode    = "html"
+	// Shown when a broadcast could not start at all. The draft is kept, because
+	// the alternative is an admin retyping it with no idea it was lost.
+	BroadcastNotStartedText    = "Не удалось получить список получателей — рассылка не началась. Черновик сохранён, нажмите «Отправить» ещё раз."
 	BroadcastSendDelay         = 100 * time.Millisecond
 	StreakReminderHour         = 19 // local hour (container TZ is Europe/Moscow)
 	StreakReminderFormat       = "🔥 Ваша серия — <b>%d дн.</b> Один вопрос сегодня, и она продолжится!"

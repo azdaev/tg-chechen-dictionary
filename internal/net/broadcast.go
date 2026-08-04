@@ -126,6 +126,15 @@ func (n *Net) sendBroadcast(ctx context.Context, cq *tgbotapi.CallbackQuery) err
 
 	userIDs, err := n.repo.ListUserIDs(ctx)
 	if err != nil {
+		// The payload is claimed up front so a double tap cannot start two
+		// broadcasts, so a failure this early leaves the draft nowhere: the
+		// button already said «Отправляю», nothing went out, and the only trace
+		// was a log line. Give it back and say so — the preview and its buttons
+		// are still in the chat, so «Отправить» works again.
+		n.setBroadcastState(false, payload)
+		if _, sendErr := n.send(tgbotapi.NewMessage(cq.Message.Chat.ID, BroadcastNotStartedText)); sendErr != nil {
+			n.log.WithError(sendErr).Warn("failed to report a broadcast that never started")
+		}
 		return fmt.Errorf("repo.ListUserIDs: %w", err)
 	}
 
