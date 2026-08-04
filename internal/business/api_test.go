@@ -9,6 +9,9 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 
 	"github.com/sirupsen/logrus"
@@ -293,5 +296,59 @@ func TestFetchTranslations_GraphQLErrorIsNil(t *testing.T) {
 
 	if got, err := b.fetchTranslationsWithFallback("яблоками"); err == nil {
 		t.Fatalf("GraphQL error must be reported as an error so it is not cached, got %#v", got)
+	}
+}
+
+// swarmDictRepo accepts every insert as new and counts them.
+type swarmDictRepo struct {
+	recordingDictRepo
+	mu      sync.Mutex
+	inserts int
+	nextID  int64
+}
+
+func (r *swarmDictRepo) InsertTranslationPair(context.Context, repository.TranslationPair) (int64, bool, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.inserts++
+	r.nextID++
+	return r.nextID, true, nil
+}
+
+// dosham's search is a substring match, so «ца» comes back with 252 pairs. Every
+// new one used to start its own goroutine and its own paid LLM call — for a card
+// that shows ten rows. Storing them all is still right; the rendering is what
+// gets a budget, because it only feeds the moderation queue.
+func TestFetchTranslations_LLMBudgetPerLookup(t *testing.T) {
+	const entries = 40
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		rows := make([]string, 0, entries)
+		for i := range entries {
+			rows = append(rows, fmt.Sprintf(
+				`{"entryId":"e%d","content":"цанаш%d","type":"WORD","translations":[{"translationId":"t%d","content":"покос","languageCode":"ru"}]}`,
+				i, i, i))
+		}
+		fmt.Fprintf(w, `{"data":{"find":[%s]}}`, strings.Join(rows, ","))
+	}))
+	t.Cleanup(srv.Close)
+	t.Setenv("DOSHAM_API_URL", srv.URL)
+
+	repo := &swarmDictRepo{}
+	var queued atomic.Int32
+	b := &Business{log: logrus.New(), dictRepo: repo}
+	// No AI client, so onPairReady stands in for the work a rendering would
+	// start: it runs for exactly the pairs that were within budget.
+	b.onPairReady = func(int64, string) { queued.Add(1) }
+
+	if _, err := b.fetchTranslationsFromAPI("ца"); err != nil {
+		t.Fatalf("fetch: %v", err)
+	}
+	b.WaitBackground()
+
+	if repo.inserts != entries {
+		t.Errorf("stored %d of %d pairs; the local table is what makes the next lookup instant", repo.inserts, entries)
+	}
+	if got := int(queued.Load()); got != maxAIFormatsPerLookup {
+		t.Errorf("%d pairs queued for the LLM, want the %d-pair budget", got, maxAIFormatsPerLookup)
 	}
 }

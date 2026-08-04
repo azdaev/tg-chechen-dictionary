@@ -13,9 +13,12 @@ import (
 	"time"
 )
 
-func (b *Business) storeTranslationPair(entry models.Entry, translation models.Translation) {
+// storeTranslationPair persists one pair and reports whether it was new. mayFormat
+// says the caller still has LLM budget for it; a pair stored without one keeps
+// its place in the moderation table, it just arrives there without a suggestion.
+func (b *Business) storeTranslationPair(entry models.Entry, translation models.Translation, mayFormat bool) (inserted bool) {
 	if b.dictRepo == nil {
-		return
+		return false
 	}
 
 	originalLang := inferOriginalLang(translation.LanguageCode)
@@ -40,18 +43,21 @@ func (b *Business) storeTranslationPair(entry models.Entry, translation models.T
 		EntryNotes:          entry.Notes,
 	}
 	if pair.OriginalClean == "" || pair.TranslationClean == "" {
-		return
+		return false
 	}
 
 	pairID, inserted, err := b.dictRepo.InsertTranslationPair(context.Background(), pair)
 	if err != nil {
 		b.log.Printf("failed to insert dictionary pair: %v\n", err)
-		return
+		return false
 	}
 	// Duplicates already went through formatting and moderation when first
 	// stored; re-running them would burn AI calls and overwrite the result.
 	if !inserted || pairID == 0 {
-		return
+		return false
+	}
+	if !mayFormat {
+		return true
 	}
 
 	if b.aiFormattingEnabled.Load() && b.aiClient != nil {
@@ -60,6 +66,7 @@ func (b *Business) storeTranslationPair(entry models.Entry, translation models.T
 		// No AI client — trigger moderation immediately
 		b.bg.Go(func() { b.onPairReady(pairID, pair.OriginalClean) })
 	}
+	return true
 }
 
 // formatPairWithAI asynchronously formats a dictionary pair using AI, saves it, then triggers moderation.

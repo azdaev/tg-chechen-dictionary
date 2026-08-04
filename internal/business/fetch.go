@@ -108,6 +108,10 @@ func (b *Business) fetchTranslationsWithFallback(word string) ([]models.Translat
 	return translations, err
 }
 
+// maxAIFormatsPerLookup is how many newly stored pairs one lookup may send to
+// the LLM for a moderation suggestion.
+const maxAIFormatsPerLookup = 10
+
 func (b *Business) fetchTranslationsFromAPI(word string) ([]models.TranslationPairs, error) {
 	return b.fetchFromAPI(context.Background(), word)
 }
@@ -178,10 +182,21 @@ func (b *Business) fetchFromAPI(ctx context.Context, word string) ([]models.Tran
 	// Persisting pairs costs a DB lookup each (plus AI formatting for new ones),
 	// and a common word carries dozens of them — run detached so those round
 	// trips never sit between the user and the answer.
+	//
+	// Every pair is stored: the local table is what makes the next lookup of any
+	// of them instant, and what the folded columns match a palochka-less
+	// spelling against. The LLM rendering is budgeted instead. dosham answers
+	// «ца» with 252 pairs and each new one used to start its own goroutine and
+	// its own paid call — for a card that shows ten rows. The rendering only
+	// feeds the moderation queue, and a queue nobody can read to the end of is
+	// not worth what it costs.
 	if len(toStore) > 0 && b.dictRepo != nil {
 		b.bg.Go(func() {
+			budget := maxAIFormatsPerLookup
 			for _, p := range toStore {
-				b.storeTranslationPair(p.entry, p.translation)
+				if b.storeTranslationPair(p.entry, p.translation, budget > 0) && budget > 0 {
+					budget--
+				}
 			}
 		})
 	}
