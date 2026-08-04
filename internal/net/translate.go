@@ -222,6 +222,18 @@ func clampMessage(text string) string {
 	cut := string(runes[:limit])
 	if i := strings.LastIndex(cut, "\n"); i > 0 {
 		cut = cut[:i]
+	} else if i := strings.LastIndex(cut, "<"); i > strings.LastIndex(cut, ">") {
+		// No line boundary to fall back on, so the cut can land inside a tag.
+		// Telegram rejects the whole message over one broken tag and the retry
+		// resends it unformatted, losing every mark the card makes meaning with.
+		cut = cut[:i]
+	}
+	// The surviving text may still open a tag it never closes, for the same
+	// reason. Nothing here nests, so the order the closers go in does not matter.
+	for _, tag := range []string{"b", "i"} {
+		if strings.Count(cut, "<"+tag+">") > strings.Count(cut, "</"+tag+">") {
+			cut += "</" + tag + ">"
+		}
 	}
 	return cut + "\n…"
 }

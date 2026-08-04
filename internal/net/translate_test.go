@@ -39,6 +39,24 @@ func TestClampMessage(t *testing.T) {
 	}
 }
 
+// Falling back to the line boundary only works when there is one. A single
+// gloss past the limit is cut wherever the count runs out — and Telegram
+// answers one broken tag by refusing the whole message, so the retry resends
+// the card with no formatting at all.
+func TestClampMessage_NeverCutsInsideMarkup(t *testing.T) {
+	// The tag straddles the cut: 3799 runes of text, then "<b>…".
+	inTag := clampMessage(strings.Repeat("ц", 3799) + "<b>слово</b>")
+	if strings.LastIndex(inTag, "<") > strings.LastIndex(inTag, ">") {
+		t.Errorf("cut left a half-written tag: %q", inTag[len(inTag)-20:])
+	}
+
+	// And an opened tag that the cut orphaned gets closed.
+	orphan := clampMessage("<b>" + strings.Repeat("ц", 4000) + "</b>")
+	if strings.Count(orphan, "<b>") != strings.Count(orphan, "</b>") {
+		t.Errorf("clamped card leaves <b> open: %q", orphan[:20]+"…"+orphan[len(orphan)-20:])
+	}
+}
+
 // telegramMessageLimit is Telegram's own cap. Nothing in the bot may build a
 // message past it: an oversized send is rejected outright, so the user gets
 // nothing rather than a truncated answer.
