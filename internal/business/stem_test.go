@@ -1,0 +1,112 @@
+package business
+
+import (
+	"chetoru/internal/cache"
+	"chetoru/internal/models"
+	"context"
+	"testing"
+
+	"github.com/sirupsen/logrus"
+)
+
+type stemDictRepo struct {
+	recordingDictRepo
+	byWord   map[string][]models.TranslationPairs
+	byPrefix map[string][]models.TranslationPairs
+}
+
+func (r *stemDictRepo) FindTranslationPairs(_ context.Context, cleanWord string, _ int) ([]models.TranslationPairs, error) {
+	return r.byWord[cleanWord], nil
+}
+
+func (r *stemDictRepo) FindTranslationPairsByPrefix(_ context.Context, prefix string, _ int) ([]models.TranslationPairs, error) {
+	return r.byPrefix[prefix], nil
+}
+
+func newStemBusiness(repo *stemDictRepo) *Business {
+	return &Business{log: logrus.New(), cache: cache.NewCache("127.0.0.1:1", ""), dictRepo: repo}
+}
+
+// «рука» answered and «руки» did not — dosham's search is a substring match, so
+// an inflected Russian form reaches none of its own lemma's entries. The word
+// forms layer above this one only knows paradigms dosham analyzed, and those are
+// Chechen, so a Russian ending had no layer at all: the user was told the word
+// does not exist and it was filed as a gap in a dictionary that holds it.
+func TestTranslate_RussianEndingOpensTheLemma(t *testing.T) {
+	probe := &doshamProbe{primaries: map[string]bool{"руки": true}}
+	probe.start(t)
+
+	repo := &stemDictRepo{
+		byWord: map[string][]models.TranslationPairs{
+			"рука": {{Original: "Рука", Translate: "м куьг", OriginalLang: "RUS", TranslateLang: "CHE", Rate: 100}},
+		},
+		byPrefix: map[string][]models.TranslationPairs{
+			"рук": {
+				{Original: "рукав", Translate: "пхьуьйш"},
+				{Original: "рука", Translate: "куьг"},
+			},
+		},
+	}
+	b := newStemBusiness(repo)
+
+	got, resolved, err := b.TranslateResolved("руки")
+	if err != nil {
+		t.Fatalf("translate: %v", err)
+	}
+	if len(got) != 1 || got[0].Original != "Рука" {
+		t.Fatalf("got %+v, want the lemma's pairs", got)
+	}
+	if resolved != "рука" {
+		t.Errorf("resolved = %q; the card renders against this and would come out empty", resolved)
+	}
+	if n := probe.count("руки"); n != 0 {
+		t.Errorf("the API was queried %d times for a word already stored under its lemma", n)
+	}
+}
+
+// «домов» stems to «домо» and to «дом». Taking the longest stem's first hit
+// answers «домовой»; the shortest headword across every stem is «дом».
+func TestTranslate_StemPrefersTheShortestLemma(t *testing.T) {
+	probe := &doshamProbe{primaries: map[string]bool{"домов": true}}
+	probe.start(t)
+
+	repo := &stemDictRepo{
+		byWord: map[string][]models.TranslationPairs{
+			"дом": {{Original: "Дом", Translate: "м цӏа", OriginalLang: "RUS", TranslateLang: "CHE", Rate: 100}},
+		},
+		byPrefix: map[string][]models.TranslationPairs{
+			"домо": {{Original: "домовой", Translate: "тарам"}},
+			"дом":  {{Original: "домовой", Translate: "тарам"}, {Original: "дом", Translate: "цӏа"}},
+		},
+	}
+
+	_, resolved, err := newStemBusiness(repo).TranslateResolved("домов")
+	if err != nil {
+		t.Fatalf("translate: %v", err)
+	}
+	if resolved != "дом" {
+		t.Fatalf("resolved = %q, want дом", resolved)
+	}
+}
+
+// A stem whose only neighbours are much longer words is not a lemma: «рукавица»
+// is six letters past «рук» and a different word. Answering with it would be
+// worse than the miss, which at least records a real gap.
+func TestTranslate_DistantNeighbourIsNotALemma(t *testing.T) {
+	probe := &doshamProbe{primaries: map[string]bool{"руки": true}}
+	probe.start(t)
+
+	repo := &stemDictRepo{
+		byWord:   map[string][]models.TranslationPairs{},
+		byPrefix: map[string][]models.TranslationPairs{"рук": {{Original: "рукавица", Translate: "мачаш"}}},
+	}
+
+	if _, resolved, err := newStemBusiness(repo).TranslateResolved("руки"); err != nil {
+		t.Fatalf("translate: %v", err)
+	} else if resolved != "" {
+		t.Fatalf("resolved = %q; a distant neighbour was served as the lemma", resolved)
+	}
+	if n := probe.count("руки"); n == 0 {
+		t.Error("the cascade stopped at the stem layer instead of falling through to the API")
+	}
+}

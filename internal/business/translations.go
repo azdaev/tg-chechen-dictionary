@@ -1,5 +1,6 @@
 // Lookup pipeline: cache, then the local table, then its folded spellings, then
-// the word-form index, then dosham. Each layer answers or falls through.
+// the word-form index, then the stem, then dosham. Each layer answers or falls
+// through.
 package business
 
 import (
@@ -150,6 +151,13 @@ func (b *Business) TranslateResolved(word string) ([]models.TranslationPairs, st
 	// reason the folded layer is not: the key would be a spelling moderation
 	// cannot reach.
 	if translations, headword := b.loadFormTranslations(ctx, word); len(translations) > 0 {
+		return translations, headword, nil
+	}
+
+	// Russian endings have no paradigm to consult, so the lemma is guessed from
+	// the stem. Last of the local layers: a word held under the spelling the user
+	// typed must never be answered with a neighbour's card.
+	if translations, headword := b.loadStemTranslations(ctx, word); len(translations) > 0 {
 		return translations, headword, nil
 	}
 
