@@ -1,6 +1,6 @@
 // Lookup pipeline: cache, then the local table, then its folded spellings, then
-// the word-form index, then the stem, then dosham. Each layer answers or falls
-// through.
+// the word-form index, then dosham, and last a lemma guessed from the stem.
+// Each layer answers or falls through.
 package business
 
 import (
@@ -154,13 +154,6 @@ func (b *Business) TranslateResolved(word string) ([]models.TranslationPairs, st
 		return translations, headword, nil
 	}
 
-	// Russian endings have no paradigm to consult, so the lemma is guessed from
-	// the stem. Last of the local layers: a word held under the spelling the user
-	// typed must never be answered with a neighbour's card.
-	if translations, headword := b.loadStemTranslations(ctx, word); len(translations) > 0 {
-		return translations, headword, nil
-	}
-
 	// A miss is the expensive path: a primary lookup plus a cascade of
 	// respellings. Collapsing concurrent misses on the same query means ten
 	// people typing one typo cost one cascade rather than ten.
@@ -172,7 +165,21 @@ func (b *Business) TranslateResolved(word string) ([]models.TranslationPairs, st
 	}
 	translations, _ := v.([]models.TranslationPairs)
 	translations = rankAndDedup(translations, word)
-	if len(translations) > 0 || b.foldedReady.Load() {
+	if len(translations) > 0 {
+		b.cacheTranslationsAsync(ctx, cacheKey, translations)
+		return translations, "", nil
+	}
+
+	// Russian endings have no paradigm to consult, so the lemma is guessed from
+	// the stem — but only here, once dosham has said it holds nothing under this
+	// spelling. Guessing earlier answers «столб», a word of its own, with «стол».
+	// Not cached: the key is the form the user typed, which moderation cannot
+	// reach, and the layer is one indexed read anyway.
+	if stemmed, headword := b.loadStemTranslations(ctx, word); len(stemmed) > 0 {
+		return stemmed, headword, nil
+	}
+
+	if b.foldedReady.Load() {
 		b.cacheTranslationsAsync(ctx, cacheKey, translations)
 	}
 	return translations, "", nil

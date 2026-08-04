@@ -25,6 +25,10 @@ const maxLemmaOvershoot = 3
 // stored headword that starts with it. Shortest, not the longest stem's first
 // hit: «домов» stems to both «домо» and «дом», and preferring the longer stem
 // answers with «домовой».
+//
+// Runs last, after dosham has said it holds nothing under the typed spelling —
+// a guess must never pre-empt the dictionary. Placed before it, this layer
+// answered «столб» with «стол».
 func (b *Business) loadStemTranslations(ctx context.Context, word string) ([]models.TranslationPairs, string) {
 	if b.dictRepo == nil {
 		return nil, ""

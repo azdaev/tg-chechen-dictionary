@@ -59,8 +59,8 @@ func TestTranslate_RussianEndingOpensTheLemma(t *testing.T) {
 	if resolved != "рука" {
 		t.Errorf("resolved = %q; the card renders against this and would come out empty", resolved)
 	}
-	if n := probe.count("руки"); n != 0 {
-		t.Errorf("the API was queried %d times for a word already stored under its lemma", n)
+	if n := probe.count("руки"); n == 0 {
+		t.Error("the lemma was served without asking dosham first, which would answer «столб» with «стол»")
 	}
 }
 
@@ -107,6 +107,33 @@ func TestTranslate_DistantNeighbourIsNotALemma(t *testing.T) {
 		t.Fatalf("resolved = %q; a distant neighbour was served as the lemma", resolved)
 	}
 	if n := probe.count("руки"); n == 0 {
-		t.Error("the cascade stopped at the stem layer instead of falling through to the API")
+		t.Error("dosham was never asked")
+	}
+}
+
+// «столб» is not «стол» with an ending — it is a word, and dosham holds it. The
+// stem guess must never pre-empt the dictionary: answering a real word with its
+// shorter neighbour is worse than the miss it replaces.
+func TestTranslate_StemNeverPreemptsARealWord(t *testing.T) {
+	probe := &doshamProbe{
+		primaries: map[string]bool{"столб": true},
+		entries:   map[string]string{"столб": "Столб"},
+	}
+	probe.start(t)
+
+	repo := &stemDictRepo{
+		byWord:   map[string][]models.TranslationPairs{"стол": {{Original: "Стол", Translate: "м стол", OriginalLang: "RUS", TranslateLang: "CHE", Rate: 100}}},
+		byPrefix: map[string][]models.TranslationPairs{"стол": {{Original: "стол", Translate: "стол"}}},
+	}
+
+	got, resolved, err := newStemBusiness(repo).TranslateResolved("столб")
+	if err != nil {
+		t.Fatalf("translate: %v", err)
+	}
+	if resolved != "" {
+		t.Fatalf("resolved = %q; a word the dictionary holds was answered with its neighbour", resolved)
+	}
+	if len(got) == 0 || got[0].Original != "Столб" {
+		t.Fatalf("got %+v, want the entry dosham holds for столб", got)
 	}
 }
