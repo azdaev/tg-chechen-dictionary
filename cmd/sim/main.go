@@ -107,10 +107,17 @@ func main() {
 		fmt.Println("\n--- СООБЩЕНИЕ БОТА ---")
 		fmt.Println(tools.FormatCard(word, pairs))
 
-		// grammar card (mirrors business.computeGrammar / net.formatGrammarCard)
+		// grammar card (mirrors business.computeGrammar / net.sendGrammarCard).
+		// Grammar is asked for by the Chechen side of the answer, not by the
+		// query: dosham's search is literal, so a Russian query never reaches the
+		// analyzed Chechen entry that holds the paradigm.
+		grammarEntries := entries
+		if che := tools.ChechenSide(word, pairs); che != "" && che != word {
+			grammarEntries = find(che)
+		}
 		var best *entry
-		for i := range entries {
-			e := &entries[i]
+		for i := range grammarEntries {
+			e := &grammarEntries[i]
 			if e.Type != "WORD" {
 				continue
 			}

@@ -51,12 +51,15 @@ func formatGrammarBlock(g *models.WordGrammar, card string) string {
 	}
 
 	var lines []string
-	// The header only earns its place when the card above does not already name
-	// the word: appended to «телефон · сущ.», a «🔤 телефон · существительное»
-	// line says the same thing twice.
+	// The header only earns its place when the card above is not already headed
+	// by this word: appended to «телефон · сущ.», a «🔤 телефон · существительное»
+	// line says the same thing twice. Anywhere else in the card is not enough —
+	// for a Russian query the paradigm belongs to one of the glosses, and an
+	// unlabelled «Формы:» under «карандаш» reads as the forms of «карандаш».
 	// 🔤, not 📖: the book belongs to the Word of the Day, and a subscriber who
 	// gets both opens the grammar card reading it as today's word.
-	headerNeeded := !strings.Contains(card, tools.Clean(g.Headword))
+	head, _, _ := strings.Cut(card, "\n")
+	headerNeeded := !strings.Contains(head, tools.Clean(g.Headword))
 	if headerNeeded {
 		header := "🔤 <b>" + tools.Clean(g.Headword) + "</b>"
 		if g.POS != "" {

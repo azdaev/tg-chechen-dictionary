@@ -92,6 +92,9 @@ func (n *Net) HandleText(ctx context.Context, m *tgbotapi.Message) error {
 	// same message: the update loop is synchronous and this makes a live API
 	// call, but the answer stays one message.
 	headword := translations[0].Original
+	if che := tools.ChechenSide(renderKey, translations); che != "" {
+		headword = che
+	}
 	cardText := msg.Text
 	n.bg.Go(func() {
 		n.sendGrammarCard(context.Background(), m.Chat.ID, sent.MessageID, cardText, headword)

@@ -130,6 +130,15 @@ func TestFormatGrammarBlock_MergedIntoTheCard(t *testing.T) {
 	if got := formatGrammarBlock(other, card); !strings.Contains(got, "🔤 <b>тилпу</b>") {
 		t.Errorf("forms for another word lost their header:\n%s", got)
 	}
+
+	// A Russian lookup gets the paradigm of its Chechen gloss, so the word is on
+	// the card but is not what heads it. Unlabelled, «Формы: къоламо̃…» under
+	// «карандаш» reads as the forms of «карандаш».
+	rusCard := "карандаш · <i>рус. → чеч., сущ.</i>\n<b>къолам</b>"
+	gloss := &models.WordGrammar{Headword: "къолам", POS: "существительное", Forms: []string{"къоламан"}}
+	if got := formatGrammarBlock(gloss, rusCard); !strings.Contains(got, "🔤 <b>къолам</b>") {
+		t.Errorf("the paradigm of a gloss did not say which word it belongs to:\n%s", got)
+	}
 }
 
 func TestGrammarSummaryLine(t *testing.T) {

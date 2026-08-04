@@ -55,3 +55,35 @@ func TestCard_CrossLanguageHomographsDoNotMerge(t *testing.T) {
 		t.Errorf("the two readings are not labelled apart:\n%s", body)
 	}
 }
+
+// Grammar lives only under the Chechen headword, and dosham's search is literal:
+// find("карандаш") returns no analyzed entry at all, because the corpus holding
+// «къолам» spells its Russian side «каранда́ш». Asking by the Russian query threw
+// the paradigm away for every Russian lookup.
+func TestChechenSide_NamesTheWordGrammarBelongsTo(t *testing.T) {
+	rus := ChechenSide("карандаш", []models.TranslationPairs{
+		{Original: "Карандаш", Translate: "м къолам; химический ~ - шекъа долун къолам", OriginalLang: "RUS", TranslateLang: "CHE", Rate: 100, EntryType: "WORD"},
+	})
+	if rus != "къолам" {
+		t.Errorf("ChechenSide(карандаш) = %q, want къолам", rus)
+	}
+
+	che := ChechenSide("куьг", []models.TranslationPairs{
+		{Original: "куьг", Translate: "рука́ (кисть)", OriginalLang: "CHE", TranslateLang: "RUS", Rate: 10000, EntryType: "WORD"},
+	})
+	if che != "куьг" {
+		t.Errorf("ChechenSide(куьг) = %q, want the headword itself", che)
+	}
+
+	// One gloss, one word: «лом, ваба (орудие)» is two spellings and a label.
+	multi := ChechenSide("лом", []models.TranslationPairs{
+		{Original: "Лом", Translate: "м лом, ваба (орудие)", OriginalLang: "RUS", TranslateLang: "CHE", Rate: 100, EntryType: "WORD"},
+	})
+	if multi != "лом" {
+		t.Errorf("ChechenSide picked %q out of a multi-variant gloss, want лом", multi)
+	}
+
+	if ChechenSide("нетслова", nil) != "" {
+		t.Error("a card with no blocks named a word anyway")
+	}
+}

@@ -60,6 +60,35 @@ func FormatCard(query string, pairs []models.TranslationPairs) string {
 	return body
 }
 
+// ChechenSide names the Chechen word a card is about: the headword when the
+// user typed Chechen, the leading gloss when they typed Russian. Grammar lives
+// only under the Chechen headword, and dosham's search is literal — «карандаш»
+// never reaches «къолам», whose Russian side the academic corpus spells
+// «каранда́ш» — so the paradigm has to be asked for by name.
+func ChechenSide(query string, pairs []models.TranslationPairs) string {
+	c := collect(query, pairs)
+	if len(c.blocks) == 0 {
+		return ""
+	}
+	b := c.blocks[0]
+	if b.cheHead {
+		return firstVariant(b.head)
+	}
+	if len(b.senses) > 0 {
+		return firstVariant(b.senses[0])
+	}
+	return ""
+}
+
+// firstVariant takes one spelling out of a gloss: "лом, ваба (орудие)" → "лом".
+func firstVariant(s string) string {
+	s = stripParens(s)
+	if i := strings.IndexAny(s, ",;"); i > 0 {
+		s = s[:i]
+	}
+	return strings.TrimSpace(s)
+}
+
 // FormatNeighbours renders the "рядом" line: words the dictionary holds that
 // merely start with the query.
 func FormatNeighbours(neighbours []string) string {
