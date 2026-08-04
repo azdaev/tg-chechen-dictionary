@@ -308,22 +308,22 @@ func (b *Business) loadFormTranslations(ctx context.Context, word string) ([]mod
 		return nil, "", err
 	}
 
-	var out []models.TranslationPairs
-	answered := ""
+	// One lemma, not all of them. The card renders against a single headword,
+	// so pairs borrowed from a second lemma match nothing in it and are dropped
+	// on the way out — «лоьман» read both «лом» and «лоьма» and threw the second
+	// away after paying for it. The first that actually holds something answers.
 	var readErr error
 	for _, h := range headwords {
-		// Ranked against the headword, not the form the user typed: the card is
-		// the lemma's, and rankPair measures distance from its own headword.
 		lemma, err := b.loadLocalTranslations(ctx, h)
 		if err != nil {
 			readErr = err
 			continue
 		}
-		pairs := rankAndDedup(lemma, h)
-		if len(pairs) > 0 && answered == "" {
-			answered = h
+		// Ranked against the headword, not the form the user typed: the card is
+		// the lemma's, and rankPair measures distance from its own headword.
+		if pairs := rankAndDedup(lemma, h); len(pairs) > 0 {
+			return pairs, h, nil
 		}
-		out = append(out, pairs...)
 	}
-	return out, answered, readErr
+	return nil, "", readErr
 }

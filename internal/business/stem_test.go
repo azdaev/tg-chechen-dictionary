@@ -159,3 +159,46 @@ func TestTranslate_StemDoesNotAnswerAcrossWords(t *testing.T) {
 		t.Fatalf("answered %q with %+v; a lemma differs from the query by its ending, not by four letters", resolved, got)
 	}
 }
+
+// A form can belong to more than one lemma, and the layer used to read them all
+// and hand back one headword with everybody's pairs. The card renders against
+// that single headword, so the other lemma's pairs match nothing in it and are
+// dropped after the read was paid for — «лоьман» fetched «лоьма» to throw it
+// away. One lemma answers: the first that holds anything.
+func TestTranslate_FormAnswersWithOneLemma(t *testing.T) {
+	repo := &formsDictRepo{
+		byForm: map[string][]string{"лоьман": {"лом", "лоьма"}},
+		byWord: map[string][]models.TranslationPairs{
+			"лом":   {{Original: "лом", Translate: "лев", OriginalLang: "CHE", TranslateLang: "RUS", Rate: 100}},
+			"лоьма": {{Original: "лоьма", Translate: "другое", OriginalLang: "CHE", TranslateLang: "RUS", Rate: 100}},
+		},
+	}
+
+	b := &Business{log: logrus.New(), cache: cache.NewCache("127.0.0.1:1", ""), dictRepo: repo}
+	got, resolved, err := b.TranslateResolved("лоьман")
+	if err != nil {
+		t.Fatalf("translate: %v", err)
+	}
+	if resolved != "лом" {
+		t.Fatalf("resolved = %q, want лом", resolved)
+	}
+	if len(got) != 1 || got[0].Original != "лом" {
+		t.Fatalf("got %+v, want only the answering lemma's pairs", got)
+	}
+}
+
+// When the first lemma holds nothing, the next one answers.
+func TestTranslate_FormSkipsAnEmptyLemma(t *testing.T) {
+	repo := &formsDictRepo{
+		byForm: map[string][]string{"лоьман": {"пусто", "лом"}},
+		byWord: map[string][]models.TranslationPairs{
+			"лом": {{Original: "лом", Translate: "лев", OriginalLang: "CHE", TranslateLang: "RUS", Rate: 100}},
+		},
+	}
+	b := &Business{log: logrus.New(), cache: cache.NewCache("127.0.0.1:1", ""), dictRepo: repo}
+	if _, resolved, err := b.TranslateResolved("лоьман"); err != nil {
+		t.Fatalf("translate: %v", err)
+	} else if resolved != "лом" {
+		t.Fatalf("resolved = %q, want лом", resolved)
+	}
+}
