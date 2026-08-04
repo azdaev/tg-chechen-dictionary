@@ -199,3 +199,28 @@ func TestCard_HeadwordCarriesOnlyTheChechen(t *testing.T) {
 		}
 	}
 }
+
+// The notes field carries two different things and only one is grammar. The
+// compact corpus writes «мн. -аш»; the encyclopedic one writes a definition in
+// Chechen, and the chip printed those as labels — «дог · чеч. → рус., сущ., 4
+// хара йолуш ду», a noun that "has four holes".
+func TestCard_ChipTakesOnlyGrammarNotes(t *testing.T) {
+	card := FormatCard("дог", []models.TranslationPairs{
+		{Original: "дог", Translate: "сердце", OriginalLang: "CHE", TranslateLang: "RUS", EntryType: "WORD", Subtype: 2, Rate: 100, Notes: "4 хара йолуш ду"},
+	})
+	if strings.Contains(card, "хара йолуш") {
+		t.Errorf("an encyclopedic definition is worn as a grammar label:\n%s", card)
+	}
+	if !strings.Contains(card, "сущ.") {
+		t.Errorf("the part of speech went with it:\n%s", card)
+	}
+
+	// The real note still reaches the chip, even when a definition arrives first.
+	withPlural := FormatCard("глаз", []models.TranslationPairs{
+		{Original: "БӏаьргI", Translate: "Глаз", OriginalLang: "CHE", TranslateLang: "RUS", EntryType: "WORD", Subtype: 2, Rate: 100, Notes: "Сагаран вока"},
+		{Original: "бӏаьрг", Translate: "глаз", OriginalLang: "CHE", TranslateLang: "RUS", EntryType: "WORD", Subtype: 2, Rate: 16, Notes: "мн. -аш"},
+	})
+	if !strings.Contains(withPlural, "мн. -аш") {
+		t.Errorf("the plural note was crowded out by the definition:\n%s", withPlural)
+	}
+}

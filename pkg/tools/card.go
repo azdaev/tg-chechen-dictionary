@@ -131,6 +131,22 @@ func headCase(s string) string {
 	return string(r)
 }
 
+// grammarNoteRe matches what a grammar note looks like: a Russian abbreviation
+// and the ending it introduces, «мн. -аш».
+var grammarNoteRe = regexp.MustCompile(`^(мн|ед|род|дат|вин|твор|предл|собир|уменьш)\.`)
+
+// isGrammarNote reports whether a pair's note belongs in the header chip.
+//
+// The field carries two different things and only one of them is grammar. The
+// compact corpus writes «мн. -аш»; the encyclopedic one writes a definition in
+// Chechen — «Сагаран вока» for «бӏаьрг», «4 хара йолуш ду» for «дог» — and the
+// chip printed those as if they were labels, so «дог» came out as a noun that
+// «has four holes». Sampled over 25 words: every rate-16 note was «мн. -…» and
+// every rate-100 one was prose.
+func isGrammarNote(note string) bool {
+	return grammarNoteRe.MatchString(strings.TrimSpace(strings.ToLower(note)))
+}
+
 // block is one headword-and-homonym: the unit a card repeats.
 type block struct {
 	head     string
@@ -182,7 +198,7 @@ func collect(query string, pairs []models.TranslationPairs) collected {
 		if b.pos == 0 {
 			b.pos = p.Subtype
 		}
-		if b.notes == "" {
+		if b.notes == "" && isGrammarNote(p.Notes) {
 			b.notes = p.Notes
 		}
 		return b
