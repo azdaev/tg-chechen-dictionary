@@ -69,6 +69,14 @@ func main() {
 		fatal(err)
 	}
 	defer db.Close()
+	// An in-memory database belongs to its connection, and database/sql hands
+	// out a new one whenever the pool feels like it: migrations ran on the first
+	// connection and every query after landed on a blank one, so -db :memory:
+	// simulated a bot whose tables all failed to read. One connection, one
+	// database.
+	if *dbPath == ":memory:" {
+		db.SetMaxOpenConns(1)
+	}
 	migrations.Quiet()
 	if err := migrations.Up(db); err != nil {
 		fatal(err)
