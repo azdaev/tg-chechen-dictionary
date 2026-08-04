@@ -1,0 +1,125 @@
+// Ranking and deduplication of the pairs a lookup returned, whichever layer
+// produced them.
+package business
+
+import (
+	"chetoru/internal/models"
+	"chetoru/pkg/tools"
+	"sort"
+	"strings"
+	"unicode/utf8"
+)
+
+const (
+	shortQueryRunes   = 3
+	shortQueryResults = 10
+)
+
+// rankAndDedup puts the answer the user actually searched for first and drops
+// duplicates that differ only in stress marks. It runs on the way out of
+// Translate rather than inside the API fetch: storeTranslationPair persists
+// every looked-up word, so once a word is known the local table — not the API —
+// is the steady-state path, and a fix applied only to the fetch would leave the
+// bug reachable through the other door.
+func rankAndDedup(pairs []models.TranslationPairs, query string) []models.TranslationPairs {
+	if len(pairs) < 2 {
+		return pairs
+	}
+
+	key := normalizeForRank(query)
+	out := make([]models.TranslationPairs, 0, len(pairs))
+	at := make(map[string]int, len(pairs))
+	for _, p := range pairs {
+		k := normalizeForRank(p.Original) + "\x00" + normalizeForRank(p.Translate)
+		if i, ok := at[k]; ok {
+			if betterDuplicate(out[i], p) {
+				out[i] = p
+			}
+			continue
+		}
+		at[k] = len(out)
+		out = append(out, p)
+	}
+
+	// Stable, and every tiebreaker deterministic: the first result freezes into
+	// the cache, and "Ещё" pagination re-ranks on each call, so an unstable
+	// order would shuffle pages between presses. On the local path a query's
+	// pairs share bucket 0, and rows stored before the rate column share rate 0
+	// too — sort.Slice's pdqsort would order those arbitrarily.
+	//
+	// Dedup has already removed pairs equal on both sides, so this comparator is
+	// a total order and nothing of FindTranslationPairs' ORDER BY survives it.
+	// That is why the moderation and shortest-gloss preferences are repeated
+	// here: leaving them only in SQL would mean the user never sees them.
+	sort.SliceStable(out, func(i, j int) bool {
+		a, b := out[i], out[j]
+		if ra, rb := rankPair(a, key), rankPair(b, key); ra != rb {
+			return ra < rb
+		}
+		if approved(a) != approved(b) {
+			return approved(a)
+		}
+		if a.Rate != b.Rate {
+			return a.Rate > b.Rate
+		}
+		// Nothing below this line may compare the text itself. Within one source
+		// dictionary the arrival order IS the lexicographer's sense order, and
+		// sorting by gloss length destroyed it: dosham sends куьг as «рука́
+		// (кисть), по́дпись, по́черк, го́лос» and the card showed «го́лос» first
+		// because it is the shortest string. sort.SliceStable keeps the source
+		// order for everything that ties here, which is exactly what is wanted.
+		return false
+	})
+
+	// dosham's search is a substring match, so a very short query sweeps the
+	// dictionary: «ца» returns 252 pairs, and the card's «Ещё (248)» promises a
+	// list nobody will page through. The old cap did this before ranking and
+	// kept an arbitrary ten; here the ten are the ranked ones.
+	if utf8.RuneCountInString(strings.TrimSpace(query)) <= shortQueryRunes && len(out) > shortQueryResults {
+		out = out[:shortQueryResults]
+	}
+
+	return out
+}
+
+func normalizeForRank(s string) string {
+	return stripStressMarks(tools.NormalizeSearch(s))
+}
+
+// betterDuplicate reports whether candidate should replace kept when both
+// normalize to the same pair. A moderator's rendering wins, then dosham's own
+// weight: keeping whichever arrived first would let the API's response order
+// decide which survives, and the loser's rate is gone before ranking sees it.
+func betterDuplicate(kept, candidate models.TranslationPairs) bool {
+	if approved(kept) != approved(candidate) {
+		return approved(candidate)
+	}
+	return candidate.Rate > kept.Rate
+}
+
+// approved reports whether a moderator accepted this pair's AI rendering — the
+// only human quality signal the dictionary carries. formatPair renders such a
+// pair differently, so it should also lead its relevance bucket.
+func approved(p models.TranslationPairs) bool {
+	return p.FormattedChosen == "ai" && p.FormattedAI != ""
+}
+
+func rankPair(p models.TranslationPairs, key string) int {
+	original := normalizeForRank(p.Original)
+	switch {
+	case original == key:
+		return 0
+	case normalizeForRank(p.Translate) == key:
+		return 1
+	// A folded match is the answer to a query that dropped the palochka: the
+	// user typed «чегардиг» and meant «чӏегӏардиг». Without this bucket every
+	// such hit tied at the bottom with unrelated substring matches, so the word
+	// they were actually looking for did not lead its own card. It ranks below
+	// an exact hit and above a prefix guess.
+	case tools.FoldSearch(original) == tools.FoldSearch(key):
+		return 2
+	case strings.HasPrefix(original, key):
+		return 3
+	}
+	return 4
+}
