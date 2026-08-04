@@ -25,6 +25,8 @@ type doshamProbe struct {
 	entries map[string]string
 	// hold, when non-nil, blocks every retry until it is closed.
 	hold <-chan struct{}
+	// fail names the lookups that answer with an HTTP error instead of rows.
+	fail map[string]bool
 
 	mu        sync.Mutex
 	calls     map[string]int
@@ -74,6 +76,11 @@ func (p *doshamProbe) start(t *testing.T) {
 			p.mu.Lock()
 			p.inFlight--
 			p.mu.Unlock()
+		}
+
+		if p.fail[word] {
+			http.Error(w, "upstream is down", http.StatusInternalServerError)
+			return
 		}
 
 		find := "[]"
@@ -297,5 +304,37 @@ func TestRankPair_FoldedHitOutranksUnrelated(t *testing.T) {
 	exact := models.TranslationPairs{Original: "чегардиг", Translate: "x"}
 	if rankPair(exact, key) >= rankPair(folded, key) {
 		t.Fatal("folded matching displaced the exact match")
+	}
+}
+
+// dosham answers almost any query with substring noise, and the card refuses
+// it: rows are not the same thing as an answer. When the cascade could not
+// check the spelling that would have answered, calling the noise a success
+// cached it for the full TTL — so «нет перевода» outlived the outage by weeks
+// on exactly the words the cascade exists for.
+func TestFetchWithFallback_NoiseIsNotAnAnswerWhenAVariantFailed(t *testing.T) {
+	probe := &doshamProbe{
+		primaries: map[string]bool{"чегардиг": true},
+		// The primary matched something unrelated by substring; every respelling
+		// the cascade would have tried is down.
+		entries: map[string]string{"чегардиг": "гольфстримаш"},
+		fail: map[string]bool{
+			"чёгардиг": true, "ӏчегардиг": true, "чӏегардиг": true,
+			"чегӏардиг": true, "чегардӏиг": true, "чегардигӏ": true,
+		},
+	}
+	probe.start(t)
+	b := &Business{log: logrus.New()}
+
+	got, err := b.fetchTranslationsWithFallback("чегардиг")
+	if err == nil {
+		t.Fatalf("got %+v and no error; noise was reported as an answer", got)
+	}
+
+	// The same noise with the cascade healthy is not an error: nothing failed,
+	// so «нет перевода» is the truth and may be cached as one.
+	probe.fail = nil
+	if _, err := b.fetchTranslationsWithFallback("чегардиг"); err != nil {
+		t.Errorf("a healthy cascade that found nothing reported an outage: %v", err)
 	}
 }

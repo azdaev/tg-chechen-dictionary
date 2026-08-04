@@ -93,10 +93,16 @@ func (b *Business) fetchTranslationsWithFallback(word string) ([]models.Translat
 		}
 	}
 	// Something answered, so this is a real result even if a spelling variant
-	// failed on the way — at worst we missed an extra respelling. Only a
-	// cascade that found nothing AND had a query fail is an outage, and that
-	// one must not be negative-cached as "no such word" for a day.
-	if len(translations) > 0 {
+	// failed on the way — at worst we missed an extra respelling.
+	//
+	// Rows are not an answer, though. dosham returns substring noise for almost
+	// any query, and the card refuses it: «стрим» comes back with «гольфстрим»
+	// and renders nothing. Reporting that as success while a variant lookup was
+	// failing caches the noise for the full TTL, so the one spelling that would
+	// have answered stays unreachable long after the API recovers — and the user
+	// is told the word does not exist. The card is asked because it is the thing
+	// that decides, and only here, on the path that already failed.
+	if len(translations) > 0 && (err == nil || tools.Render(word, translations).Body != "") {
 		return translations, nil
 	}
 	return translations, err
