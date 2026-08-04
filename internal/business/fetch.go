@@ -208,23 +208,12 @@ func hasFoldedOriginal(pairs []models.TranslationPairs, word string) bool {
 	return false
 }
 
-// mergePairs returns first followed by second, dropping duplicate pairs.
+// mergePairs returns first followed by second, dropping duplicates. It shares
+// ranking's definition of a duplicate and of which duplicate to keep, so a
+// respelling that answered first cannot bury a better-sourced row here before
+// ranking gets to choose between them.
 func mergePairs(first, second []models.TranslationPairs) []models.TranslationPairs {
-	merged := make([]models.TranslationPairs, 0, len(first)+len(second))
-	seen := make(map[string]bool, len(first)+len(second))
-	add := func(pairs []models.TranslationPairs) {
-		for _, p := range pairs {
-			k := tools.NormalizeSearch(p.Original) + "\x00" + tools.NormalizeSearch(p.Translate)
-			if seen[k] {
-				continue
-			}
-			seen[k] = true
-			merged = append(merged, p)
-		}
-	}
-	add(first)
-	add(second)
-	return merged
+	return dedupPairs(first, second)
 }
 
 func inferOriginalLang(translationLang string) string {

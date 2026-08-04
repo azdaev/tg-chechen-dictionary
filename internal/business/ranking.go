@@ -31,19 +31,7 @@ func rankAndDedup(pairs []models.TranslationPairs, query string) []models.Transl
 	}
 
 	key := normalizeForRank(query)
-	out := make([]models.TranslationPairs, 0, len(pairs))
-	at := make(map[string]int, len(pairs))
-	for _, p := range pairs {
-		k := normalizeForRank(p.Original) + "\x00" + normalizeForRank(p.Translate)
-		if i, ok := at[k]; ok {
-			if betterDuplicate(out[i], p) {
-				out[i] = p
-			}
-			continue
-		}
-		at[k] = len(out)
-		out = append(out, p)
-	}
+	out := dedupPairs(pairs)
 
 	// Stable, and every tiebreaker deterministic: the first result freezes into
 	// the cache, and "Ещё" pagination re-ranks on each call, so an unstable
@@ -123,6 +111,42 @@ func isUsageExample(p models.TranslationPairs, folded string) bool {
 
 func normalizeForRank(s string) string {
 	return stripStressMarks(tools.NormalizeSearch(s))
+}
+
+// pairIdentity is what makes two rows the same translation: both sides equal
+// once spelling is normalized and stress marks — which only the academic corpus
+// writes — are dropped. One definition, because there used to be two: the
+// cascade merged on the strict key and kept whichever variant answered first,
+// then ranking merged on this one and kept the better row. The first pass could
+// therefore throw away the moderated or better-sourced row before the second
+// pass was ever asked which to keep.
+func pairIdentity(p models.TranslationPairs) string {
+	return normalizeForRank(p.Original) + "\x00" + normalizeForRank(p.Translate)
+}
+
+// dedupPairs keeps one row per identity — the best one — at the position where
+// that identity first appeared.
+func dedupPairs(groups ...[]models.TranslationPairs) []models.TranslationPairs {
+	total := 0
+	for _, g := range groups {
+		total += len(g)
+	}
+	out := make([]models.TranslationPairs, 0, total)
+	at := make(map[string]int, total)
+	for _, g := range groups {
+		for _, p := range g {
+			k := pairIdentity(p)
+			if i, ok := at[k]; ok {
+				if betterDuplicate(out[i], p) {
+					out[i] = p
+				}
+				continue
+			}
+			at[k] = len(out)
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 // betterDuplicate reports whether candidate should replace kept when both

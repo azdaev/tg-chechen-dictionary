@@ -240,3 +240,28 @@ func TestRankAndDedup_ShortQueryKeepsItsExamples(t *testing.T) {
 		t.Errorf("len = %d, want %d: the named collocation took an entry slot", n, shortQueryResults+2)
 	}
 }
+
+// The cascade and ranking each had their own idea of a duplicate, and the
+// cascade ran first. It merged on the strict key — stress marks and all — and
+// kept whichever respelling answered first, so a moderator-approved row that
+// arrived second was gone before ranking was asked which of the two to keep.
+func TestMergePairs_KeepsTheBetterDuplicate(t *testing.T) {
+	plain := models.TranslationPairs{Original: "Рука", Translate: "куьг", Rate: 16}
+	// Same pair from the academic corpus: stressed spelling, better source.
+	stressed := models.TranslationPairs{Original: "Рука́", Translate: "куьг", Rate: 10000}
+
+	got := mergePairs([]models.TranslationPairs{plain}, []models.TranslationPairs{stressed})
+	if len(got) != 1 {
+		t.Fatalf("got %d rows, want one: the two differ only in stress", len(got))
+	}
+	if got[0].Rate != 10000 {
+		t.Errorf("kept the weaker row %+v", got[0])
+	}
+
+	// A moderator's rendering outranks the source weight, exactly as in ranking.
+	approvedPair := models.TranslationPairs{Original: "Рука", Translate: "куьг", Rate: 16, FormattedAI: "куьг", FormattedChosen: "ai"}
+	got = mergePairs([]models.TranslationPairs{stressed}, []models.TranslationPairs{approvedPair})
+	if len(got) != 1 || got[0].FormattedChosen != "ai" {
+		t.Errorf("got %+v, want the moderated row", got)
+	}
+}
