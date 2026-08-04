@@ -17,6 +17,10 @@ const (
 	// Shown when the dictionary itself failed. Saying "нет перевода" there is a
 	// lie, and it is the lie that also files the user's word as a vocabulary gap.
 	DictionaryUnavailableText = "Словарь сейчас недоступен. Попробуйте через минуту."
+	// Shown when the quota itself could not be read. A storage failure used to
+	// take the paywall exit — telling the user their free checks had run out and
+	// offering a subscription for what they already had.
+	SpellcheckUnavailableText = "Проверка орфографии сейчас недоступна. Попробуйте через минуту."
 	MissingWordRecordedText   = "Слово записано — такие пропуски мы разбираем и пополняем словарь."
 	// Palochka Ӏ is in a third of Chechen headwords and on no keyboard. The bot
 	// and the dictionary both accept the digit 1 in its place; people just do
@@ -35,16 +39,20 @@ const (
 	QuizQuestionFormat        = "🧠 <b>Викторина</b>\n\nКак переводится на русский?\n\n<b>%s</b>"
 	QuizQuestionReverseFormat = "🧠 <b>Викторина</b>\n\nКак сказать по-чеченски?\n\n<b>%s</b>"
 	QuizNextButtonText        = "➡️ Следующий вопрос"
-	QuizLookupButtonText      = "📖 Открыть в словаре"
-	QuizCorrectToast          = "✅ Верно!"
-	QuizWrongToast            = "❌ Неверно"
-	QuizErrorText             = "Не удалось составить вопрос. Попробуйте /quiz ещё раз."
-	QuizTopLimit              = 10
-	QuizTopHeader             = "🏆 <b>Топ знатоков чеченского</b>\n<i>по количеству верных ответов в /quiz</i>\n\n"
-	QuizTopEmptyText          = "Пока никто не набрал очков в /quiz. Стань первым! 🧠"
-	WordOfDayHour             = 9 // local hour (container TZ is Europe/Moscow)
-	WordOfDayFormat           = "📖 <b>Слово дня</b>\n\n<b>%s</b> — %s"
-	WordOfDayExampleFormat    = "✍️ <i>%s</i>"
+	// The answer mapping for a group poll lives in Redis and can only be written
+	// after the poll is sent. When that write fails the answers still look
+	// graded to each member and reach nobody's score, so the chat is told.
+	QuizNotScoredText      = "⚠️ Ответы на этот вопрос не попадут в рейтинг — не удалось его сохранить."
+	QuizLookupButtonText   = "📖 Открыть в словаре"
+	QuizCorrectToast       = "✅ Верно!"
+	QuizWrongToast         = "❌ Неверно"
+	QuizErrorText          = "Не удалось составить вопрос. Попробуйте /quiz ещё раз."
+	QuizTopLimit           = 10
+	QuizTopHeader          = "🏆 <b>Топ знатоков чеченского</b>\n<i>по количеству верных ответов в /quiz</i>\n\n"
+	QuizTopEmptyText       = "Пока никто не набрал очков в /quiz. Стань первым! 🧠"
+	WordOfDayHour          = 9 // local hour (container TZ is Europe/Moscow)
+	WordOfDayFormat        = "📖 <b>Слово дня</b>\n\n<b>%s</b> — %s"
+	WordOfDayExampleFormat = "✍️ <i>%s</i>"
 	// No 🇨🇪: CE is unassigned in ISO 3166-1, so it is not a flag anywhere —
 	// clients render two letter tiles. And no <i>: the card above already
 	// spends italic on its usage example.

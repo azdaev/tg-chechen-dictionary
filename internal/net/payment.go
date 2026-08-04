@@ -9,6 +9,29 @@ import (
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
 
+// spellcheckAccess is what the quota says about one user. Three outcomes, not
+// two: a quota that could not be read is not a quota that ran out, and both
+// callers used to collapse the two — logging the error and then taking the
+// paywall branch, which tells the user their free checks are gone and offers a
+// subscription for what they still have.
+type spellcheckAccess int
+
+const (
+	spellcheckAllowed spellcheckAccess = iota
+	spellcheckPaywalled
+	spellcheckUnreadable
+)
+
+func spellcheckAccessFor(allowed bool, err error) spellcheckAccess {
+	switch {
+	case err != nil:
+		return spellcheckUnreadable
+	case !allowed:
+		return spellcheckPaywalled
+	}
+	return spellcheckAllowed
+}
+
 // canUseSpellcheck checks if the user has free uses left or an active subscription.
 // Returns true if allowed, false if paywall should be shown.
 func (n *Net) canUseSpellcheck(ctx context.Context, userID int64) (bool, error) {

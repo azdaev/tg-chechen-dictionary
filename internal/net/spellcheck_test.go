@@ -84,3 +84,23 @@ func TestCheckTarget(t *testing.T) {
 		t.Errorf("dot-prefix mode lost its text: %q", got)
 	}
 }
+
+// Both metered callers used to log a storage error and then take the paywall
+// branch, so a database outage told the user their five free checks were gone
+// and offered a subscription for what they still had.
+func TestSpellcheckAccess_FailureIsNotExhaustion(t *testing.T) {
+	if got := spellcheckAccessFor(false, errors.New("database is locked")); got != spellcheckUnreadable {
+		t.Errorf("an unreadable quota reads as %v, want spellcheckUnreadable", got)
+	}
+	// The same error with allowed=true is still unreadable: canUseSpellcheck
+	// returns false on error today, and a future true must not open the gate.
+	if got := spellcheckAccessFor(true, errors.New("database is locked")); got != spellcheckUnreadable {
+		t.Errorf("an errored check reads as %v, want spellcheckUnreadable", got)
+	}
+	if got := spellcheckAccessFor(false, nil); got != spellcheckPaywalled {
+		t.Errorf("a genuinely exhausted quota reads as %v, want spellcheckPaywalled", got)
+	}
+	if got := spellcheckAccessFor(true, nil); got != spellcheckAllowed {
+		t.Errorf("a user with checks left reads as %v, want spellcheckAllowed", got)
+	}
+}

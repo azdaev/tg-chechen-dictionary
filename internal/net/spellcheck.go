@@ -140,10 +140,12 @@ func (n *Net) HandleSpellcheckRequest(ctx context.Context, cq *tgbotapi.Callback
 	// without a quota one typo-prone session is an unbounded number of AI calls
 	// nobody chose to make — /check at least has to be typed.
 	allowed, err := n.canUseSpellcheck(ctx, cq.From.ID)
-	if err != nil {
+	switch spellcheckAccessFor(allowed, err) {
+	case spellcheckUnreadable:
 		n.log.WithError(err).Warn("canUseSpellcheck button")
-	}
-	if !allowed {
+		_, sendErr := n.send(tgbotapi.NewMessage(cq.Message.Chat.ID, SpellcheckUnavailableText))
+		return sendErr
+	case spellcheckPaywalled:
 		msg := tgbotapi.NewMessage(cq.Message.Chat.ID, fmt.Sprintf(
 			"Бесплатный лимит проверок исчерпан (%d/мес). Безлимитная подписка — %s/мес: /subscribe",
 			FreeSpellcheckLimit, SubscriptionPriceFormatted))
@@ -206,12 +208,20 @@ func (n *Net) isLatestInlineSpellQuery(userID int64, queryID string) bool {
 func (n *Net) runInlineSpellcheck(ctx context.Context, iq *tgbotapi.InlineQuery) error {
 	text := strings.TrimPrefix(iq.Query, ". ")
 
-	// Check usage limits
 	allowed, err := n.canUseSpellcheck(ctx, iq.From.ID)
-	if err != nil {
+	switch spellcheckAccessFor(allowed, err) {
+	case spellcheckUnreadable:
 		n.log.WithError(err).Error("canUseSpellcheck inline")
-	}
-	if !allowed {
+		article := tgbotapi.NewInlineQueryResultArticle(iq.ID+"_err", "⚠️ Проверка недоступна", "")
+		article.Description = "Попробуйте через минуту"
+		article.InputMessageContent = tgbotapi.InputTextMessageContent{Text: SpellcheckUnavailableText}
+		return n.answerInline(tgbotapi.InlineConfig{
+			InlineQueryID: iq.ID,
+			IsPersonal:    true,
+			CacheTime:     0,
+			Results:       []any{article},
+		})
+	case spellcheckPaywalled:
 		article := tgbotapi.NewInlineQueryResultArticle(
 			iq.ID+"_limit",
 			fmt.Sprintf("🔒 Лимит исчерпан (%d/мес)", FreeSpellcheckLimit),
@@ -251,12 +261,6 @@ func (n *Net) runInlineSpellcheck(ctx context.Context, iq *tgbotapi.InlineQuery)
 		articles = append(articles, article)
 	}
 
-	// Only count a use when we actually produced a result for the user; an
-	// empty/ambiguous AI response should not burn the free quota.
-	if len(articles) > 0 {
-		n.trackSpellcheckUsage(ctx, iq.From.ID)
-	}
-
 	inlineConf := tgbotapi.InlineConfig{
 		InlineQueryID: iq.ID,
 		IsPersonal:    true,
@@ -266,6 +270,14 @@ func (n *Net) runInlineSpellcheck(ctx context.Context, iq *tgbotapi.InlineQuery)
 
 	if err := n.answerInline(inlineConf); err != nil {
 		return fmt.Errorf("answerInline: %w", err)
+	}
+
+	// Counted only once the answer actually reached Telegram, and only when
+	// there was one to reach it. Charged before the send, a timeout or a
+	// rejected result cost the user one of five monthly checks for a screen
+	// that stayed empty.
+	if len(articles) > 0 {
+		n.trackSpellcheckUsage(ctx, iq.From.ID)
 	}
 
 	return nil

@@ -56,7 +56,15 @@ func (n *Net) sendQuizPoll(ctx context.Context, chatID int64, q *models.QuizQues
 	}
 	if sent.Poll != nil {
 		if err := n.cache.SetQuizPoll(ctx, sent.Poll.ID, q.CorrectIdx); err != nil {
+			// The poll ID only exists once the poll is sent, so the mapping
+			// cannot be stored first. Without it every answer is discarded as an
+			// unknown poll: Telegram still tells each member whether they were
+			// right, but nothing reaches the leaderboard. Say so rather than let
+			// a group play a scoring game that is not scoring.
 			n.log.WithError(err).Warn("failed to cache quiz poll mapping")
+			if _, err := n.send(tgbotapi.NewMessage(chatID, QuizNotScoredText)); err != nil {
+				n.log.WithError(err).Warn("failed to warn about an unscored quiz")
+			}
 		}
 	}
 	return nil
