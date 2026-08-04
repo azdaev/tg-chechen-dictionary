@@ -178,3 +178,24 @@ func TestCard_PackedSensesAreUnpacked(t *testing.T) {
 		t.Errorf("a multi-variant gloss was split:\n%s", plain)
 	}
 }
+
+// Bold on the headword says «this side is Chechen». «Шпиц» glosses «собака» as
+// "(собака) кӏезалг" and «Такса» writes its second entry as "2 ж (собака)
+// такса", so the card bolded a Russian qualifier — and a homonym number and a
+// gender marker — as the Chechen to say aloud.
+func TestCard_HeadwordCarriesOnlyTheChechen(t *testing.T) {
+	card := FormatCard("собака", []models.TranslationPairs{
+		{Original: "Шпиц", Translate: "м (собака) кӏезалг", OriginalLang: "RUS", TranslateLang: "CHE", Rate: 100, EntryType: "WORD"},
+		{Original: "Такса", Translate: "2 ж (собака) такса", OriginalLang: "RUS", TranslateLang: "CHE", Rate: 100, EntryType: "WORD"},
+	})
+	for _, bad := range []string{"<b>(собака)", "<b>2 ", "<b>ж "} {
+		if strings.Contains(card, bad) {
+			t.Errorf("%q is bold as Chechen:\n%s", bad, card)
+		}
+	}
+	for _, want := range []string{"<b>кӏезалг</b> <i>(собака)</i>", "<b>такса</b> <i>(собака)</i>"} {
+		if !strings.Contains(card, want) {
+			t.Errorf("missing %q in:\n%s", want, card)
+		}
+	}
+}

@@ -419,12 +419,19 @@ func (b *block) render() string {
 	bold := func(s string) string { return "<b>" + s + "</b>" }
 	var lines []string
 
-	head := headCase(b.head)
+	// The headword carries qualifiers too — «Шпиц» glosses «собака» as
+	// "(собака) кӏезалг" — and inside the bold they read as Chechen, which is
+	// the one thing the bold is there to say.
+	headQuals, name := splitQualifiers(b.head)
+	head := headCase(name)
 	if b.cheHead {
 		head = bold(head)
 	}
 	if b.index > 1 {
 		head += superscript(b.index)
+	}
+	if len(headQuals) > 0 {
+		head += " <i>(" + strings.Join(headQuals, ", ") + ")</i>"
 	}
 	if chip := b.chip(); chip != "" {
 		head += " · <i>" + chip + "</i>"
@@ -436,7 +443,7 @@ func (b *block) render() string {
 	// Only a one-word entry has one-word glosses. The corpora capitalize those
 	// inconsistently — «куьг» answered «1. Рука» — but a collocation's
 	// translation is a sentence and keeps its capital.
-	word := !strings.Contains(strings.TrimSpace(b.head), " ")
+	word := !strings.Contains(strings.TrimSpace(name), " ")
 	gloss := func(s string) string {
 		quals, rest := splitQualifiers(s)
 		if word {

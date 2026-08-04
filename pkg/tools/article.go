@@ -137,6 +137,10 @@ func stripLabels(text string) string {
 		// A label the previous pass cut in half leaves its punctuation behind, and
 		// every pattern below is anchored, so the comma alone stops the loop dead.
 		text = strings.TrimSpace(strings.TrimLeft(text, ",;:-— "))
+		// A homonym number the corpus wrote into the body itself: «Такса»
+		// stores its second entry as "2 ж (собака) такса", and the card offered
+		// «2 ж (собака) такса» as the Chechen for «собака».
+		text = strings.TrimSpace(senseNumRe.ReplaceAllString(text, ""))
 		text = strings.TrimSpace(endingsRe.ReplaceAllString(text, ""))
 		text = strings.TrimSpace(crossRefRe.ReplaceAllString(text, ""))
 		text = strings.TrimSpace(grammarRe.ReplaceAllString(text, ""))
