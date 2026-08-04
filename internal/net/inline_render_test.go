@@ -19,7 +19,7 @@ func TestInlineCardRendering(t *testing.T) {
 		Rate:          100,
 	}
 	formatted := tools.FormatCard(p.Original, []models.TranslationPairs{p})
-	if !strings.HasPrefix(formatted, "дом\n<b>цӏа</b>") {
+	if !strings.HasPrefix(formatted, "дом · <i>рус. → чеч.</i>\n<b>цӏа</b>") {
 		t.Errorf("formatted card = %q, want it to open with the headword and its gloss", formatted)
 	}
 	if strings.Contains(formatted, "~") || strings.Contains(formatted, "1)") {

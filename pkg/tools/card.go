@@ -119,11 +119,11 @@ func collect(query string, pairs []models.TranslationPairs) collected {
 	// EntryIndex 0 means "no homonym number recorded", not "homonym zero", so
 	// it folds into 1; otherwise one word becomes two cards.
 	blockFor := func(p models.TranslationPairs, head string, cheHead bool) *block {
-		idx := p.EntryIndex
-		if idx < 1 {
-			idx = 1
-		}
-		k := fmt.Sprintf("%s\x00%d", NormalizeSearch(head), idx)
+		idx := max(p.EntryIndex, 1)
+		// Direction is part of the identity: «лом» is a Russian crowbar and a
+		// Chechen lion, and one key for both put «лев» in the list of Chechen
+		// translations of «лом».
+		k := fmt.Sprintf("%s\x00%d\x00%t", NormalizeSearch(head), idx, cheHead)
 		b, ok := blocks[k]
 		if !ok {
 			b = &block{head: head, cheHead: cheHead, index: idx}
@@ -341,9 +341,16 @@ func (b *block) render() string {
 	return strings.Join(lines, "\n")
 }
 
-// chip is the grammar note after the headword: part of speech, plural ending.
+// chip is the note after the headword: reading direction first, then grammar.
+// Bold alone marked the Chechen side, and nothing told the user that — «телефон»
+// answered «1. телефон» and there was no way to tell which of the two was which.
 func (b *block) chip() string {
-	parts := make([]string, 0, 2)
+	parts := make([]string, 0, 3)
+	if b.cheHead {
+		parts = append(parts, "чеч. → рус.")
+	} else {
+		parts = append(parts, "рус. → чеч.")
+	}
 	if label, ok := posLabels[b.pos]; ok {
 		parts = append(parts, label)
 	}
