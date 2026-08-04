@@ -14,6 +14,22 @@ import (
 // different word.
 const maxLemmaOvershoot = 3
 
+// sameStem reports whether two words differ only in their endings — the
+// relation a form has to its lemma, and the one the prefix search does not
+// check on its own. prefixCandidates trims up to four letters, which is right
+// for the «возможно, вы искали» list where a guess is labelled a guess; here
+// the result is served as the answer, and «галгайн» trimmed to «гал» came back
+// as «галоп» — a Russian card for a Chechen word, with nothing to say it had
+// been guessed at.
+func sameStem(typed, head string) bool {
+	a, b := []rune(typed), []rune(head)
+	n := 0
+	for n < len(a) && n < len(b) && a[n] == b[n] {
+		n++
+	}
+	return n+maxLemmaOvershoot >= len(a) && n+maxLemmaOvershoot >= len(b)
+}
+
 // loadStemTranslations answers an inflected query with its lemma's card:
 // «карандаша» → «карандаш», «руки» → «рука», «къоламаш» → «къолам». The word
 // forms layer above it only knows paradigms dosham has analyzed, which is
@@ -34,6 +50,7 @@ func (b *Business) loadStemTranslations(ctx context.Context, word string) ([]mod
 		return nil, ""
 	}
 
+	typed := tools.NormalizeSearch(word)
 	lemma := ""
 	for _, stem := range prefixCandidates(word) {
 		key := tools.NormalizeSearch(stem)
@@ -49,7 +66,7 @@ func (b *Business) loadStemTranslations(ctx context.Context, word string) ([]mod
 			if head == "" || strings.ContainsAny(head, " \t") {
 				continue
 			}
-			if utf8.RuneCountInString(head) > utf8.RuneCountInString(key)+maxLemmaOvershoot {
+			if !sameStem(typed, head) {
 				continue
 			}
 			if lemma == "" || utf8.RuneCountInString(head) < utf8.RuneCountInString(lemma) {

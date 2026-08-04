@@ -14,11 +14,23 @@ import (
 
 // fetchTranslationsWithFallback queries the API for word and, when the results
 // lack an exact headword match, retries with the candidate respellings and puts
-// those results first. The dosham search is a substring match that folds
-// neither ё/е nor the palochka — "елка" matches "Белка" but not "Ёлка", and
-// "чегӏардиг" matches nothing at all — while people routinely type е for ё and
-// leave out a letter their keyboard does not have. tools.RespellVariants picks
-// which defect to retry; the cascade stops at the first exact match.
+// those results first. The dosham search folds neither ё/е nor the palochka —
+// "елка" matches "Белка" but not "Ёлка", and "чегӏардиг" matches nothing at all
+// — while people routinely type е for ё and leave out a letter their keyboard
+// does not have. tools.RespellVariants picks which defect to retry; the cascade
+// stops at the first exact match.
+//
+// Guessing the spelling is the only way in, because the obvious shortcut is not
+// there. find() reads like a substring search — it answers «дом» with «Домбра»
+// — but it is fuzzier and word-oriented than that, and a fragment of a word does
+// not reliably reach it: find("ард") returns thirteen entries and «чӀе̃гӀардиг»
+// is not among them, though it contains those letters, while find("ардиг")
+// returns nineteen and it is. find("гумки") returns nothing at all for
+// «гӏазгӏумки». So a query that dropped every palochka cannot be recovered by
+// searching what survived between them — measured on eleven live two-palochka
+// words, two were reachable that way. The layer that does cover them is local:
+// the folded columns match any spelling of a word already stored, which is
+// every word anyone has looked up.
 func (b *Business) fetchTranslationsWithFallback(word string) ([]models.TranslationPairs, error) {
 	word = strings.TrimSpace(word)
 	translations, err := b.fetchTranslationsFromAPI(word)

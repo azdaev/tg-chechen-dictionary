@@ -137,3 +137,25 @@ func TestTranslate_StemNeverPreemptsARealWord(t *testing.T) {
 		t.Fatalf("got %+v, want the entry dosham holds for столб", got)
 	}
 }
+
+// «гӏалгӏайн» typed without its palochkas is not a Russian word with an ending.
+// prefixCandidates trims four letters — right for a labelled suggestion, wrong
+// for an answer — so «галгайн» reached the stem «гал» and the bot replied with a
+// card for «галоп», in the other language, with nothing marking it as a guess.
+func TestTranslate_StemDoesNotAnswerAcrossWords(t *testing.T) {
+	probe := &doshamProbe{primaries: map[string]bool{"галгайн": true}}
+	probe.start(t)
+
+	repo := &stemDictRepo{
+		byWord:   map[string][]models.TranslationPairs{"галоп": {{Original: "Галоп", Translate: "м юм", OriginalLang: "RUS", TranslateLang: "CHE", Rate: 100}}},
+		byPrefix: map[string][]models.TranslationPairs{"гал": {{Original: "галоп", Translate: "юм"}}},
+	}
+
+	got, resolved, err := newStemBusiness(repo).TranslateResolved("галгайн")
+	if err != nil {
+		t.Fatalf("translate: %v", err)
+	}
+	if resolved != "" || len(got) != 0 {
+		t.Fatalf("answered %q with %+v; a lemma differs from the query by its ending, not by four letters", resolved, got)
+	}
+}

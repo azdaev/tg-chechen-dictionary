@@ -156,7 +156,12 @@ func LooksChechen(s string) bool {
 
 // PalochkaVariants returns the spellings one inserted palochka away from word.
 // 95% of palochka-bearing words carry exactly one, which is why a single
-// insertion is enough and the candidate set stays linear in word length.
+// insertion is enough and the candidate set stays linear in word length. Of 385
+// palochka-bearing headwords measured on the live dictionary, 35 carry two —
+// «гӏазгӏумки», «чӏегӏардиг» — and those stay out of reach here: two insertions
+// is a squared candidate set against a volunteer API, and see fetch.go for why
+// searching the surviving fragment does not work either. The folded columns
+// answer them for any word already stored.
 // It does not gate on LooksChechen — RespellVariants decides when to spend
 // these, because the gate and this function disagree about the common case.
 func PalochkaVariants(word string) []string {
