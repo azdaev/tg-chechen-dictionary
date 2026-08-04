@@ -13,6 +13,10 @@ import (
 const (
 	shortQueryRunes   = 3
 	shortQueryResults = 10
+	// Usage examples get a budget of their own. The card renders six lines of
+	// them at most, and the whole-word filter and dedup thin the candidates
+	// hard, so this is roughly what six lines costs.
+	shortQueryExamples = 24
 )
 
 // rankAndDedup puts the answer the user actually searched for first and drops
@@ -71,15 +75,50 @@ func rankAndDedup(pairs []models.TranslationPairs, query string) []models.Transl
 		return false
 	})
 
-	// dosham's search is a substring match, so a very short query sweeps the
-	// dictionary: «ца» returns 252 pairs, and the card's «Ещё (248)» promises a
-	// list nobody will page through. The old cap did this before ranking and
-	// kept an arbitrary ten; here the ten are the ranked ones.
 	if utf8.RuneCountInString(strings.TrimSpace(query)) <= shortQueryRunes && len(out) > shortQueryResults {
-		out = out[:shortQueryResults]
+		out = capShortQuery(out, query)
 	}
 
 	return out
+}
+
+// capShortQuery trims the sweep a very short query brings back. dosham's search
+// is a substring match, so «ца» returns 252 pairs and a card built from all of
+// them is a wall of unrelated words. The cap runs after ranking, so what
+// survives is the top of the list rather than whatever the API sent first.
+//
+// Usage examples are counted apart. An example costs the card one line, not a
+// block, and it is the thing hardest to do without in Chechen — yet it ranks
+// last, so a flat cap cut examples first: «цӀа» kept four glosses and lost all
+// six of «цӀа кха̃ча — прибы́ть домо́й» that dosham holds for it. Every short word
+// in the language is a basic one, so this hit «цӀе», «ког», «дог», «хи».
+func capShortQuery(pairs []models.TranslationPairs, query string) []models.TranslationPairs {
+	folded := tools.FoldSearch(query)
+	out := make([]models.TranslationPairs, 0, shortQueryResults+shortQueryExamples)
+	entries, examples := 0, 0
+	for _, p := range pairs {
+		if isUsageExample(p, folded) {
+			if examples >= shortQueryExamples {
+				continue
+			}
+			examples++
+		} else {
+			if entries >= shortQueryResults {
+				continue
+			}
+			entries++
+		}
+		out = append(out, p)
+	}
+	return out
+}
+
+// isUsageExample mirrors the card's own reading: a collocation the user did not
+// ask for by name illustrates some entry, it is not an entry itself.
+func isUsageExample(p models.TranslationPairs, folded string) bool {
+	return p.EntryType == "TEXT" &&
+		tools.FoldSearch(p.Original) != folded &&
+		tools.FoldSearch(p.Translate) != folded
 }
 
 func normalizeForRank(s string) string {

@@ -100,8 +100,20 @@ func main() {
 			}
 		}
 
-		if utf8.RuneCountInString(word) <= 3 && len(pairs) >= 10 {
-			pairs = pairs[:10]
+		// mirrors business.capShortQuery: entries capped, examples counted apart.
+		if utf8.RuneCountInString(word) <= 3 && len(pairs) > 10 {
+			folded := tools.FoldSearch(word)
+			kept, entries := pairs[:0:0], 0
+			for _, p := range pairs {
+				if p.EntryType != "TEXT" || tools.FoldSearch(p.Original) == folded || tools.FoldSearch(p.Translate) == folded {
+					if entries >= 10 {
+						continue
+					}
+					entries++
+				}
+				kept = append(kept, p)
+			}
+			pairs = kept
 		}
 
 		fmt.Println("\n--- СООБЩЕНИЕ БОТА ---")

@@ -198,3 +198,45 @@ func TestRankAndDedup_ShortQueryIsCapped(t *testing.T) {
 		t.Errorf("len = %d, want the full list for a longer query", n)
 	}
 }
+
+// Every short Chechen word is a basic one, and the cap took its examples first:
+// they rank last, below every unrelated substring hit. «цӀа» came back with four
+// glosses and none of the six «цӀа кха̃ча — прибы́ть домо́й» dosham holds for it —
+// the one thing the user cannot read Chechen without.
+func TestRankAndDedup_ShortQueryKeepsItsExamples(t *testing.T) {
+	pairs := []models.TranslationPairs{
+		{Original: "цӏа", Translate: "дом", EntryType: "WORD", Rate: 10000},
+	}
+	for i := range 20 {
+		pairs = append(pairs, models.TranslationPairs{
+			Original: fmt.Sprintf("цӏазам%02d", i), Translate: "клубника", EntryType: "WORD",
+		})
+	}
+	pairs = append(pairs,
+		models.TranslationPairs{Original: "цӏа кхача", Translate: "прибыть домой", EntryType: "TEXT"},
+		models.TranslationPairs{Original: "цӏа духадуста", Translate: "перемерить комнату", EntryType: "TEXT"},
+	)
+
+	got := rankAndDedup(pairs, "цӏа")
+
+	kept := 0
+	for _, p := range got {
+		if p.EntryType == "TEXT" {
+			kept++
+		}
+	}
+	if kept != 2 {
+		t.Fatalf("kept %d examples of 2; the cap cut what the card is for: %+v", kept, got)
+	}
+	if n := len(got) - kept; n != shortQueryResults {
+		t.Errorf("kept %d entries, want the cap to still hold at %d", n, shortQueryResults)
+	}
+
+	// A collocation asked for by name is an entry, and spends the entry budget.
+	byName := rankAndDedup(append(pairs, models.TranslationPairs{
+		Original: "цӏа", Translate: "домой", EntryType: "TEXT",
+	}), "цӏа")
+	if n := len(byName); n != shortQueryResults+2 {
+		t.Errorf("len = %d, want %d: the named collocation took an entry slot", n, shortQueryResults+2)
+	}
+}
