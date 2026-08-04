@@ -261,3 +261,37 @@ func TestCard_ArticleGlossFoldsLikeEveryOtherCorpus(t *testing.T) {
 		t.Errorf("the folded match displaced the word actually typed:\n%s", own)
 	}
 }
+
+// The same headword must not appear twice on one card. dosham glosses «Касатка»
+// as «ж (ласточка) чӏегӏардиг», so the card was handed the head «(ласточка)
+// чӏегӏардиг» — keyed whole, that is a different word from «чӏегӏардиг», and the
+// user read the word they had just looked up a second time, in brackets, with
+// its own direction line under it.
+func TestCard_QualifiedHeadIsTheSameWord(t *testing.T) {
+	card := FormatCard("чӏегӏардиг", []models.TranslationPairs{
+		{Original: "чӏегӏардиг", Translate: "ласточка", OriginalLang: "CHE", TranslateLang: "RUS", Rate: 16, EntryType: "WORD", EntryIndex: 1},
+		{Original: "Касатка", Translate: "ж (ласточка) чӏегӏардиг", OriginalLang: "RUS", TranslateLang: "CHE", Rate: 100, EntryType: "WORD"},
+	})
+	if n := strings.Count(card, "чӏегӏардиг</b>"); n != 1 {
+		t.Errorf("the headword is printed %d times:\n%s", n, card)
+	}
+	for _, want := range []string{"1. ласточка", "2. касатка"} {
+		if !strings.Contains(card, want) {
+			t.Errorf("missing %q:\n%s", want, card)
+		}
+	}
+	// And the qualifier goes with it: the card's own first line already says
+	// «ласточка», so repeating it in brackets on the headword says nothing.
+	if strings.Contains(card, "(ласточка)") {
+		t.Errorf("the qualifier repeats a sense:\n%s", card)
+	}
+
+	// A qualifier that is not a sense still earns its place: «Шпиц — м (собака)
+	// кӏезалг» is how the user learns which кӏезалг this is.
+	dog := FormatCard("собака", []models.TranslationPairs{
+		{Original: "Шпиц", Translate: "м (собака) кӏезалг", OriginalLang: "RUS", TranslateLang: "CHE", Rate: 100, EntryType: "WORD"},
+	})
+	if !strings.Contains(dog, "<b>кӏезалг</b> <i>(собака)</i>") {
+		t.Errorf("a qualifier that disambiguates was dropped:\n%s", dog)
+	}
+}

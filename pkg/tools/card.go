@@ -189,7 +189,12 @@ func collect(query string, pairs []models.TranslationPairs) collected {
 		// Punctuation is not identity either: dosham holds «Ӏуьйре дика хуьлда!»
 		// twice, once glossed «доброе утро» and once «доброе утро!», and keeping
 		// the mark in the key printed the same greeting as two cards.
-		k := fmt.Sprintf("%s\x00%d\x00%t", NormalizeSearch(trimPunct(head)), idx, cheHead)
+		// Nor is a qualifier: «Касатка — ж (ласточка) чӏегӏардиг» hands the card
+		// the head «(ласточка) чӏегӏардиг», which the renderer already splits
+		// apart for display. Keyed whole, it made a second card for a word the
+		// user had just read — the same headword twice, once in brackets.
+		_, name := splitQualifiers(head)
+		k := fmt.Sprintf("%s\x00%d\x00%t", NormalizeSearch(trimPunct(name)), idx, cheHead)
 		b, ok := blocks[k]
 		if !ok {
 			b = &block{head: head, cheHead: cheHead, index: idx}
@@ -348,6 +353,7 @@ func (b *block) render() string {
 	// "(собака) кӏезалг" — and inside the bold they read as Chechen, which is
 	// the one thing the bold is there to say.
 	headQuals, name := splitQualifiers(b.head)
+	headQuals = dropRepeats(headQuals, b.senses)
 	head := headCase(name)
 	if b.cheHead {
 		head = bold(head)
@@ -502,6 +508,29 @@ func dedupSenses(senses []string) []string {
 		out = append(out, s)
 	}
 	return out
+}
+
+// dropRepeats removes the qualifiers that only repeat a sense the card is about
+// to print anyway. «Касатка — ж (ласточка) чӏегӏардиг» labels the headword
+// «(ласточка)» on a card whose first line already reads «1. ласточка»; the
+// qualifier earns its place only when it says something the senses do not.
+func dropRepeats(quals, senses []string) []string {
+	if len(quals) == 0 {
+		return nil
+	}
+	seen := make(map[string]bool, len(senses))
+	for _, s := range senses {
+		for _, part := range unpackSense(s) {
+			seen[NormalizeSearch(trimPunct(part))] = true
+		}
+	}
+	kept := quals[:0]
+	for _, q := range quals {
+		if !seen[NormalizeSearch(trimPunct(q))] {
+			kept = append(kept, q)
+		}
+	}
+	return kept
 }
 
 // splitQualifiers peels leading parentheticals: "(почерк) хатӏ" → ["почерк"], "хатӏ".
