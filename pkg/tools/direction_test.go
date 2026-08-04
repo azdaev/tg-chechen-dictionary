@@ -10,16 +10,16 @@ import (
 // Asked for a loanword the bot answered «телефон → 1. телефон» and there was no
 // way to tell which of the two was the Chechen one.
 func TestCard_EveryBlockNamesItsDirection(t *testing.T) {
-	che, _ := Card("къолам", []models.TranslationPairs{
+	che := Render("къолам", []models.TranslationPairs{
 		{Original: "къолам", Translate: "карандаш", OriginalLang: "CHE", TranslateLang: "RUS", Rate: 16, EntryType: "WORD"},
-	})
+	}).Body
 	if !strings.Contains(che, "чеч. → рус.") {
 		t.Errorf("Chechen lookup did not say which side is Chechen:\n%s", che)
 	}
 
-	rus, _ := Card("карандаш", []models.TranslationPairs{
+	rus := Render("карандаш", []models.TranslationPairs{
 		{Original: "Карандаш", Translate: "м къолам", OriginalLang: "RUS", TranslateLang: "CHE", Rate: 100, EntryType: "WORD"},
-	})
+	}).Body
 	if !strings.Contains(rus, "рус. → чеч.") {
 		t.Errorf("Russian lookup did not say which side is Chechen:\n%s", rus)
 	}
@@ -30,9 +30,9 @@ func TestCard_EveryBlockNamesItsDirection(t *testing.T) {
 // sentence-shaped translation of a collocation keeps its capital —
 // TestCard_CollocationAskedByNameIsAnEntry guards that side.
 func TestCard_WordGlossesAreLowercase(t *testing.T) {
-	body, _ := Card("куьг", []models.TranslationPairs{
+	body := Render("куьг", []models.TranslationPairs{
 		{Original: "Куьг", Translate: "Рука", OriginalLang: "CHE", TranslateLang: "RUS", Rate: 100, EntryType: "TEXT"},
-	})
+	}).Body
 	if !strings.Contains(body, "рука") || strings.Contains(body, "Рука") {
 		t.Errorf("gloss kept the source capitalization:\n%s", body)
 	}
@@ -42,10 +42,10 @@ func TestCard_WordGlossesAreLowercase(t *testing.T) {
 // block, so the card listed «лев» among the Chechen translations of «лом» —
 // telling the user that the Chechen for «лом» is «лев».
 func TestCard_CrossLanguageHomographsDoNotMerge(t *testing.T) {
-	body, _ := Card("лом", []models.TranslationPairs{
+	body := Render("лом", []models.TranslationPairs{
 		{Original: "Лом", Translate: "м лом, ваба", OriginalLang: "RUS", TranslateLang: "CHE", Rate: 100, EntryType: "WORD"},
 		{Original: "лом", Translate: "лев", OriginalLang: "CHE", TranslateLang: "RUS", Rate: 10000, EntryType: "WORD", EntryIndex: 1},
-	})
+	}).Body
 	for _, para := range strings.Split(body, "\n\n") {
 		if strings.Contains(para, "ваба") && strings.Contains(para, "лев") {
 			t.Fatalf("both readings landed in one block:\n%s", body)
@@ -61,29 +61,29 @@ func TestCard_CrossLanguageHomographsDoNotMerge(t *testing.T) {
 // «къолам» spells its Russian side «каранда́ш». Asking by the Russian query threw
 // the paradigm away for every Russian lookup.
 func TestChechenSide_NamesTheWordGrammarBelongsTo(t *testing.T) {
-	rus := ChechenSide("карандаш", []models.TranslationPairs{
+	rus := Render("карандаш", []models.TranslationPairs{
 		{Original: "Карандаш", Translate: "м къолам; химический ~ - шекъа долун къолам", OriginalLang: "RUS", TranslateLang: "CHE", Rate: 100, EntryType: "WORD"},
-	})
+	}).Chechen
 	if rus != "къолам" {
-		t.Errorf("ChechenSide(карандаш) = %q, want къолам", rus)
+		t.Errorf("Chechen side of карандаш = %q, want къолам", rus)
 	}
 
-	che := ChechenSide("куьг", []models.TranslationPairs{
+	che := Render("куьг", []models.TranslationPairs{
 		{Original: "куьг", Translate: "рука́ (кисть)", OriginalLang: "CHE", TranslateLang: "RUS", Rate: 10000, EntryType: "WORD"},
-	})
+	}).Chechen
 	if che != "куьг" {
-		t.Errorf("ChechenSide(куьг) = %q, want the headword itself", che)
+		t.Errorf("Chechen side of куьг = %q, want the headword itself", che)
 	}
 
 	// One gloss, one word: «лом, ваба (орудие)» is two spellings and a label.
-	multi := ChechenSide("лом", []models.TranslationPairs{
+	multi := Render("лом", []models.TranslationPairs{
 		{Original: "Лом", Translate: "м лом, ваба (орудие)", OriginalLang: "RUS", TranslateLang: "CHE", Rate: 100, EntryType: "WORD"},
-	})
+	}).Chechen
 	if multi != "лом" {
-		t.Errorf("ChechenSide picked %q out of a multi-variant gloss, want лом", multi)
+		t.Errorf("the card picked %q out of a multi-variant gloss, want лом", multi)
 	}
 
-	if ChechenSide("нетслова", nil) != "" {
+	if Render("нетслова", nil).Chechen != "" {
 		t.Error("a card with no blocks named a word anyway")
 	}
 }

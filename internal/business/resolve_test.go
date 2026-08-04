@@ -38,7 +38,7 @@ func TestTranslateResolved_RendersACard(t *testing.T) {
 	if key == "" {
 		key = "лоьман"
 	}
-	if body, _ := tools.Card(key, pairs); body == "" {
+	if body := tools.Render(key, pairs).Body; body == "" {
 		t.Fatalf("business resolved the form and the renderer dropped it: %+v", pairs)
 	}
 }

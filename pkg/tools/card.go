@@ -38,40 +38,33 @@ const (
 	maxNeighbours       = 12
 )
 
-// Card renders one lookup, keeping the neighbours apart from the body. An empty
-// body means dosham matched the query somewhere but no entry actually means it —
-// neighbours alone are not an answer, and serving them as one turned «лоьма»
-// into a bare «рядом: …» that the bot counted as a hit.
-func Card(query string, pairs []models.TranslationPairs) (body string, neighbours []string) {
-	c := collect(query, pairs)
-	if len(c.blocks) == 0 {
-		return "", c.neighbours
-	}
-	return c.render(), c.neighbours
+// Rendered is one lookup, parsed once. Every question the handler asks of a
+// set of pairs is answered here, because parsing them is the expensive part:
+// the chat used to run the whole article parser twice per lookup, once for the
+// card and once to learn which word to fetch grammar for.
+type Rendered struct {
+	// Body empty means dosham matched the query somewhere but no entry actually
+	// means it — neighbours alone are not an answer, and serving them as one
+	// turned «лоьма» into a bare «рядом: …» that the bot counted as a hit.
+	Body       string
+	Neighbours []string
+	// Chechen names the Chechen word the card is about: the headword when the
+	// user typed Chechen, the leading gloss when they typed Russian. Grammar
+	// lives only under the Chechen headword, and dosham's search is literal —
+	// «карандаш» never reaches «къолам», whose Russian side the academic corpus
+	// spells «каранда́ш» — so the paradigm has to be asked for by name.
+	Chechen string
 }
 
-// FormatCard renders one lookup as a single card, neighbours included.
-func FormatCard(query string, pairs []models.TranslationPairs) string {
-	body, neighbours := Card(query, pairs)
-	if body == "" {
-		return ""
-	}
-	if line := FormatNeighbours(neighbours); line != "" {
-		body += "\n\n" + line
-	}
-	return body
-}
-
-// ChechenSide names the Chechen word a card is about: the headword when the
-// user typed Chechen, the leading gloss when they typed Russian. Grammar lives
-// only under the Chechen headword, and dosham's search is literal — «карандаш»
-// never reaches «къолам», whose Russian side the academic corpus spells
-// «каранда́ш» — so the paradigm has to be asked for by name.
-func ChechenSide(query string, pairs []models.TranslationPairs) string {
+func Render(query string, pairs []models.TranslationPairs) Rendered {
 	c := collect(query, pairs)
 	if len(c.blocks) == 0 {
-		return ""
+		return Rendered{Neighbours: c.neighbours}
 	}
+	return Rendered{Body: c.render(), Neighbours: c.neighbours, Chechen: c.chechenSide()}
+}
+
+func (c collected) chechenSide() string {
 	b := c.blocks[0]
 	if b.cheHead {
 		return firstVariant(b.head)
@@ -80,6 +73,18 @@ func ChechenSide(query string, pairs []models.TranslationPairs) string {
 		return firstVariant(b.senses[0])
 	}
 	return ""
+}
+
+// FormatCard renders one lookup as a single card, neighbours included.
+func FormatCard(query string, pairs []models.TranslationPairs) string {
+	r := Render(query, pairs)
+	if r.Body == "" {
+		return ""
+	}
+	if line := FormatNeighbours(r.Neighbours); line != "" {
+		return r.Body + "\n\n" + line
+	}
+	return r.Body
 }
 
 // firstVariant takes one spelling out of a gloss: "лом, ваба (орудие)" → "лом".

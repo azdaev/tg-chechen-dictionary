@@ -10,15 +10,15 @@ import (
 // bot used to send that footer alone and count it as an answer, so the word
 // never reached the missing-words report.
 func TestCard_NeighboursAloneAreNotAnAnswer(t *testing.T) {
-	body, neighbours := Card("лоьма", []models.TranslationPairs{
+	r := Render("лоьма", []models.TranslationPairs{
 		{Original: "Лоьма-кӏорца", Translate: "лем-Корц", OriginalLang: "CHE", TranslateLang: "RUS", Rate: 16, EntryType: "WORD"},
 		{Original: "лоьманиг", Translate: "львиный", OriginalLang: "CHE", TranslateLang: "RUS", Rate: 16, EntryType: "WORD"},
 	})
-	if body != "" {
-		t.Fatalf("neighbours rendered as a card body:\n%s", body)
+	if r.Body != "" {
+		t.Fatalf("neighbours rendered as a card body:\n%s", r.Body)
 	}
-	if len(neighbours) != 2 {
-		t.Fatalf("neighbours = %q, want both kept for the miss hint", neighbours)
+	if len(r.Neighbours) != 2 {
+		t.Fatalf("neighbours = %q, want both kept for the miss hint", r.Neighbours)
 	}
 	if FormatCard("лоьма", []models.TranslationPairs{
 		{Original: "лоьманиг", Translate: "львиный", OriginalLang: "CHE", TranslateLang: "RUS", Rate: 16, EntryType: "WORD"},
@@ -30,11 +30,11 @@ func TestCard_NeighboursAloneAreNotAnAnswer(t *testing.T) {
 // «стрим» matched inside «гольфстрим» and produced no card at all. The handler
 // used to paper over that with a raw pair dump.
 func TestCard_BodyOnlyMentionIsNotAnAnswer(t *testing.T) {
-	body, neighbours := Card("стрим", []models.TranslationPairs{
+	r := Render("стрим", []models.TranslationPairs{
 		{Original: "Течение гольфстрим хи.", Translate: "гольфстрим", OriginalLang: "CHE", TranslateLang: "RUS", Rate: 16, EntryType: "TEXT"},
 	})
-	if body != "" || len(neighbours) != 0 {
-		t.Fatalf("a substring mention became an answer: body=%q neighbours=%q", body, neighbours)
+	if r.Body != "" || len(r.Neighbours) != 0 {
+		t.Fatalf("a substring mention became an answer: body=%q neighbours=%q", r.Body, r.Neighbours)
 	}
 }
 
@@ -45,7 +45,7 @@ func TestCard_CollocationAskedByNameIsAnEntry(t *testing.T) {
 	pairs := []models.TranslationPairs{
 		{Original: "Телефон болх беш яц", Translate: "Телефон не работает", OriginalLang: "CHE", TranslateLang: "RUS", Rate: 100, EntryType: "TEXT"},
 	}
-	body, _ := Card("телефон болх беш яц", pairs)
+	body := Render("телефон болх беш яц", pairs).Body
 	if body == "" {
 		t.Fatal("a collocation the dictionary holds produced no card")
 	}
@@ -98,9 +98,9 @@ func TestCard_FoldedHitStillRenders(t *testing.T) {
 		{"русское ударение", "рука", "ру́ка"},
 	}
 	for _, c := range cases {
-		body, _ := Card(c.query, []models.TranslationPairs{
+		body := Render(c.query, []models.TranslationPairs{
 			{Original: c.original, Translate: "перевод", OriginalLang: "CHE", TranslateLang: "RUS", Rate: 16, EntryType: "WORD"},
-		})
+		}).Body
 		if body == "" {
 			t.Errorf("%s: Card(%q) with stored %q rendered nothing", c.name, c.query, c.original)
 		}
@@ -110,10 +110,10 @@ func TestCard_FoldedHitStillRenders(t *testing.T) {
 	// rankAndDedup's job, not the card's — pairs arrive ranked, exact first —
 	// so the contract checked is that both keep their own spelling as a head
 	// and the exact one still leads the card it was ranked to lead.
-	body, _ := Card("лом", []models.TranslationPairs{
+	body := Render("лом", []models.TranslationPairs{
 		{Original: "лом", Translate: "лев", OriginalLang: "CHE", TranslateLang: "RUS", Rate: 16, EntryType: "WORD"},
 		{Original: "ло̃м", Translate: "не тот", OriginalLang: "CHE", TranslateLang: "RUS", Rate: 16, EntryType: "WORD"},
-	})
+	}).Body
 	if !strings.HasPrefix(body, "<b>лом</b>") {
 		t.Errorf("exact match lost the lead:\n%s", body)
 	}

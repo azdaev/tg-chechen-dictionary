@@ -116,6 +116,7 @@ func main() {
 			pairs = kept
 		}
 
+		rendered := tools.Render(word, pairs)
 		fmt.Println("\n--- СООБЩЕНИЕ БОТА ---")
 		fmt.Println(tools.FormatCard(word, pairs))
 
@@ -124,7 +125,7 @@ func main() {
 		// query: dosham's search is literal, so a Russian query never reaches the
 		// analyzed Chechen entry that holds the paradigm.
 		grammarEntries := entries
-		if che := tools.ChechenSide(word, pairs); che != "" && che != word {
+		if che := rendered.Chechen; che != "" && che != word {
 			grammarEntries = find(che)
 		}
 		var best *entry

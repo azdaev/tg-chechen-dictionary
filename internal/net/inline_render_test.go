@@ -83,7 +83,7 @@ func TestInlineAgreesWithTheChatAboutAMiss(t *testing.T) {
 	noise := []models.TranslationPairs{
 		{Original: "Гольфстрим", Translate: "м Гольфстрим", OriginalLang: "RUS", TranslateLang: "CHE", EntryType: "WORD", Rate: 100},
 	}
-	if card, _ := tools.Card("стрим", noise); card != "" {
+	if card := tools.Render("стрим", noise).Body; card != "" {
 		t.Fatalf("the chat path treats this as an answer, so the test proves nothing: %q", card)
 	}
 	// The rule the picker used to apply. Kept as an assertion so the divergence

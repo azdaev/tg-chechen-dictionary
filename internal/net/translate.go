@@ -43,9 +43,9 @@ func (n *Net) HandleText(ctx context.Context, m *tgbotapi.Message) error {
 	if resolved != "" {
 		renderKey = resolved
 	}
-	card, neighbours := tools.Card(renderKey, translations)
-	if card == "" {
-		return n.sendMiss(ctx, m, neighbours)
+	rendered := tools.Render(renderKey, translations)
+	if rendered.Body == "" {
+		return n.sendMiss(ctx, m, rendered.Neighbours)
 	}
 
 	// A successful lookup proves the word is covered now — clear it from the
@@ -61,7 +61,8 @@ func (n *Net) HandleText(ctx context.Context, m *tgbotapi.Message) error {
 	// One card holds the whole answer now, so there is no second page to offer:
 	// what «Ещё» used to paginate was the noise dosham's substring search
 	// returns, which the card drops instead of deferring.
-	if line := tools.FormatNeighbours(neighbours); line != "" {
+	card := rendered.Body
+	if line := tools.FormatNeighbours(rendered.Neighbours); line != "" {
 		card += "\n\n" + line
 	}
 	msg := tgbotapi.NewMessage(m.Chat.ID, clampMessage(card))
@@ -92,8 +93,8 @@ func (n *Net) HandleText(ctx context.Context, m *tgbotapi.Message) error {
 	// same message: the update loop is synchronous and this makes a live API
 	// call, but the answer stays one message.
 	headword := translations[0].Original
-	if che := tools.ChechenSide(renderKey, translations); che != "" {
-		headword = che
+	if rendered.Chechen != "" {
+		headword = rendered.Chechen
 	}
 	cardText := msg.Text
 	n.bg.Go(func() {
