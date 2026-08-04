@@ -136,13 +136,26 @@ func TestReplaceTildeWithWord(t *testing.T) {
 			exact:    true,
 		},
 		{
-			// Real dosham data: the "Дом" gloss glues a whole word to the tilde
-			// ("~культуры"). It must read "дом культуры", not "домкультуры".
-			name:     "tilde glued to a separate word",
+			// A tail longer than three letters is either an ending or a whole
+			// word glued on, and nothing tells them apart: «~цами» of
+			// «домочадцы» and «~мост» of «развести» are the same length and
+			// opposite kinds. Measured over the live dictionary, eight of ten
+			// such tails were endings, so guessing "separate word" printed
+			// «взбеситься лась» far more often than it printed «дом культуры».
+			// Not exact, so the caller drops the example.
+			name:     "tilde glued to a long tail is not guessed",
 			text:     "~культуры → культуран цӏа",
 			word:     "дом",
-			expected: "дом культуры → культуран цӏа",
-			exact:    true,
+			expected: "дом → культуран цӏа",
+			exact:    false,
+		},
+		{
+			// The same shape, the other kind: «собака ~лась» is «взбесилась».
+			name:     "long tail that is an ending is not guessed either",
+			text:     "собака ~лась",
+			word:     "взбеситься",
+			expected: "собака взбеситься",
+			exact:    false,
 		},
 		{
 			name:     "vowel-final stem is regular",
