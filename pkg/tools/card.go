@@ -306,8 +306,15 @@ func (b *block) render() string {
 
 	// Russian qualifiers — "(почерк) хатӏ" — trail the gloss rather than sit
 	// inside its bold, since bold marks Chechen and nothing else.
+	// Only a one-word entry has one-word glosses. The corpora capitalize those
+	// inconsistently — «куьг» answered «1. Рука» — but a collocation's
+	// translation is a sentence and keeps its capital.
+	word := !strings.Contains(strings.TrimSpace(b.head), " ")
 	gloss := func(s string) string {
 		quals, rest := splitQualifiers(s)
+		if word {
+			rest = headCase(rest)
+		}
 		if !b.cheHead {
 			rest = bold(rest)
 		}
@@ -407,11 +414,20 @@ func dedupSenses(senses []string) []string {
 	seen := map[string]bool{}
 	for _, s := range senses {
 		s = strings.TrimSpace(s)
-		// "рука́ (кисть)" and "рука" are one sense; the fuller wording wins.
-		// Folded, not normalized: the corpora disagree about stress marks, and
-		// «телефо́н» beside «телефон» was reaching the card as two senses.
+		if s == "" {
+			continue
+		}
+		// "рука́ (кисть)" and "Рука" are one sense; the first wins. Folded, not
+		// normalized: the corpora disagree about stress marks, and «телефо́н»
+		// beside «телефон» was reaching the card as two senses.
+		//
+		// ponytail: first, not richest. Preferring the longer spelling does pick
+		// up «рука́ (кисть)» over «Рука», but two senses of one article collide on
+		// the same key too — «дом» then led with «цӏа (учреждение)», a qualifier
+		// belonging to its second sense. Needs the source rate per sense to tell
+		// those apart; not worth carrying one until more than «куьг» wants it.
 		key := FoldSearch(stripParens(s))
-		if s == "" || seen[key] {
+		if seen[key] {
 			continue
 		}
 		seen[key] = true

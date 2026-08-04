@@ -25,6 +25,19 @@ func TestCard_EveryBlockNamesItsDirection(t *testing.T) {
 	}
 }
 
+// The corpora disagree about capitalizing glosses, so «куьг» answered «1. Рука»
+// and «вода» answered «Хи» while every neighbouring card was lowercase. The
+// sentence-shaped translation of a collocation keeps its capital —
+// TestCard_CollocationAskedByNameIsAnEntry guards that side.
+func TestCard_WordGlossesAreLowercase(t *testing.T) {
+	body, _ := Card("куьг", []models.TranslationPairs{
+		{Original: "Куьг", Translate: "Рука", OriginalLang: "CHE", TranslateLang: "RUS", Rate: 100, EntryType: "TEXT"},
+	})
+	if !strings.Contains(body, "рука") || strings.Contains(body, "Рука") {
+		t.Errorf("gloss kept the source capitalization:\n%s", body)
+	}
+}
+
 // «лом» is a Russian crowbar and a Chechen lion. Both spellings keyed the same
 // block, so the card listed «лев» among the Chechen translations of «лом» —
 // telling the user that the Chechen for «лом» is «лев».
