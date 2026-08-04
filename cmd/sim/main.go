@@ -91,6 +91,7 @@ func main() {
 					Translate:     tools.EscapeUnclosedTags(t.Content),
 					OriginalLang:  map[string]string{"CHE": "RUS", "RUS": "CHE"}[lang],
 					TranslateLang: lang,
+					Packed:        lang == "CHE",
 					Rate:          e.Rate,
 					EntryType:     e.Type,
 					Subtype:       e.Subtype,

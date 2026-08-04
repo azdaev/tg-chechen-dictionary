@@ -49,7 +49,12 @@ func (q lookup) classify(p models.TranslationPairs) placement {
 	original, translate := Clean(p.Original), Clean(p.Translate)
 	// The Russian–Chechen article is the one corpus that packs a whole entry
 	// into a single string, so it is the only place left that parses text.
-	if p.TranslateLang == "CHE" {
+	if p.Packed {
+		// The article's own headword is the Russian side. A local reverse hit
+		// leads with whichever side matched the query, so put it back.
+		if p.OriginalLang == "CHE" {
+			original, translate = translate, original
+		}
 		return q.classifyArticle(p, original, translate)
 	}
 	return q.classifyEntry(p, original, translate)

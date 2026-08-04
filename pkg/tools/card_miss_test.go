@@ -77,7 +77,7 @@ func TestCard_StressVariantsAreOneSense(t *testing.T) {
 // corpora do not, so «Карандаш» and «телефон» came out of one lookup shape.
 func TestCard_HeadwordsAreLowercase(t *testing.T) {
 	card := FormatCard("карандаш", []models.TranslationPairs{
-		{Original: "Карандаш", Translate: "къолам", OriginalLang: "RUS", TranslateLang: "CHE", Rate: 100, EntryType: "WORD"},
+		{Original: "Карандаш", Translate: "къолам", OriginalLang: "RUS", TranslateLang: "CHE", Packed: true, Rate: 100, EntryType: "WORD"},
 	})
 	if !strings.HasPrefix(card, "карандаш") {
 		t.Fatalf("headword kept the source capitalization:\n%s", card)
@@ -140,7 +140,7 @@ func TestRender_ExamplesWithoutAGlossAreNotGlossed(t *testing.T) {
 
 	// An entry of its own is glossed, examples or not.
 	if !Render("собака", append(examples, models.TranslationPairs{
-		Original: "Собака", Translate: "ж жӏаьла", OriginalLang: "RUS", TranslateLang: "CHE", EntryType: "WORD", Rate: 100,
+		Original: "Собака", Translate: "ж жӏаьла", OriginalLang: "RUS", TranslateLang: "CHE", Packed: true, EntryType: "WORD", Rate: 100,
 	})).Glossed {
 		t.Error("a card that names the translation does not report it")
 	}

@@ -22,9 +22,9 @@ func BenchmarkCard(b *testing.B) {
 		Original:      "Чёрный",
 		Translate:     "-ая, -ое 1) Ӏаьржа; ~ое море - Ӏаьржа хӀорд; перен. ~ день - вон де 2) разг. сийна; ~ хлеб - сийна бепиг",
 		OriginalLang:  "RUS",
-		TranslateLang: "CHE",
-		EntryType:     "WORD",
-		Rate:          100,
+		TranslateLang: "CHE", Packed: true,
+		EntryType: "WORD",
+		Rate:      100,
 	}}
 	for b.Loop() {
 		FormatCard("чёрный", pairs)

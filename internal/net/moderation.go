@@ -193,6 +193,7 @@ func formatModerationMessage(pair repository.TranslationPair) string {
 		OriginalLang:  pair.OriginalLang,
 		TranslateLang: pair.TranslationLang,
 		Rate:          pair.Rate,
+		Packed:        pair.TranslationLang == "CHE",
 		EntryType:     pair.EntryType,
 		Subtype:       pair.Subtype,
 		EntryIndex:    pair.EntryIndex,

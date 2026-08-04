@@ -266,7 +266,7 @@ func TestFirstExampleFor(t *testing.T) {
 	// They used to mine the glosses separately, and the daily word shipped
 	// without an example for every common word measured.
 	pairs := []models.TranslationPairs{
-		{Original: "Дом", Translate: "м цӏа; деревянный ~ - дечиган цӏа", OriginalLang: "RUS", TranslateLang: "CHE", EntryType: "WORD", Rate: 100},
+		{Original: "Дом", Translate: "м цӏа; деревянный ~ - дечиган цӏа", OriginalLang: "RUS", TranslateLang: "CHE", Packed: true, EntryType: "WORD", Rate: 100},
 	}
 	got, ok := FirstExampleFor("дом", pairs)
 	if !ok || got != "дечиган цӏа → деревянный дом" {
@@ -274,7 +274,7 @@ func TestFirstExampleFor(t *testing.T) {
 	}
 
 	if _, ok := FirstExampleFor("дом", []models.TranslationPairs{
-		{Original: "Дом", Translate: "м цӏа", OriginalLang: "RUS", TranslateLang: "CHE", EntryType: "WORD", Rate: 100},
+		{Original: "Дом", Translate: "м цӏа", OriginalLang: "RUS", TranslateLang: "CHE", Packed: true, EntryType: "WORD", Rate: 100},
 	}); ok {
 		t.Error("an entry with no examples reported one")
 	}

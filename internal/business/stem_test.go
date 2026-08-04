@@ -46,7 +46,7 @@ func TestTranslate_RussianEndingOpensTheLemma(t *testing.T) {
 
 	repo := &stemDictRepo{
 		byWord: map[string][]models.TranslationPairs{
-			"рука": {{Original: "Рука", Translate: "м куьг", OriginalLang: "RUS", TranslateLang: "CHE", Rate: 100}},
+			"рука": {{Original: "Рука", Translate: "м куьг", OriginalLang: "RUS", TranslateLang: "CHE", Packed: true, Rate: 100}},
 		},
 		byPrefix: map[string][]models.TranslationPairs{
 			"рук": {
@@ -80,7 +80,7 @@ func TestTranslate_StemPrefersTheShortestLemma(t *testing.T) {
 
 	repo := &stemDictRepo{
 		byWord: map[string][]models.TranslationPairs{
-			"дом": {{Original: "Дом", Translate: "м цӏа", OriginalLang: "RUS", TranslateLang: "CHE", Rate: 100}},
+			"дом": {{Original: "Дом", Translate: "м цӏа", OriginalLang: "RUS", TranslateLang: "CHE", Packed: true, Rate: 100}},
 		},
 		byPrefix: map[string][]models.TranslationPairs{
 			"домо": {{Original: "домовой", Translate: "тарам"}},
@@ -130,7 +130,7 @@ func TestTranslate_StemNeverPreemptsARealWord(t *testing.T) {
 	probe.start(t)
 
 	repo := &stemDictRepo{
-		byWord:   map[string][]models.TranslationPairs{"стол": {{Original: "Стол", Translate: "м стол", OriginalLang: "RUS", TranslateLang: "CHE", Rate: 100}}},
+		byWord:   map[string][]models.TranslationPairs{"стол": {{Original: "Стол", Translate: "м стол", OriginalLang: "RUS", TranslateLang: "CHE", Packed: true, Rate: 100}}},
 		byPrefix: map[string][]models.TranslationPairs{"стол": {{Original: "стол", Translate: "стол"}}},
 	}
 
@@ -155,7 +155,7 @@ func TestTranslate_StemDoesNotAnswerAcrossWords(t *testing.T) {
 	probe.start(t)
 
 	repo := &stemDictRepo{
-		byWord:   map[string][]models.TranslationPairs{"галоп": {{Original: "Галоп", Translate: "м юм", OriginalLang: "RUS", TranslateLang: "CHE", Rate: 100}}},
+		byWord:   map[string][]models.TranslationPairs{"галоп": {{Original: "Галоп", Translate: "м юм", OriginalLang: "RUS", TranslateLang: "CHE", Packed: true, Rate: 100}}},
 		byPrefix: map[string][]models.TranslationPairs{"гал": {{Original: "галоп", Translate: "юм"}}},
 	}
 
@@ -224,7 +224,7 @@ func TestTranslate_ExampleOnlyAnswerStillReachesTheLemma(t *testing.T) {
 
 	repo := &stemDictRepo{
 		byWord: map[string][]models.TranslationPairs{
-			"собака": {{Original: "Собака", Translate: "ж жӏаьла", OriginalLang: "RUS", TranslateLang: "CHE", EntryType: "WORD", Rate: 100}},
+			"собака": {{Original: "Собака", Translate: "ж жӏаьла", OriginalLang: "RUS", TranslateLang: "CHE", Packed: true, EntryType: "WORD", Rate: 100}},
 		},
 		byPrefix: map[string][]models.TranslationPairs{
 			"собак": {{Original: "собака", Translate: "жӏаьла", OriginalLang: "RUS", TranslateLang: "CHE"}},

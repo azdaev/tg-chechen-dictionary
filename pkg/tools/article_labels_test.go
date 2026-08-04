@@ -9,7 +9,7 @@ import (
 func article(head, body string) models.TranslationPairs {
 	return models.TranslationPairs{
 		Original: head, Translate: body,
-		OriginalLang: "RUS", TranslateLang: "CHE",
+		OriginalLang: "RUS", TranslateLang: "CHE", Packed: true,
 		Rate: 100, EntryType: "WORD",
 	}
 }

@@ -85,11 +85,13 @@ func (r *Repository) findPairs(ctx context.Context, col pairKey, key string, lim
 			FormattedAI:     formattedAI.String,
 			FormattedChosen: formattedChosen.String,
 			Rate:            rate,
-			EntryType:       entryType.String,
-			Subtype:         subtype,
-			EntryIndex:      entryIndex,
-			Notes:           entryNotes.String,
-			Structured:      structured.String,
+			// Read from the stored direction, before the swap below moves it.
+			Packed:     translationLang == "CHE",
+			EntryType:  entryType.String,
+			Subtype:    subtype,
+			EntryIndex: entryIndex,
+			Notes:      entryNotes.String,
+			Structured: structured.String,
 		}
 
 		if originalKey.String != key {
@@ -162,6 +164,7 @@ func (r *Repository) FindTranslationPairsByPrefix(ctx context.Context, prefix st
 			Translate:       translationRaw,
 			OriginalLang:    originalLang,
 			TranslateLang:   translationLang,
+			Packed:          translationLang == "CHE",
 			FormattedAI:     formattedAI.String,
 			FormattedChosen: formattedChosen.String,
 		}

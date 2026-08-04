@@ -109,8 +109,8 @@ func main() {
 				Original:      e.Content,
 				Translate:     t.Content,
 				OriginalLang:  "RUS",
-				TranslateLang: "CHE",
-				EntryType:     e.Type,
+				TranslateLang: "CHE", Packed: true,
+				EntryType: e.Type,
 			}}
 			if *examples {
 				if ex, ok := tools.FirstExampleFor(e.Content, pairs); ok {

@@ -67,7 +67,7 @@ func TestFormatCard_HomonymsStaySeparate(t *testing.T) {
 func TestFormatCard_MentionOnlyArticleIsNotAMeaning(t *testing.T) {
 	card := FormatCard("къолам", []models.TranslationPairs{
 		{Original: "къолам", Translate: "карандаш", OriginalLang: "CHE", TranslateLang: "RUS", Rate: 10000, EntryType: "WORD", EntryIndex: 1},
-		{Original: "Нет", Translate: "хӏан-хӏа; къолам бац хьоьгахь? - нет ли у тебя карандаша?", OriginalLang: "RUS", TranslateLang: "CHE", Rate: 100, EntryType: "WORD"},
+		{Original: "Нет", Translate: "хӏан-хӏа; къолам бац хьоьгахь? - нет ли у тебя карандаша?", OriginalLang: "RUS", TranslateLang: "CHE", Packed: true, Rate: 100, EntryType: "WORD"},
 	})
 	if strings.Contains(card, "хӏан-хӏа") {
 		t.Fatalf("a mention became a meaning:\n%s", card)
@@ -81,8 +81,8 @@ func TestFormatCard_MentionOnlyArticleIsNotAMeaning(t *testing.T) {
 // line, never a sense.
 func TestFormatCard_NeighboursGoToTheFooter(t *testing.T) {
 	card := FormatCard("дом", []models.TranslationPairs{
-		{Original: "дом", Translate: "цӀа", OriginalLang: "RUS", TranslateLang: "CHE", Rate: 16, EntryType: "WORD"},
-		{Original: "Домбра", Translate: "домбра", OriginalLang: "RUS", TranslateLang: "CHE", Rate: 100, EntryType: "WORD"},
+		{Original: "дом", Translate: "цӀа", OriginalLang: "RUS", TranslateLang: "CHE", Packed: true, Rate: 16, EntryType: "WORD"},
+		{Original: "Домбра", Translate: "домбра", OriginalLang: "RUS", TranslateLang: "CHE", Packed: true, Rate: 100, EntryType: "WORD"},
 	})
 	if !strings.Contains(card, "<i>рядом:</i> домбра") {
 		t.Fatalf("neighbour missing from footer:\n%s", card)
@@ -99,9 +99,9 @@ func TestFormatCard_ArticleBecomesSensesAndExamples(t *testing.T) {
 		Original:      "Дом",
 		Translate:     "м 1) цӏа; деревянный ~- дечиган цӏа 2) (учреждение) цӏа; ~ отдыха - садаӏаран цӏа",
 		OriginalLang:  "RUS",
-		TranslateLang: "CHE",
-		Rate:          100,
-		EntryType:     "WORD",
+		TranslateLang: "CHE", Packed: true,
+		Rate:      100,
+		EntryType: "WORD",
 	}})
 	if strings.Contains(card, "м 1)") {
 		t.Fatalf("the raw article reached the card:\n%s", card)
@@ -121,7 +121,7 @@ func TestFormatCard_ArticleBecomesSensesAndExamples(t *testing.T) {
 func TestFormatCard_QualifiersLeaveTheBold(t *testing.T) {
 	card := FormatCard("рука", []models.TranslationPairs{{
 		Original: "Рука", Translate: "1) куьг 2) (почерк) хатӏ",
-		OriginalLang: "RUS", TranslateLang: "CHE", Rate: 100, EntryType: "WORD",
+		OriginalLang: "RUS", TranslateLang: "CHE", Packed: true, Rate: 100, EntryType: "WORD",
 	}})
 	if !strings.Contains(card, "<b>хатӏ</b> <i>(почерк)</i>") {
 		t.Fatalf("qualifier still inside the bold:\n%s", card)
@@ -134,7 +134,7 @@ func TestFormatCard_QualifiersLeaveTheBold(t *testing.T) {
 // the article's own Russian sitting inside the bold that means Chechen.
 func TestFormatSuggestions_OneLinePerWord(t *testing.T) {
 	got := FormatSuggestions([]models.TranslationPairs{
-		{Original: "Карандаш", Translate: "м къолам; химический ~ - шекъа долун къолам", OriginalLang: "RUS", TranslateLang: "CHE", Rate: 100, EntryType: "WORD"},
+		{Original: "Карандаш", Translate: "м къолам; химический ~ - шекъа долун къолам", OriginalLang: "RUS", TranslateLang: "CHE", Packed: true, Rate: 100, EntryType: "WORD"},
 		{Original: "куьг", Translate: "рука́ (кисть)", OriginalLang: "CHE", TranslateLang: "RUS", Rate: 10000, EntryType: "WORD"},
 	})
 	want := "карандаш — <b>къолам</b>\n<b>куьг</b> — рука́"

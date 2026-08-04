@@ -281,3 +281,48 @@ func TestInsertTranslationPair_ReportsInserted(t *testing.T) {
 		t.Fatalf("duplicate resolved to id %d, want original %d", dupID, id1)
 	}
 }
+
+// The reverse hit leads with the side that matched, which used to be the only
+// thing the renderer had to tell a packed Russian–Chechen article from a plain
+// pair — and the swap destroys it. Packed is read from the stored direction so
+// the reading survives the swap: «привет», answered from the compact corpus's
+// «салам, -аш, 2маршалла», was being parsed as an article and came back labelled
+// чеч. → рус. with «аш, 2маршалла → салам,» underneath.
+func TestFindTranslationPairs_PackedSurvivesTheSwap(t *testing.T) {
+	r := newDictionaryTestRepo(t)
+	ctx := context.Background()
+
+	// The compact corpus: Chechen entry, Russian translation. Nothing packed.
+	if _, _, err := r.InsertTranslationPair(ctx, TranslationPair{
+		OriginalRaw: "салам, -аш, 2маршалла", OriginalClean: "салам, -аш, 2маршалла", OriginalLang: "CHE",
+		TranslationRaw: "привет", TranslationClean: "привет", TranslationLang: "RUS",
+		Source: "api", Rate: 16, EntryType: "TEXT",
+	}); err != nil {
+		t.Fatalf("insert: %v", err)
+	}
+	// The articles corpus: Russian entry, the whole article as its translation.
+	if _, _, err := r.InsertTranslationPair(ctx, TranslationPair{
+		OriginalRaw: "Карандаш", OriginalClean: "карандаш", OriginalLang: "RUS",
+		TranslationRaw: "м къолам; химический ~ - шекъа долун къолам", TranslationClean: "м къолам; химический ~ - шекъа долун къолам", TranslationLang: "CHE",
+		Source: "api", Rate: 100, EntryType: "WORD",
+	}); err != nil {
+		t.Fatalf("insert: %v", err)
+	}
+
+	for _, c := range []struct {
+		query string
+		want  bool
+	}{
+		{"привет", false}, // reverse hit on the compact pair
+		{"салам, -аш, 2маршалла", false},
+		{"карандаш", true}, // the article, by its own headword
+	} {
+		found, err := r.FindTranslationPairs(ctx, c.query, 10)
+		if err != nil || len(found) != 1 {
+			t.Fatalf("FindTranslationPairs(%q) = %+v (err %v)", c.query, found, err)
+		}
+		if found[0].Packed != c.want {
+			t.Errorf("FindTranslationPairs(%q).Packed = %v, want %v", c.query, found[0].Packed, c.want)
+		}
+	}
+}

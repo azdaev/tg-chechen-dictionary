@@ -18,7 +18,7 @@ func TestCard_EveryBlockNamesItsDirection(t *testing.T) {
 	}
 
 	rus := Render("карандаш", []models.TranslationPairs{
-		{Original: "Карандаш", Translate: "м къолам", OriginalLang: "RUS", TranslateLang: "CHE", Rate: 100, EntryType: "WORD"},
+		{Original: "Карандаш", Translate: "м къолам", OriginalLang: "RUS", TranslateLang: "CHE", Packed: true, Rate: 100, EntryType: "WORD"},
 	}).Body
 	if !strings.Contains(rus, "рус. → чеч.") {
 		t.Errorf("Russian lookup did not say which side is Chechen:\n%s", rus)
@@ -43,7 +43,7 @@ func TestCard_WordGlossesAreLowercase(t *testing.T) {
 // telling the user that the Chechen for «лом» is «лев».
 func TestCard_CrossLanguageHomographsDoNotMerge(t *testing.T) {
 	body := Render("лом", []models.TranslationPairs{
-		{Original: "Лом", Translate: "м лом, ваба", OriginalLang: "RUS", TranslateLang: "CHE", Rate: 100, EntryType: "WORD"},
+		{Original: "Лом", Translate: "м лом, ваба", OriginalLang: "RUS", TranslateLang: "CHE", Packed: true, Rate: 100, EntryType: "WORD"},
 		{Original: "лом", Translate: "лев", OriginalLang: "CHE", TranslateLang: "RUS", Rate: 10000, EntryType: "WORD", EntryIndex: 1},
 	}).Body
 	for _, para := range strings.Split(body, "\n\n") {
@@ -62,7 +62,7 @@ func TestCard_CrossLanguageHomographsDoNotMerge(t *testing.T) {
 // the paradigm away for every Russian lookup.
 func TestChechenSide_NamesTheWordGrammarBelongsTo(t *testing.T) {
 	rus := Render("карандаш", []models.TranslationPairs{
-		{Original: "Карандаш", Translate: "м къолам; химический ~ - шекъа долун къолам", OriginalLang: "RUS", TranslateLang: "CHE", Rate: 100, EntryType: "WORD"},
+		{Original: "Карандаш", Translate: "м къолам; химический ~ - шекъа долун къолам", OriginalLang: "RUS", TranslateLang: "CHE", Packed: true, Rate: 100, EntryType: "WORD"},
 	}).Chechen
 	if rus != "къолам" {
 		t.Errorf("Chechen side of карандаш = %q, want къолам", rus)
@@ -77,7 +77,7 @@ func TestChechenSide_NamesTheWordGrammarBelongsTo(t *testing.T) {
 
 	// One gloss, one word: «лом, ваба (орудие)» is two spellings and a label.
 	multi := Render("лом", []models.TranslationPairs{
-		{Original: "Лом", Translate: "м лом, ваба (орудие)", OriginalLang: "RUS", TranslateLang: "CHE", Rate: 100, EntryType: "WORD"},
+		{Original: "Лом", Translate: "м лом, ваба (орудие)", OriginalLang: "RUS", TranslateLang: "CHE", Packed: true, Rate: 100, EntryType: "WORD"},
 	}).Chechen
 	if multi != "лом" {
 		t.Errorf("the card picked %q out of a multi-variant gloss, want лом", multi)
@@ -140,7 +140,7 @@ func TestCard_PhrasePunctuationIsNotIdentity(t *testing.T) {
 // перевода» while holding the translation twice over.
 func TestCard_PhraseLivesOnlyInsideAnotherEntry(t *testing.T) {
 	card := FormatCard("спокойной ночи", []models.TranslationPairs{
-		{Original: "Ночь", Translate: "ж буьйса; спокойной ночи! - буьйса декъала хуьлда!; полярная ~ - къилбаседера буьйса", OriginalLang: "RUS", TranslateLang: "CHE", Rate: 100, EntryType: "WORD"},
+		{Original: "Ночь", Translate: "ж буьйса; спокойной ночи! - буьйса декъала хуьлда!; полярная ~ - къилбаседера буьйса", OriginalLang: "RUS", TranslateLang: "CHE", Packed: true, Rate: 100, EntryType: "WORD"},
 	})
 	if !strings.Contains(card, "буьйса декъала хуьлда!") {
 		t.Fatalf("the gloss dosham holds did not make a card:\n%s", card)
@@ -172,7 +172,7 @@ func TestCard_PackedSensesAreUnpacked(t *testing.T) {
 
 	// A gloss that merely lists variants is one sense and stays whole.
 	plain := FormatCard("лом", []models.TranslationPairs{
-		{Original: "Лом", Translate: "м лом, ваба (орудие)", OriginalLang: "RUS", TranslateLang: "CHE", EntryType: "WORD", Rate: 100},
+		{Original: "Лом", Translate: "м лом, ваба (орудие)", OriginalLang: "RUS", TranslateLang: "CHE", Packed: true, EntryType: "WORD", Rate: 100},
 	})
 	if !strings.Contains(plain, "лом, ваба") {
 		t.Errorf("a multi-variant gloss was split:\n%s", plain)
@@ -185,8 +185,8 @@ func TestCard_PackedSensesAreUnpacked(t *testing.T) {
 // gender marker — as the Chechen to say aloud.
 func TestCard_HeadwordCarriesOnlyTheChechen(t *testing.T) {
 	pairs := []models.TranslationPairs{
-		{Original: "Шпиц", Translate: "м (собака) кӏезалг", OriginalLang: "RUS", TranslateLang: "CHE", Rate: 100, EntryType: "WORD"},
-		{Original: "Такса", Translate: "2 ж (собака) такса", OriginalLang: "RUS", TranslateLang: "CHE", Rate: 100, EntryType: "WORD"},
+		{Original: "Шпиц", Translate: "м (собака) кӏезалг", OriginalLang: "RUS", TranslateLang: "CHE", Packed: true, Rate: 100, EntryType: "WORD"},
+		{Original: "Такса", Translate: "2 ж (собака) такса", OriginalLang: "RUS", TranslateLang: "CHE", Packed: true, Rate: 100, EntryType: "WORD"},
 	}
 	card := FormatCard("кӏезалг", pairs)
 	for _, bad := range []string{"<b>(собака)", "<b>2 ", "<b>ж "} {
@@ -206,9 +206,9 @@ func TestCard_HeadwordCarriesOnlyTheChechen(t *testing.T) {
 // disambiguating a word of its own; that is not an answer to it.
 func TestCard_QualifierIsNotTheGloss(t *testing.T) {
 	card := FormatCard("собака", []models.TranslationPairs{
-		{Original: "Собака", Translate: "ж жӏаьла", OriginalLang: "RUS", TranslateLang: "CHE", Rate: 100, EntryType: "WORD"},
-		{Original: "Шпиц", Translate: "м (собака) кӏезалг", OriginalLang: "RUS", TranslateLang: "CHE", Rate: 100, EntryType: "WORD"},
-		{Original: "Такса", Translate: "2 ж (собака) такса", OriginalLang: "RUS", TranslateLang: "CHE", Rate: 100, EntryType: "WORD"},
+		{Original: "Собака", Translate: "ж жӏаьла", OriginalLang: "RUS", TranslateLang: "CHE", Packed: true, Rate: 100, EntryType: "WORD"},
+		{Original: "Шпиц", Translate: "м (собака) кӏезалг", OriginalLang: "RUS", TranslateLang: "CHE", Packed: true, Rate: 100, EntryType: "WORD"},
+		{Original: "Такса", Translate: "2 ж (собака) такса", OriginalLang: "RUS", TranslateLang: "CHE", Packed: true, Rate: 100, EntryType: "WORD"},
 	})
 	if !strings.Contains(card, "<b>жӏаьла</b>") {
 		t.Fatalf("the answer to the query is missing:\n%s", card)
@@ -255,7 +255,7 @@ func TestCard_ChipTakesOnlyGrammarNotes(t *testing.T) {
 func TestCard_ArticleGlossFoldsLikeEveryOtherCorpus(t *testing.T) {
 	pencil := []models.TranslationPairs{{
 		Original: "Карандаш", Translate: "м къолам; химический ~ - шекъа долун къолам",
-		OriginalLang: "RUS", TranslateLang: "CHE", EntryType: "WORD", Rate: 100,
+		OriginalLang: "RUS", TranslateLang: "CHE", Packed: true, EntryType: "WORD", Rate: 100,
 	}}
 	strict := Render("къолам", pencil).Body
 	folded := Render("колам", pencil).Body
@@ -276,7 +276,7 @@ func TestCard_ArticleGlossFoldsLikeEveryOtherCorpus(t *testing.T) {
 	// its own, and its own entry leads the card ahead of any folded match.
 	own := Render("ца", []models.TranslationPairs{
 		{Original: "ца", Translate: "не", OriginalLang: "CHE", TranslateLang: "RUS", EntryType: "WORD", Rate: 16},
-		{Original: "Дом", Translate: "м цӏа", OriginalLang: "RUS", TranslateLang: "CHE", EntryType: "WORD", Rate: 100},
+		{Original: "Дом", Translate: "м цӏа", OriginalLang: "RUS", TranslateLang: "CHE", Packed: true, EntryType: "WORD", Rate: 100},
 	}).Body
 	if !strings.HasPrefix(own, "<b>ца</b>") {
 		t.Errorf("the folded match displaced the word actually typed:\n%s", own)
@@ -291,7 +291,7 @@ func TestCard_ArticleGlossFoldsLikeEveryOtherCorpus(t *testing.T) {
 func TestCard_QualifiedHeadIsTheSameWord(t *testing.T) {
 	card := FormatCard("чӏегӏардиг", []models.TranslationPairs{
 		{Original: "чӏегӏардиг", Translate: "ласточка", OriginalLang: "CHE", TranslateLang: "RUS", Rate: 16, EntryType: "WORD", EntryIndex: 1},
-		{Original: "Касатка", Translate: "ж (ласточка) чӏегӏардиг", OriginalLang: "RUS", TranslateLang: "CHE", Rate: 100, EntryType: "WORD"},
+		{Original: "Касатка", Translate: "ж (ласточка) чӏегӏардиг", OriginalLang: "RUS", TranslateLang: "CHE", Packed: true, Rate: 100, EntryType: "WORD"},
 	})
 	if n := strings.Count(card, "чӏегӏардиг</b>"); n != 1 {
 		t.Errorf("the headword is printed %d times:\n%s", n, card)
@@ -310,7 +310,7 @@ func TestCard_QualifiedHeadIsTheSameWord(t *testing.T) {
 	// A qualifier that is not a sense still earns its place: «Шпиц — м (собака)
 	// кӏезалг» is how the user learns which кӏезалг this is.
 	dog := FormatCard("кӏезалг", []models.TranslationPairs{
-		{Original: "Шпиц", Translate: "м (собака) кӏезалг", OriginalLang: "RUS", TranslateLang: "CHE", Rate: 100, EntryType: "WORD"},
+		{Original: "Шпиц", Translate: "м (собака) кӏезалг", OriginalLang: "RUS", TranslateLang: "CHE", Packed: true, Rate: 100, EntryType: "WORD"},
 	})
 	if !strings.Contains(dog, "<b>кӏезалг</b> <i>(собака)</i>") {
 		t.Errorf("a qualifier that disambiguates was dropped:\n%s", dog)
@@ -350,5 +350,37 @@ func TestCard_CompoundExamplesYieldToRealOnes(t *testing.T) {
 	// The dictionary's own order stands inside each group.
 	if a, b := strings.Index(card, "Нана-пӏелг дӏабуьгу"), strings.Index(card, "Нана-пӏелг сатто"); a > b {
 		t.Errorf("the source order of the compounds was shuffled:\n%s", card)
+	}
+}
+
+// Which side is a packed article cannot be read off the languages. The local
+// lookup leads with the side that matched the query, so a reverse hit arrives
+// with its sides swapped — and «TranslateLang == CHE» then calls a compact pair
+// an article and a real article a plain gloss.
+func TestCard_ArticleIsToldApartFromAPlainPair(t *testing.T) {
+	// The compact corpus, matched from the Russian side: one entry, two senses.
+	compact := FormatCard("привет", []models.TranslationPairs{{
+		Original: "привет", Translate: "салам, -аш, 2маршалла",
+		OriginalLang: "RUS", TranslateLang: "CHE", EntryType: "TEXT", Rate: 16, EntryIndex: 1,
+	}})
+	if !strings.HasPrefix(compact, "привет · <i>рус. → чеч.") {
+		t.Errorf("a Russian query was answered as Chechen:\n%s", compact)
+	}
+	for _, want := range []string{"<b>салам</b>", "<b>маршалла</b>"} {
+		if !strings.Contains(compact, want) {
+			t.Errorf("missing %q — the packed-article parser ran on a plain pair:\n%s", want, compact)
+		}
+	}
+
+	// The articles corpus, matched from the Chechen side: still an article.
+	article := FormatCard("къолам", []models.TranslationPairs{{
+		Original: "м къолам; химический ~ - шекъа долун къолам", Translate: "Карандаш",
+		OriginalLang: "CHE", TranslateLang: "RUS", EntryType: "WORD", Rate: 100, Packed: true,
+	}})
+	if !strings.Contains(article, "<b>къолам</b>") || !strings.Contains(article, "карандаш") {
+		t.Errorf("the article was not parsed, so the card is empty or raw:\n%s", article)
+	}
+	if !strings.Contains(article, "шекъа долун къолам → химический карандаш") {
+		t.Errorf("the article's example was lost:\n%s", article)
 	}
 }

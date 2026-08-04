@@ -16,9 +16,9 @@ func TestInlineCardRendering(t *testing.T) {
 		Original:      "Дом",
 		Translate:     "м 1) цӏа; деревянный ~- дечиган цӏа",
 		OriginalLang:  "RUS",
-		TranslateLang: "CHE",
-		EntryType:     "WORD",
-		Rate:          100,
+		TranslateLang: "CHE", Packed: true,
+		EntryType: "WORD",
+		Rate:      100,
 	}
 	formatted := tools.FormatCard(p.Original, []models.TranslationPairs{p})
 	if !strings.HasPrefix(formatted, "дом · <i>рус. → чеч.</i>\n<b>цӏа</b>") {
@@ -81,7 +81,7 @@ func TestInlineUnavailableIsNotEdgeCached(t *testing.T) {
 func TestInlineAgreesWithTheChatAboutAMiss(t *testing.T) {
 	// «стрим» inside «гольфстрим»: dosham returns the row, the card refuses it.
 	noise := []models.TranslationPairs{
-		{Original: "Гольфстрим", Translate: "м Гольфстрим", OriginalLang: "RUS", TranslateLang: "CHE", EntryType: "WORD", Rate: 100},
+		{Original: "Гольфстрим", Translate: "м Гольфстрим", OriginalLang: "RUS", TranslateLang: "CHE", Packed: true, EntryType: "WORD", Rate: 100},
 	}
 	if card := tools.Render("стрим", noise).Body; card != "" {
 		t.Fatalf("the chat path treats this as an answer, so the test proves nothing: %q", card)
@@ -98,7 +98,7 @@ func TestInlineAgreesWithTheChatAboutAMiss(t *testing.T) {
 
 	// And the agreement holds the other way: a real hit is offered.
 	hit := []models.TranslationPairs{
-		{Original: "Дом", Translate: "м 1) цӏа; деревянный ~- дечиган цӏа", OriginalLang: "RUS", TranslateLang: "CHE", EntryType: "WORD", Rate: 100},
+		{Original: "Дом", Translate: "м 1) цӏа; деревянный ~- дечиган цӏа", OriginalLang: "RUS", TranslateLang: "CHE", Packed: true, EntryType: "WORD", Rate: 100},
 	}
 	got := inlineArticles("q", "дом", hit, false)
 	if len(got) < 2 {
@@ -124,7 +124,7 @@ func TestInlineAgreesWithTheChatAboutAMiss(t *testing.T) {
 // be silenced by the miss test above.
 func TestInlineSuggestionsSurvive(t *testing.T) {
 	got := inlineArticles("q", "яблоками", []models.TranslationPairs{
-		{Original: "Яблоко", Translate: "с Ӏаж", OriginalLang: "RUS", TranslateLang: "CHE", EntryType: "WORD", Rate: 100},
+		{Original: "Яблоко", Translate: "с Ӏаж", OriginalLang: "RUS", TranslateLang: "CHE", Packed: true, EntryType: "WORD", Rate: 100},
 	}, true)
 	if len(got) != 1 {
 		t.Fatalf("got %d rows, want the one suggestion", len(got))

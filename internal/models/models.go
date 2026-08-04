@@ -27,6 +27,20 @@ type TranslationPairs struct {
 	// localization glossary. Every tilde and every "1)" in the corpus lives in
 	// exactly one of those, so the corpus decides how a pair must be read.
 	Rate int `json:"rate,omitempty"`
+	// Packed says the Chechen side is a whole dictionary article in one string —
+	// senses, labels, tildes and all — rather than a plain gloss. Only the
+	// Russian–Chechen corpus writes those, and the renderer needs a parser for
+	// them and none for anything else.
+	//
+	// It has to be carried rather than inferred. The reading used to be
+	// "TranslateLang == CHE", which the local lookup breaks: it leads with the
+	// side that matched the query, so a reverse hit hands back the same pair
+	// with its sides swapped. A compact «салам, -аш, 2маршалла ↔ привет» then
+	// looked exactly like an article and was parsed as one — «привет» came back
+	// labelled чеч. → рус. with «аш, 2маршалла → салам,» under it — while a real
+	// article, arriving the other way round, was read as a plain gloss and
+	// rendered nothing at all.
+	Packed bool `json:"packed,omitempty"`
 	// EntryType is dosham's "WORD" or "TEXT": a headword versus a collocation.
 	// TEXT entries are the dictionary's own usage examples, already split into
 	// the two languages, which is why the card never has to mine them out of an

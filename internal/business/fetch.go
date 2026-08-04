@@ -168,6 +168,7 @@ func (b *Business) fetchFromAPI(ctx context.Context, word string) ([]models.Tran
 				OriginalLang:  inferOriginalLang(normLang),
 				TranslateLang: normLang,
 				Rate:          entry.Rate,
+				Packed:        normLang == "CHE",
 				EntryType:     entry.Type,
 				Subtype:       entry.Subtype,
 				EntryIndex:    entry.EntryIndex,
