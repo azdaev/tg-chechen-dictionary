@@ -87,3 +87,28 @@ func TestChechenSide_NamesTheWordGrammarBelongsTo(t *testing.T) {
 		t.Error("a card with no blocks named a word anyway")
 	}
 }
+
+// Homonyms share a headword, so dosham's examples arrive filed under neither:
+// «цӀа» is both the adverb «домой» and the noun «комната», and every example
+// landed on whichever block sorted first. The card then read «домой» and, right
+// under it, «перемерить комнату» — the wrong word taught with a straight face.
+func TestCard_ExampleGoesToTheSenseItIllustrates(t *testing.T) {
+	pairs := []models.TranslationPairs{
+		{Original: "цӏа", Translate: "домой, в свой дом", OriginalLang: "CHE", TranslateLang: "RUS", EntryType: "WORD", Subtype: 3, EntryIndex: 2, Rate: 10000},
+		{Original: "цӏа", Translate: "комната", OriginalLang: "CHE", TranslateLang: "RUS", EntryType: "WORD", Subtype: 2, EntryIndex: 1, Rate: 10000},
+		{Original: "цӏа духадуста", Translate: "перемерить комнату", OriginalLang: "CHE", TranslateLang: "RUS", EntryType: "TEXT", Rate: 10000},
+		{Original: "цӏа кхиа", Translate: "успеть домой", OriginalLang: "CHE", TranslateLang: "RUS", EntryType: "TEXT", Rate: 10000},
+	}
+
+	card := FormatCard("цӏа", pairs)
+	room, home := strings.Index(card, "комната"), strings.Index(card, "домой, в свой дом")
+	if room < 0 || home < 0 {
+		t.Fatalf("both homonyms should have a block:\n%s", card)
+	}
+	if i := strings.Index(card, "перемерить комнату"); i < room {
+		t.Errorf("the room example sits under «%s»:\n%s", map[bool]string{true: "домой"}[i > home], card)
+	}
+	if i := strings.Index(card, "успеть домой"); i < home || i > room {
+		t.Errorf("the adverb's own example left its block:\n%s", card)
+	}
+}

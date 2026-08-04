@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 )
 
 // One shape for every lookup, both directions, all four source dictionaries:
@@ -268,15 +269,83 @@ func collect(query string, pairs []models.TranslationPairs) collected {
 		b.senses = dedupSenses(b.senses)
 		kept = append(kept, b)
 	}
-	if len(kept) > 0 {
-		kept[0].examples = append(kept[0].examples, orphaned...)
-	}
+	assignExamples(kept, orphaned)
 	for _, b := range kept {
 		b.examples = dedupExamples(b.examples, FoldSearch(b.head))
 	}
 	c.blocks = kept
 	c.neighbours = dedupStrings(c.neighbours)
 	return c
+}
+
+// assignExamples hands each example dosham filed under another entry to the
+// block it actually illustrates. Homonyms share a headword, so the Chechen side
+// cannot tell them apart — the Russian side can: «цӀа духадуста — переме́рить
+// ко́мнату» belongs to the noun, «цӀа кхиа — успе́ть домо́й» to the adverb. They
+// all went to whichever block sorted first, which filed «переме́рить ко́мнату»
+// under «домо́й» and taught the wrong word.
+func assignExamples(blocks []*block, examples []example) {
+	if len(blocks) == 0 {
+		return
+	}
+	for _, ex := range examples {
+		best, score := blocks[0], 0
+		if len(blocks) > 1 {
+			words := foldedWords(ex.russian)
+			for _, b := range blocks {
+				if s := senseOverlap(b, words); s > score {
+					best, score = b, s
+				}
+			}
+		}
+		best.examples = append(best.examples, ex)
+	}
+}
+
+// senseOverlap counts how many of a block's gloss words the example repeats.
+// Russian inflects, so a shared five-letter prefix counts too: the sense is
+// «ко́мната» and the example says «ко́мнату». Five, because three would let the
+// «дом» inside «домо́й» claim an example about houses.
+//
+// ponytail: prefix, not a stemmer — «и́мя» and «и́мени» share only two letters
+// and go unmatched, so that example falls back to the first block. A real
+// stemmer if this misses often enough to notice.
+func senseOverlap(b *block, exampleWords []string) int {
+	const inflectedPrefix = 5
+	n := 0
+	for _, s := range b.senses {
+		for _, sw := range foldedWords(s) {
+			for _, ew := range exampleWords {
+				if sw == ew || sharedPrefix(sw, ew) >= inflectedPrefix {
+					n++
+				}
+			}
+		}
+	}
+	return n
+}
+
+// foldedWords lists the words worth comparing. Prepositions are dropped: «в»
+// stands in both «домо́й, в свой дом» and «насори́ть в ко́мнате», and matching on
+// it gave the adverb an example about rooms.
+func foldedWords(s string) []string {
+	const shortestMeaningful = 3
+	var out []string
+	for _, w := range strings.FieldsFunc(FoldSearch(s), func(r rune) bool { return !unicode.IsLetter(r) }) {
+		if utf8.RuneCountInString(w) >= shortestMeaningful {
+			out = append(out, w)
+		}
+	}
+	return out
+}
+
+func sharedPrefix(a, b string) int {
+	ar, br := []rune(a), []rune(b)
+	n := 0
+	for n < len(ar) && n < len(br) && ar[n] == br[n] {
+		n++
+	}
+	return n
 }
 
 // matchingGloss finds the article gloss holding the queried word. Glosses list
