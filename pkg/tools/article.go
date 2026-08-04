@@ -4,6 +4,7 @@ import (
 	"chetoru/internal/models"
 	"encoding/json"
 	"strings"
+	"unicode/utf8"
 )
 
 // ParseArticle splits a Russian–Chechen article into Chechen glosses and
@@ -16,6 +17,7 @@ import (
 func ParseArticle(head, body string) (glosses []string, examples []example) {
 	body = boldRe.ReplaceAllString(body, "")
 	body = stripLabels(strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(body), "-")))
+	body = stripFormList(body)
 
 	for _, part := range meaningRe.Split(body, -1) {
 		part = strings.TrimSpace(part)
@@ -77,6 +79,51 @@ func dropLabelTail(gloss string) string {
 		return gloss
 	}
 	return rest
+}
+
+// stripFormList drops a leading bracket that lists the headword's other Russian
+// forms rather than qualifying its meaning: «Один» opens "м (одна ж, одно с;
+// одни мн.) числ. цхьаъ", and the card offered «(одна ж, одно с» — a Russian
+// declension table, with the bracket cut in half, as the Chechen for «один».
+//
+// A form list is several short items; a qualifier that means something is one
+// phrase — «(глава дома, семьи)», «(тот же самый)». Only the leading bracket is
+// examined, and only before the senses are split, so a qualifier standing at
+// the head of its own sense is never in reach.
+func stripFormList(body string) string {
+	if !strings.HasPrefix(body, "(") {
+		return body
+	}
+	end := strings.Index(body, ")")
+	if end < 0 {
+		return body
+	}
+	items := strings.FieldsFunc(body[1:end], func(r rune) bool { return r == ',' || r == ';' })
+	if len(items) < 2 {
+		return body
+	}
+	for _, item := range items {
+		if !isFormListItem(item) {
+			return body
+		}
+	}
+	return strings.TrimSpace(body[end+1:])
+}
+
+// isFormListItem reports whether one bracketed item looks like an inflected
+// form rather than a meaning: a single word — «двадцати» — or a word beside a
+// short grammar marker or preposition — «одна ж», «о двух». Two full words are
+// a phrase, which is why «(глава дома, семьи)» keeps its bracket.
+func isFormListItem(item string) bool {
+	const markerRunes = 3
+	fields := strings.Fields(item)
+	switch len(fields) {
+	case 1:
+		return true
+	case 2:
+		return utf8.RuneCountInString(fields[0]) <= markerRunes || utf8.RuneCountInString(fields[1]) <= markerRunes
+	}
+	return false
 }
 
 // lastPeriodOutsideParens finds the label period to cut at, ignoring the ones

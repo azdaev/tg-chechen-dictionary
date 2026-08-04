@@ -126,3 +126,26 @@ func TestParseArticle_LabelsAreStrippedBeforeTheirPeriodsAreSpent(t *testing.T) 
 		t.Errorf("glosses = %q, want тӏулг alone", pebble)
 	}
 }
+
+// «Один» opens "м (одна ж, одно с; одни мн.) числ. цхьаъ" — the bracket lists
+// the Russian headword's other forms, not what the word means. The card offered
+// «(одна ж, одно с» as its first Chechen translation, bracket cut in half.
+func TestParseArticle_FormListIsNotAMeaning(t *testing.T) {
+	glosses, _ := ParseArticle("Один", "м (одна ж, одно с; одни мн.) ӏ. (т.к. ед.) числ. цхьаъ; ~ раз - цкъа")
+	if len(glosses) == 0 || strings.Contains(glosses[0], "одна ж") {
+		t.Fatalf("glosses = %q, want the form list gone", glosses)
+	}
+
+	// A bracket that says what the sense means is one phrase, and it stays.
+	for _, keep := range []string{"(глава дома, семьи) да", "(орудие) лом", "(тот же самый) цхьана"} {
+		if got := stripFormList(keep); got != keep {
+			t.Errorf("stripFormList(%q) = %q, want it untouched", keep, got)
+		}
+	}
+	// Two short items are a form list however the corpus punctuates them.
+	for _, drop := range []string{"(двадцати, двадцатью) ткъа", "(одна ж, одно с; одни мн.) цхьаъ"} {
+		if got := stripFormList(drop); strings.HasPrefix(got, "(") {
+			t.Errorf("stripFormList(%q) = %q, want the list gone", drop, got)
+		}
+	}
+}

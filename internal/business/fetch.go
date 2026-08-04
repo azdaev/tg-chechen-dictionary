@@ -47,8 +47,17 @@ func (b *Business) fetchTranslationsWithFallback(word string) ([]models.Translat
 	}
 
 	// The user is already waiting on a miss, so variant lookups run
-	// concurrently instead of chaining API round trips. Merging still follows
-	// variant order, so the result is the same as the sequential version.
+	// concurrently instead of chaining API round trips.
+	//
+	// Merging follows variant order, but the cancellation below does not: a
+	// candidate that answers first ends the ones still queued behind the retry
+	// pool, whichever order RespellVariants put them in. So this is not the
+	// sequential cascade with the waiting removed — when two respellings are
+	// both real words, which one answers depends on timing, and the winner is
+	// what gets cached. Left as is deliberately: every candidate that could win
+	// folds to the query, so all of them are the word the user typed under a
+	// spelling they did not, and preserving strict priority would mean spending
+	// the queued calls on a volunteer API to choose between right answers.
 	// The whole cascade gets one budget. Without it the retry pool turns a burst
 	// into a queue: eight callers each holding a handler slot enqueue up to
 	// sixty-four retries, and if dosham is timing out at 15s they drain in eight
