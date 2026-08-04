@@ -142,7 +142,7 @@ func (n *Net) sendMiss(ctx context.Context, m *tgbotapi.Message, neighbours []st
 		text += "\n\n" + line
 	}
 	if suggestions := n.business.SuggestTranslations(m.Text); len(suggestions) > 0 {
-		text += "\n\n" + SuggestionsHeaderText + "\n\n" + tools.FormatPairs(suggestions)
+		text += "\n\n" + SuggestionsHeaderText + "\n\n" + tools.FormatSuggestions(suggestions)
 	}
 
 	// Clamped like every other card: three long glosses clear 4096 characters,

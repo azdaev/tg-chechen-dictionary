@@ -127,3 +127,32 @@ func TestFormatCard_QualifiersLeaveTheBold(t *testing.T) {
 		t.Fatalf("qualifier still inside the bold:\n%s", card)
 	}
 }
+
+// After a miss the bot offers near-misses. They came straight from the prefix
+// lookup, and the Russian–Chechen corpus packs a whole entry into one string, so
+// the offer read «Карандаш — м къолам; химический ~ - шекъа долун къолам; …» —
+// the article's own Russian sitting inside the bold that means Chechen.
+func TestFormatSuggestions_OneLinePerWord(t *testing.T) {
+	got := FormatSuggestions([]models.TranslationPairs{
+		{Original: "Карандаш", Translate: "м къолам; химический ~ - шекъа долун къолам", OriginalLang: "RUS", TranslateLang: "CHE", Rate: 100, EntryType: "WORD"},
+		{Original: "куьг", Translate: "рука́ (кисть)", OriginalLang: "CHE", TranslateLang: "RUS", Rate: 10000, EntryType: "WORD"},
+	})
+	want := "карандаш — <b>къолам</b>\n<b>куьг</b> — рука́"
+	if got != want {
+		t.Errorf("got:\n%s\nwant:\n%s", got, want)
+	}
+	if strings.Contains(got, "~") || strings.Contains(got, "химический") {
+		t.Errorf("the article body leaked into a suggestion:\n%s", got)
+	}
+}
+
+// A pair the card cannot place still has to be offered — an empty suggestion
+// block under «нет перевода» is worse than a rough line.
+func TestFormatSuggestions_UnplaceablePairStillShows(t *testing.T) {
+	got := FormatSuggestions([]models.TranslationPairs{
+		{Original: "Телефон болх беш яц", Translate: "Телефон не работает", OriginalLang: "CHE", TranslateLang: "RUS", EntryType: "TEXT"},
+	})
+	if !strings.Contains(got, "Телефон не работает") {
+		t.Errorf("a suggestion vanished instead of falling back:\n%q", got)
+	}
+}
