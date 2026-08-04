@@ -57,28 +57,40 @@ func (q lookup) classify(p models.TranslationPairs) placement {
 
 func (q lookup) classifyArticle(p models.TranslationPairs, original, translate string) placement {
 	glosses, examples := articleParts(p, original, translate)
-	switch {
+
 	// The user typed the article's own Russian headword.
-	case NormalizeSearch(original) == q.key:
+	if NormalizeSearch(original) == q.key {
 		return placement{role: roleEntry, head: original, senses: glosses, examples: examples}
+	}
 
 	// The user typed one of its Chechen glosses, so the answer is the article's
-	// headword — this carries «карандаш» onto «къолам».
-	case matchingGloss(glosses, q.key) != "":
-		return placement{
-			role:     roleEntry,
-			head:     matchingGloss(glosses, q.key),
-			cheHead:  true,
-			senses:   []string{strings.ToLower(original)},
-			examples: relevant(examples, q.key),
+	// headword — this carries «карандаш» onto «къолам». The folded spelling is
+	// tried after the strict one, because a query that dropped the palochka
+	// reaches this corpus the same way it reaches the other three: the cascade
+	// looks «кӏеда» up for a user who typed «кеда» and hands the article back
+	// under the spelling they typed. Strict first, and never both at once —
+	// folding collides, and «ца» is not «цӏа».
+	for _, k := range q.keys() {
+		if gloss := matchingGloss(glosses, k); gloss != "" {
+			return placement{
+				role:     roleEntry,
+				head:     gloss,
+				cheHead:  true,
+				senses:   []string{strings.ToLower(original)},
+				examples: relevant(examples, k),
+			}
 		}
+	}
 
 	// Body mention only. Never a sense — «А», «Его» and «Нет» all mention
 	// «карандаш» — but its examples for the word are real.
-	case containsWord(translate, q.key):
-		return placement{role: roleExample, examples: relevant(examples, q.key)}
+	for _, k := range q.keys() {
+		if k.in(translate) {
+			return placement{role: roleExample, examples: relevant(examples, k)}
+		}
+	}
 
-	case strings.HasPrefix(NormalizeSearch(original), q.key):
+	if strings.HasPrefix(NormalizeSearch(original), q.key) {
 		return placement{role: roleNeighbour, head: original}
 	}
 	return placement{role: roleNone}
@@ -128,11 +140,38 @@ func (q lookup) classifyEntry(p models.TranslationPairs, original, translate str
 	return placement{role: roleNone}
 }
 
+// queryKey is one spelling a pair may be matched against. fold says compare
+// with the marks a keyboard cannot type removed from both sides.
+type queryKey struct {
+	text string
+	fold bool
+}
+
+// keys returns the spellings to try, strict first. The strict one always gets
+// first refusal because folding collides: FoldSearch turns «цӏа» into «ца»,
+// which is a different word. The folded pass runs even when the query itself
+// has nothing to fold away — the marks that go missing are the entry's, not
+// the query's: someone typing «колам» is looking for «къолам».
+func (q lookup) keys() []queryKey {
+	keys := []queryKey{{text: q.key}}
+	if q.folded != "" {
+		keys = append(keys, queryKey{text: q.folded, fold: true})
+	}
+	return keys
+}
+
+func (k queryKey) in(text string) bool {
+	if k.fold {
+		return containsWord(FoldSearch(text), k.text)
+	}
+	return containsWord(text, k.text)
+}
+
 // matchingGloss finds the article gloss holding the queried word. Glosses list
 // variants ("цӏа, цӏехьа"), so the test is whole-word, not equality.
-func matchingGloss(glosses []string, key string) string {
+func matchingGloss(glosses []string, k queryKey) string {
 	for _, g := range glosses {
-		if containsWord(g, key) {
+		if k.in(g) {
 			return g
 		}
 	}
@@ -140,10 +179,10 @@ func matchingGloss(glosses []string, key string) string {
 }
 
 // relevant keeps the examples that actually illustrate the queried word.
-func relevant(examples []example, key string) []example {
+func relevant(examples []example, k queryKey) []example {
 	out := make([]example, 0, len(examples))
 	for _, ex := range examples {
-		if containsWord(ex.chechen, key) || containsWord(ex.russian, key) {
+		if k.in(ex.chechen) || k.in(ex.russian) {
 			out = append(out, ex)
 		}
 	}

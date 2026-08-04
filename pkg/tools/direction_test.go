@@ -224,3 +224,40 @@ func TestCard_ChipTakesOnlyGrammarNotes(t *testing.T) {
 		t.Errorf("the plural note was crowded out by the definition:\n%s", withPlural)
 	}
 }
+
+// Three corpora folded the marks a keyboard cannot type and the fourth did not.
+// The Russian→Chechen articles are the one corpus that packs its entry into a
+// single string, and its own matching compared the query strictly — so the
+// cascade would look «кӏеда» up for someone who typed «кеда», dosham would
+// answer with the article, and the renderer would throw it away and report that
+// the word does not exist.
+func TestCard_ArticleGlossFoldsLikeEveryOtherCorpus(t *testing.T) {
+	pencil := []models.TranslationPairs{{
+		Original: "Карандаш", Translate: "м къолам; химический ~ - шекъа долун къолам",
+		OriginalLang: "RUS", TranslateLang: "CHE", EntryType: "WORD", Rate: 100,
+	}}
+	strict := Render("къолам", pencil).Body
+	folded := Render("колам", pencil).Body
+	if strict == "" {
+		t.Fatal("the strict spelling does not render, so the test proves nothing")
+	}
+	if folded != strict {
+		t.Errorf("folded spelling rendered differently:\n strict=%q\n folded=%q", strict, folded)
+	}
+
+	// The example under it has to survive the same fold, or the card answers
+	// with a bare gloss for exactly the queries that most need an example.
+	if !strings.Contains(folded, "шекъа долун къолам → химический карандаш") {
+		t.Errorf("the example was filtered out by the strict key:\n%s", folded)
+	}
+
+	// The strict spelling still wins where the two disagree: «ца» is a word of
+	// its own, and its own entry leads the card ahead of any folded match.
+	own := Render("ца", []models.TranslationPairs{
+		{Original: "ца", Translate: "не", OriginalLang: "CHE", TranslateLang: "RUS", EntryType: "WORD", Rate: 16},
+		{Original: "Дом", Translate: "м цӏа", OriginalLang: "RUS", TranslateLang: "CHE", EntryType: "WORD", Rate: 100},
+	}).Body
+	if !strings.HasPrefix(own, "<b>ца</b>") {
+		t.Errorf("the folded match displaced the word actually typed:\n%s", own)
+	}
+}
