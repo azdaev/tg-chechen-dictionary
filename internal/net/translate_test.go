@@ -7,24 +7,13 @@ import (
 	"testing"
 )
 
-func TestMoreCallbackData_FitsLimit(t *testing.T) {
-	// Short word: button data is well within the 64-byte limit.
-	if data, ok := moreCallbackData("дерево", 4); !ok || data != "more_дерево_4" {
-		t.Errorf("moreCallbackData(дерево,4) = %q,%v; want more_дерево_4,true", data, ok)
-	}
-
-	// Long Cyrillic phrase (2 bytes/char) exceeds 64 bytes -> omitted.
-	long := strings.Repeat("ӏ", 40) // 40 runes * 2 bytes = 80 bytes, plus prefix
-	if _, ok := moreCallbackData(long, 4); ok {
-		t.Errorf("moreCallbackData(long) ok = true, want false (would exceed 64-byte limit)")
-	}
-
-	// A produced payload that fits must round-trip through the parser.
-	if data, ok := moreCallbackData("дерево", 8); ok {
-		w, off, parsed := parseMoreCallback(data)
-		if !parsed || w != "дерево" || off != 8 {
-			t.Errorf("round-trip(%q) = %q,%d,%v; want дерево,8,true", data, w, off, parsed)
-		}
+func TestParseMoreCallback_RoundTripsAPayload(t *testing.T) {
+	// Nothing draws the button any more — the card is the whole answer — but the
+	// handler stays for buttons sitting in older chats, so the parser must keep
+	// reading what those chats send.
+	w, off, ok := parseMoreCallback("more_дерево_8")
+	if !ok || w != "дерево" || off != 8 {
+		t.Errorf("parseMoreCallback = %q,%d,%v; want дерево,8,true", w, off, ok)
 	}
 }
 
