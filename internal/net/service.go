@@ -29,6 +29,9 @@ type Net struct {
 	inlineSpellMu     sync.Mutex
 	inlineSpellLatest map[int64]string
 
+	quizClaimsMu sync.Mutex
+	quizClaims   map[quizKey]struct{}
+
 	// bg tracks detached post-reply work (donation nudge, cache invalidation,
 	// missing-word records) so shutdown can wait for it.
 	bg sync.WaitGroup

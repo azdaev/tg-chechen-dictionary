@@ -231,6 +231,17 @@ func (n *Net) HandleQuizCallback(ctx context.Context, cq *tgbotapi.CallbackQuery
 
 	correct := chosenIdx == correctIdx
 
+	// One score per question. The keyboard that disables further answering is
+	// edited after the score is written, and callbacks run concurrently — so two
+	// taps inside that window both counted, and a fast tapper could score every
+	// option on the card, the right one among them.
+	if !n.claimQuizAnswer(cq.Message.Chat.ID, cq.Message.MessageID) {
+		if _, err := n.bot.Request(tgbotapi.NewCallback(cq.ID, "")); err != nil {
+			n.log.WithError(err).Warn("failed to ack a repeated quiz answer")
+		}
+		return nil
+	}
+
 	// Record the answer and fetch the running score for motivating feedback.
 	userID := cq.From.ID
 	if err := n.repo.RecordQuizAnswer(ctx, userID, cq.From.UserName, cq.From.FirstName, correct); err != nil {
@@ -288,4 +299,34 @@ func (n *Net) HandleQuizCallback(ctx context.Context, cq *tgbotapi.CallbackQuery
 		return fmt.Errorf("bot.Send edit: %w", err)
 	}
 	return nil
+}
+
+// quizKey identifies one quiz message. Private quizzes are one card per chat,
+// so the pair is enough — group polls score through HandlePollAnswer instead.
+type quizKey struct {
+	chat    int64
+	message int
+}
+
+// maxQuizClaims bounds what the claims map can grow to. A claim only has to
+// outlive the keyboard edit it races, so dropping every claim at once costs
+// nothing but re-opening that window on quizzes nobody is still looking at.
+const maxQuizClaims = 4096
+
+// claimQuizAnswer reports whether this message's score is ours to write.
+func (n *Net) claimQuizAnswer(chatID int64, messageID int) bool {
+	k := quizKey{chat: chatID, message: messageID}
+	n.quizClaimsMu.Lock()
+	defer n.quizClaimsMu.Unlock()
+	if _, taken := n.quizClaims[k]; taken {
+		return false
+	}
+	if n.quizClaims == nil {
+		n.quizClaims = make(map[quizKey]struct{})
+	}
+	if len(n.quizClaims) >= maxQuizClaims {
+		clear(n.quizClaims)
+	}
+	n.quizClaims[k] = struct{}{}
+	return true
 }
