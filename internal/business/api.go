@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -16,6 +17,11 @@ import (
 // reused and every request is bounded by a timeout. Without a timeout a hung
 // API would block request goroutines indefinitely.
 var doshamHTTPClient = &http.Client{Timeout: 15 * time.Second}
+
+// errRateLimited is dosham asking us to slow down. It is worth telling apart
+// from any other failure because it is the one answer that asking again makes
+// worse — for the next user here and for everyone else on a volunteer API.
+var errRateLimited = errors.New("dosham API: too many requests")
 
 // maxRetryRequests caps how many respelling retries may be in flight against
 // dosham at once, process-wide. cascadeBudget caps how long one cascade may
@@ -72,6 +78,9 @@ func doDoshamQuery(ctx context.Context, query string, variables map[string]any, 
 	}
 	defer resp.Body.Close()
 
+	if resp.StatusCode == http.StatusTooManyRequests {
+		return errRateLimited
+	}
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("dosham API: status %d", resp.StatusCode)
 	}

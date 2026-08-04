@@ -6,6 +6,7 @@ import (
 	"chetoru/internal/models"
 	"chetoru/pkg/tools"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -36,6 +37,17 @@ func (b *Business) fetchTranslationsWithFallback(word string) ([]models.Translat
 	translations, err := b.fetchTranslationsFromAPI(word)
 	if err == nil && hasExactOriginal(translations, word) {
 		return translations, nil
+	}
+
+	// Being told to slow down is the one answer that must not be met with four
+	// more requests: the cascade would turn one refused lookup into five, at the
+	// moment the dictionary can least afford it.
+	//
+	// ponytail: per-lookup only. A burst still costs one refused request each;
+	// a shared breaker that skips the API outright for a few seconds after a 429
+	// is the next step if this ever shows up in the logs as a wave.
+	if errors.Is(err, errRateLimited) {
+		return translations, err
 	}
 
 	// A dictionary that returned nothing at all for this spelling is the signal

@@ -27,6 +27,8 @@ type doshamProbe struct {
 	hold <-chan struct{}
 	// fail names the lookups that answer with an HTTP error instead of rows.
 	fail map[string]bool
+	// limited names the lookups dosham answers with 429.
+	limited map[string]bool
 	// texts answers a word with a collocation that merely contains it, the way
 	// dosham answers an inflected Russian form.
 	texts map[string]string
@@ -83,6 +85,10 @@ func (p *doshamProbe) start(t *testing.T) {
 			p.mu.Unlock()
 		}
 
+		if p.limited[word] {
+			http.Error(w, "slow down", http.StatusTooManyRequests)
+			return
+		}
 		if p.fail[word] {
 			http.Error(w, "upstream is down", http.StatusInternalServerError)
 			return
@@ -347,5 +353,25 @@ func TestFetchWithFallback_NoiseIsNotAnAnswerWhenAVariantFailed(t *testing.T) {
 	probe.fail = nil
 	if _, err := b.fetchTranslationsWithFallback("чегардиг"); err != nil {
 		t.Errorf("a healthy cascade that found nothing reported an outage: %v", err)
+	}
+}
+
+// A miss fans out into a cascade of respellings, which is the right answer to
+// «the dictionary holds nothing under this spelling» and the wrong one to «the
+// dictionary is asking you to stop»: one refused lookup became five.
+func TestFetchWithFallback_RateLimitEndsTheCascade(t *testing.T) {
+	probe := &doshamProbe{
+		primaries: map[string]bool{"чегӏардиг": true},
+		limited:   map[string]bool{"чегӏардиг": true},
+		entries:   map[string]string{"чӏегӏардиг": "чӏегӏардиг"},
+	}
+	probe.start(t)
+	b := &Business{log: logrus.New()}
+
+	if _, err := b.fetchTranslationsWithFallback("чегӏардиг"); err == nil {
+		t.Fatal("a refused lookup must not read as an answer")
+	}
+	if n := probe.count("чӏегӏардиг"); n != 0 {
+		t.Errorf("cascade sent %d retries at an API that just said no", n)
 	}
 }
