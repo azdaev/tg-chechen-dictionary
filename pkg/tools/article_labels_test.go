@@ -101,3 +101,28 @@ func TestParseArticle_LabelRemnantsAreNotGlosses(t *testing.T) {
 		}
 	}
 }
+
+// «Камень» opens "м, тж. собир. тӏулг". Abbreviations were expanded before the
+// labels were stripped, so «собир.» became «(собирательное)» and took its period
+// with it — nothing was left to cut at, and the first Chechen word the card
+// offered for «камень» was the gender marker «м».
+func TestParseArticle_LabelsAreStrippedBeforeTheirPeriodsAreSpent(t *testing.T) {
+	glosses, _ := ParseArticle("Камень", "м, тж. собир. тӏулг; драгоценный ~- мехала тӏулг")
+	if len(glosses) == 0 || glosses[0] != "тӏулг" {
+		t.Fatalf("glosses = %q, want тӏулг alone", glosses)
+	}
+
+	// A period inside a qualifier is not a label's: cutting at the one in «род.»
+	// left «матери) нана», a closing bracket with no opening one.
+	mother, _ := ParseArticle("Мать", "ж (род. матери) нана")
+	if len(mother) == 0 || strings.HasPrefix(mother[0], "матери)") {
+		t.Errorf("glosses = %q, want the qualifier kept whole", mother)
+	}
+
+	// A cross-reference points at another entry; the word it points at is not
+	// the translation. «Камешек» opens "м уменьш. от камень тӏулг".
+	pebble, _ := ParseArticle("Камешек", "м уменьш. от камень тӏулг")
+	if len(pebble) == 0 || pebble[0] != "тӏулг" {
+		t.Errorf("glosses = %q, want тӏулг alone", pebble)
+	}
+}

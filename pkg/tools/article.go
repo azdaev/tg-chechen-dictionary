@@ -44,7 +44,12 @@ func ParseArticle(head, body string) (glosses []string, examples []example) {
 		// mid-label. «Спасибо» stores "2. в знач. сказ., кому баркалла ду", and
 		// cutting at the last period yields ", кому баркалла ду" — a comma, a case
 		// marker, and only then the word.
-		if gloss := stripLabels(dropLabelTail(expandAbbreviations(cleanTranslation(main)))); gloss != "" {
+		// Abbreviations are expanded last, and only in what survives. Expanding
+		// first spends the periods dropLabelTail reads: «Камень» opens "м, тж.
+		// собир. тӏулг", and once that became "м, также (собирательное) тӏулг"
+		// there was no period left to cut at and no pattern to match, so the
+		// first Chechen word offered for «камень» was a gender marker.
+		if gloss := expandAbbreviations(stripLabels(dropLabelTail(cleanTranslation(main)))); gloss != "" {
 			if expanded, exact := replaceTildeWithWord(gloss, head); exact {
 				glosses = append(glosses, expanded)
 			}
@@ -61,7 +66,7 @@ func ParseArticle(head, body string) (glosses []string, examples []example) {
 // vocabulary one abbreviation at a time is a race with a paper dictionary.
 // The real translation is always what follows the last one.
 func dropLabelTail(gloss string) string {
-	i := strings.LastIndex(gloss, ".")
+	i := lastPeriodOutsideParens(gloss)
 	if i == -1 {
 		return gloss
 	}
@@ -72,6 +77,28 @@ func dropLabelTail(gloss string) string {
 		return gloss
 	}
 	return rest
+}
+
+// lastPeriodOutsideParens finds the label period to cut at, ignoring the ones
+// inside a qualifier: «Мать» stores "ж (род. матери) нана", and cutting at the
+// period in «род.» left the card offering «матери) нана» as Chechen.
+func lastPeriodOutsideParens(s string) int {
+	depth, at := 0, -1
+	for i, r := range s {
+		switch r {
+		case '(':
+			depth++
+		case ')':
+			if depth > 0 {
+				depth--
+			}
+		case '.':
+			if depth == 0 {
+				at = i
+			}
+		}
+	}
+	return at
 }
 
 // articleExamples reads a sense's semicolon-separated example list. The source
@@ -111,6 +138,7 @@ func stripLabels(text string) string {
 		// every pattern below is anchored, so the comma alone stops the loop dead.
 		text = strings.TrimSpace(strings.TrimLeft(text, ",;:-— "))
 		text = strings.TrimSpace(endingsRe.ReplaceAllString(text, ""))
+		text = strings.TrimSpace(crossRefRe.ReplaceAllString(text, ""))
 		text = strings.TrimSpace(grammarRe.ReplaceAllString(text, ""))
 		text = strings.TrimSpace(verbLabelRe.ReplaceAllString(text, ""))
 		if text == before {

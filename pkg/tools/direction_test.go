@@ -153,3 +153,28 @@ func TestCard_PhraseLivesOnlyInsideAnotherEntry(t *testing.T) {
 		t.Errorf("«полярная ночь» came along for the ride:\n%s", card)
 	}
 }
+
+// The compact corpus lists a plural ending after the word and glues the next
+// sense to its number. «салам, -аш, 2маршалла» is two ways to say «привет», and
+// the card offered the whole string — commas, dash and digit — as Chechen.
+func TestCard_PackedSensesAreUnpacked(t *testing.T) {
+	card := FormatCard("привет", []models.TranslationPairs{
+		{Original: "салам, -аш, 2маршалла", Translate: "привет", OriginalLang: "CHE", TranslateLang: "RUS", EntryType: "TEXT", Rate: 16},
+	})
+	if strings.Contains(card, "-аш") || strings.Contains(card, "2маршалла") {
+		t.Fatalf("the corpus's own shorthand reached the user:\n%s", card)
+	}
+	for _, want := range []string{"салам", "маршалла"} {
+		if !strings.Contains(card, want) {
+			t.Errorf("%q is missing from:\n%s", want, card)
+		}
+	}
+
+	// A gloss that merely lists variants is one sense and stays whole.
+	plain := FormatCard("лом", []models.TranslationPairs{
+		{Original: "Лом", Translate: "м лом, ваба (орудие)", OriginalLang: "RUS", TranslateLang: "CHE", EntryType: "WORD", Rate: 100},
+	})
+	if !strings.Contains(plain, "лом, ваба") {
+		t.Errorf("a multi-variant gloss was split:\n%s", plain)
+	}
+}

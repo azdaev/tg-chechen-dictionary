@@ -24,6 +24,10 @@ var (
 	// also a real Russian word. The trailing group accepts a colon because
 	// «Заострить» stores "сов.: заострить карандаш - къолам ирбан".
 	verbLabelRe = regexp.MustCompile(`^((не)?сов\.|однокр\.|многокр\.|перех\.|неперех\.|безл\.|нескл\.|нареч\.|числ\.|мест\.|межд\.|предл\.|част\.|прил\.|сущ\.|гл\.|вводн\. сл\.|вводн\.|частица|междометие|союз|предлог|в разн\. знач\.|разн\. знач\.|т\.к\.|тк\.|мн\.|ед\.|собир\.|кратк\. ф\.|в знач\. сказ\.|в знач\. сущ\.|кому-чему|кого-что|о ком|о чём|кому|чему|кого|кем|чем|ком|что)(?:[,;:]?\s+|:)`)
+	// crossRefRe strips a reference to another entry along with the entry it
+	// points at: «Камешек» opens "м уменьш. от камень тӏулг", and cutting only
+	// the abbreviation left «от камень тӏулг» standing in as the Chechen word.
+	crossRefRe = regexp.MustCompile(`^(уменьш\.|увелич\.|ласк\.|унич\.|см\.)(\s+от)?\s+(\p{Cyrillic}+\s+)?`)
 	// Sense markers come as "1)" but also as "ӏ. " (palochka standing in for
 	// the digit) and "2. " in live dosham glosses.
 	meaningRe = regexp.MustCompile(`(\d+\)|(?:^|\s)[ӏ\d]\.\s)`)

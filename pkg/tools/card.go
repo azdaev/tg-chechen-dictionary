@@ -3,6 +3,7 @@ package tools
 import (
 	"chetoru/internal/models"
 	"fmt"
+	"regexp"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -537,7 +538,48 @@ func isWordByte(s string, i int) bool {
 	return c >= 0x80 || c >= 'a' && c <= 'z' || c >= '0' && c <= '9'
 }
 
+// packedSenseRe spots the compact corpus's own shorthand: a plural ending
+// listed after the word, and the next sense glued to its number.
+var (
+	packedSenseRe = regexp.MustCompile(`(?:^|,\s*)-\p{Cyrillic}|\d\p{Cyrillic}`)
+	senseEndingRe = regexp.MustCompile(`^-\p{Cyrillic}+$`)
+	senseNumberRe = regexp.MustCompile(`^\d+`)
+)
+
+// unpackSense splits one of those strings into the senses it holds. «салам,
+// -аш, 2маршалла» is two words for «привет» and a plural ending, and the card
+// offered the whole string, commas and digit and all, as Chechen to say aloud.
+func unpackSense(s string) []string {
+	if !packedSenseRe.MatchString(s) {
+		return []string{s}
+	}
+	var out []string
+	for _, part := range strings.Split(s, ",") {
+		part = strings.TrimSpace(part)
+		// An ending is morphology, not a word: «кхера, -наш» is one way to say
+		// «камень». Whatever the ending was glued to goes with it — the corpus
+		// wrote «кхера, -нашчхар, -аш» with no separator, and there is no
+		// telling where «-наш» stops and «чхар» starts.
+		if part == "" || senseEndingRe.MatchString(part) {
+			continue
+		}
+		if part = strings.TrimSpace(senseNumberRe.ReplaceAllString(part, "")); part != "" {
+			out = append(out, part)
+		}
+	}
+	if len(out) == 0 {
+		return []string{s}
+	}
+	return out
+}
+
 func dedupSenses(senses []string) []string {
+	unpacked := make([]string, 0, len(senses))
+	for _, s := range senses {
+		unpacked = append(unpacked, unpackSense(s)...)
+	}
+	senses = unpacked
+
 	out := senses[:0]
 	seen := map[string]bool{}
 	for _, s := range senses {
