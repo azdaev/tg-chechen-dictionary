@@ -171,7 +171,13 @@ func (k queryKey) in(text string) bool {
 // variants ("цӏа, цӏехьа"), so the test is whole-word, not equality.
 func matchingGloss(glosses []string, k queryKey) string {
 	for _, g := range glosses {
-		if k.in(g) {
+		// Outside the qualifiers. «Шпиц — м (собака) кӏезалг» is not an answer to
+		// «собака»; it is an article that happens to name the query while
+		// disambiguating a Chechen word. Counting the qualifier as the gloss
+		// gave a Russian lookup three extra cards headed by Chechen words under
+		// a «чеч. → рус.» line — the one thing the direction line exists to
+		// prevent.
+		if k.in(stripParens(g)) {
 			return g
 		}
 	}

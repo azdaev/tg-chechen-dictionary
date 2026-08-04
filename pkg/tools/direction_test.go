@@ -184,19 +184,40 @@ func TestCard_PackedSensesAreUnpacked(t *testing.T) {
 // такса", so the card bolded a Russian qualifier — and a homonym number and a
 // gender marker — as the Chechen to say aloud.
 func TestCard_HeadwordCarriesOnlyTheChechen(t *testing.T) {
-	card := FormatCard("собака", []models.TranslationPairs{
+	pairs := []models.TranslationPairs{
 		{Original: "Шпиц", Translate: "м (собака) кӏезалг", OriginalLang: "RUS", TranslateLang: "CHE", Rate: 100, EntryType: "WORD"},
 		{Original: "Такса", Translate: "2 ж (собака) такса", OriginalLang: "RUS", TranslateLang: "CHE", Rate: 100, EntryType: "WORD"},
-	})
+	}
+	card := FormatCard("кӏезалг", pairs)
 	for _, bad := range []string{"<b>(собака)", "<b>2 ", "<b>ж "} {
 		if strings.Contains(card, bad) {
 			t.Errorf("%q is bold as Chechen:\n%s", bad, card)
 		}
 	}
-	for _, want := range []string{"<b>кӏезалг</b> <i>(собака)</i>", "<b>такса</b> <i>(собака)</i>"} {
-		if !strings.Contains(card, want) {
-			t.Errorf("missing %q in:\n%s", want, card)
-		}
+	if !strings.Contains(card, "<b>кӏезалг</b> <i>(собака)</i>") {
+		t.Errorf("the Chechen headword lost its qualifier:\n%s", card)
+	}
+}
+
+// The qualifier names the query, the gloss does not. Asked how to say «собака»,
+// the card answered «жӏаьла» and then three more blocks — «кӏезалг», «такса»,
+// «эр» — each headed by a Chechen word under a «чеч. → рус.» line, in a card
+// the user opened by typing Russian. The article mentions the query while
+// disambiguating a word of its own; that is not an answer to it.
+func TestCard_QualifierIsNotTheGloss(t *testing.T) {
+	card := FormatCard("собака", []models.TranslationPairs{
+		{Original: "Собака", Translate: "ж жӏаьла", OriginalLang: "RUS", TranslateLang: "CHE", Rate: 100, EntryType: "WORD"},
+		{Original: "Шпиц", Translate: "м (собака) кӏезалг", OriginalLang: "RUS", TranslateLang: "CHE", Rate: 100, EntryType: "WORD"},
+		{Original: "Такса", Translate: "2 ж (собака) такса", OriginalLang: "RUS", TranslateLang: "CHE", Rate: 100, EntryType: "WORD"},
+	})
+	if !strings.Contains(card, "<b>жӏаьла</b>") {
+		t.Fatalf("the answer to the query is missing:\n%s", card)
+	}
+	if strings.Contains(card, "чеч. → рус.") {
+		t.Errorf("a Russian lookup produced a Chechen-headed block:\n%s", card)
+	}
+	if n := strings.Count(card, "→ чеч."); n != 1 {
+		t.Errorf("the card has %d blocks, want the one the query asked for:\n%s", n, card)
 	}
 }
 
@@ -288,7 +309,7 @@ func TestCard_QualifiedHeadIsTheSameWord(t *testing.T) {
 
 	// A qualifier that is not a sense still earns its place: «Шпиц — м (собака)
 	// кӏезалг» is how the user learns which кӏезалг this is.
-	dog := FormatCard("собака", []models.TranslationPairs{
+	dog := FormatCard("кӏезалг", []models.TranslationPairs{
 		{Original: "Шпиц", Translate: "м (собака) кӏезалг", OriginalLang: "RUS", TranslateLang: "CHE", Rate: 100, EntryType: "WORD"},
 	})
 	if !strings.Contains(dog, "<b>кӏезалг</b> <i>(собака)</i>") {
