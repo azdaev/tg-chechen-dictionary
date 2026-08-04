@@ -16,6 +16,7 @@ import (
 	"regexp"
 	"strings"
 
+	"chetoru/internal/models"
 	"chetoru/pkg/tools"
 )
 
@@ -105,7 +106,14 @@ func main() {
 			// Only CE translations get here, so the gloss is the Chechen side
 			// and the headword is Russian.
 			if *examples {
-				if ex, ok := tools.FirstExample(t.Content, e.Content, false); ok {
+				pair := models.TranslationPairs{
+					Original:      e.Content,
+					Translate:     t.Content,
+					OriginalLang:  "RUS",
+					TranslateLang: "CHE",
+					EntryType:     e.Type,
+				}
+				if ex, ok := tools.FirstExampleFor(e.Content, []models.TranslationPairs{pair}); ok {
 					flagged++
 					fmt.Printf("%s: %s\n", e.Content, ex)
 				}

@@ -2,6 +2,7 @@
 package tools
 
 import (
+	"chetoru/internal/models"
 	"fmt"
 	"strings"
 )
@@ -213,47 +214,27 @@ func renderExamples(examples []string) []string {
 	return out
 }
 
-// FirstExample mines a raw dictionary gloss for its first usage example and
-// renders it as "chechen → russian". chechenLeads says word is the Chechen
-// headword, so the source order already holds; it is false for a Russian entry
-// whose gloss is Chechen. ok is false when no sense carries a splittable
-// example. The result is plain text — callers escape it before wrapping.
-func FirstExample(gloss, word string, chechenLeads bool) (string, bool) {
-	gloss = boldRe.ReplaceAllString(gloss, "")
-	for _, sense := range meaningRe.Split(gloss, -1) {
-		idx := findMainSemicolon(sense)
-		if idx == -1 {
-			continue
-		}
-		for part := range strings.SplitSeq(sense[idx+1:], ";") {
-			part = strings.TrimSpace(part)
-			if part == "" {
-				continue
-			}
-			left, right, ok := splitExample(part)
-			if !ok || left == "" || right == "" {
-				continue
-			}
-			if !chechenLeads {
-				left, right = right, left
-			}
-			ex := exampleLine(left, right)
-			if word != "" {
-				expanded, exact := replaceTildeWithWord(ex, word)
-				if !exact {
-					continue // keep looking; a later example may not need a stem
-				}
-				ex = expanded
-			}
-			return expandAbbreviations(ex), true
-		}
-	}
-	return "", false
-}
-
 const (
 	// maxCardExamples caps how many usage examples one card may carry, across
 	// all its senses; maxExamplesPerSense keeps one sense from taking them all.
 	maxCardExamples     = 6
 	maxExamplesPerSense = 2
 )
+
+// FirstExampleFor returns the leading usage example a card would show for the
+// query, as plain text — callers escape it before wrapping.
+//
+// /wotd and /random used to mine the examples themselves, with their own parser
+// and their own five-pair budget. That budget was spent on the academic
+// corpus's plain senses, which carry no examples at all, so the article that
+// did carry them was never reached and the daily word shipped without the one
+// thing a learner needs most. Now there is one parser and one answer: whatever
+// the card would show first.
+func FirstExampleFor(query string, pairs []models.TranslationPairs) (string, bool) {
+	for _, b := range collect(query, pairs).blocks {
+		if len(b.examples) > 0 {
+			return exampleLine(b.examples[0].chechen, b.examples[0].russian), true
+		}
+	}
+	return "", false
+}

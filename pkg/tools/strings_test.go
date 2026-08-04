@@ -487,22 +487,22 @@ func TestExpandAbbreviations(t *testing.T) {
 	}
 }
 
-func TestFirstExample(t *testing.T) {
-	cases := []struct {
-		name, gloss, word, want string
-		ok                      bool
-	}{
-		{"simple", "**дика** - хороший; дика стаг — хороший человек", "дика", "дика стаг → хороший человек", true},
-		{"tilde", "хороший; ~ стаг — хороший человек", "дика", "дика стаг → хороший человек", true},
-		{"second sense", "1) первый смысл 2) второй; масала цхьаъ — например один", "", "масала цхьаъ → например один", true},
-		{"no example", "просто перевод без примеров", "слово", "", false},
-		{"empty", "", "", "", false},
+func TestFirstExampleFor(t *testing.T) {
+	// The example the card leads with is the example /wotd and /random show.
+	// They used to mine the glosses separately, and the daily word shipped
+	// without an example for every common word measured.
+	pairs := []models.TranslationPairs{
+		{Original: "Дом", Translate: "м цӏа; деревянный ~ - дечиган цӏа", OriginalLang: "RUS", TranslateLang: "CHE", EntryType: "WORD", Rate: 100},
 	}
-	for _, c := range cases {
-		got, ok := FirstExample(c.gloss, c.word, true)
-		if got != c.want || ok != c.ok {
-			t.Errorf("%s: FirstExample = %q/%v, want %q/%v", c.name, got, ok, c.want, c.ok)
-		}
+	got, ok := FirstExampleFor("дом", pairs)
+	if !ok || got != "дечиган цӏа → деревянный дом" {
+		t.Errorf("FirstExampleFor = %q/%v, want the card's own leading example", got, ok)
+	}
+
+	if _, ok := FirstExampleFor("дом", []models.TranslationPairs{
+		{Original: "Дом", Translate: "м цӏа", OriginalLang: "RUS", TranslateLang: "CHE", EntryType: "WORD", Rate: 100},
+	}); ok {
+		t.Error("an entry with no examples reported one")
 	}
 }
 

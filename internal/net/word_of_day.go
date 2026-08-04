@@ -249,16 +249,12 @@ func (n *Net) usageExample(chechen string) (string, bool) {
 	if err != nil {
 		return "", false
 	}
-	for i, p := range pairs {
-		if i == 5 {
-			break
-		}
-		// The lookup key is the Chechen word, so its glosses read Chechen first.
-		if ex, ok := tools.FirstExample(p.Translate, chechen, true); ok {
-			return ex, true
-		}
-	}
-	return "", false
+	// The same example the card would lead with. Mining the glosses here
+	// separately meant a five-pair budget spent on the academic corpus's plain
+	// senses, which carry no examples, so the article that did carry them was
+	// never reached: measured over fifteen common words, this line was empty for
+	// every one of them while the card had an example for nine.
+	return tools.FirstExampleFor(chechen, pairs)
 }
 
 // sendWordOfDay fetches one random word and broadcasts it to every subscriber.
