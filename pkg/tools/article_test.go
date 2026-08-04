@@ -54,3 +54,37 @@ func TestArticleParts_FallsBackOnBadJSON(t *testing.T) {
 		t.Fatalf("fallback did not run: %q", glosses)
 	}
 }
+
+// The Russian articles gloss with a list — «Новинка — ж керланиг, керла
+// хӏума» — and the block was headed by the whole list, so every article that
+// named the word made a separate Chechen entry out of it. «керланиг» came back
+// as four entries and «сингаттаме» as thirteen, with the meanings the reader
+// wanted spread across all of them.
+func TestCard_SynonymListIsOneWord(t *testing.T) {
+	article := func(head, gloss string) models.TranslationPairs {
+		return models.TranslationPairs{Original: head, Translate: gloss,
+			OriginalLang: "RUS", TranslateLang: "CHE", Packed: true, Rate: 100, EntryType: "WORD"}
+	}
+	body := Render("керланиг", []models.TranslationPairs{
+		article("Новинка", "ж керланиг, керла хӏума"),
+		article("Новость", "ж керланиг, керла хӏума"),
+		article("Новичок", "м керланиг, керла дешархо"),
+	}).Body
+	if n := strings.Count(body, "·"); n != 1 {
+		t.Fatalf("one word rendered as %d entries:\n%s", n, body)
+	}
+	for _, want := range []string{"новинка", "новость", "новичок"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("meaning %q lost from the card:\n%s", want, body)
+		}
+	}
+
+	// A phrase the word appears in is not a synonym of it, and keeps its own
+	// heading: «дог эшна сингаттаме хилар» is not «сингаттаме».
+	body = Render("сингаттаме", []models.TranslationPairs{
+		article("Унылость", "ж дог эшна сингаттаме хилар"),
+	}).Body
+	if !strings.Contains(body, "дог эшна сингаттаме хилар") {
+		t.Errorf("a phrase was cut down to the word inside it:\n%s", body)
+	}
+}

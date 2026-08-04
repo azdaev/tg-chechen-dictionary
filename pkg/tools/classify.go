@@ -79,7 +79,7 @@ func (q lookup) classifyArticle(p models.TranslationPairs, original, translate s
 		if gloss := matchingGloss(glosses, k); gloss != "" {
 			return placement{
 				role:     roleEntry,
-				head:     gloss,
+				head:     narrowToItem(gloss, k),
 				cheHead:  true,
 				senses:   []string{strings.ToLower(original)},
 				examples: relevant(examples, k),
@@ -240,4 +240,35 @@ func isWordByte(s string, i int) bool {
 	}
 	c := s[i]
 	return c >= 0x80 || c >= 'a' && c <= 'z' || c >= '0' && c <= '9'
+}
+
+// narrowToItem picks out the one synonym the query is, from a gloss that lists
+// several. The Russian articles gloss with a list — «Новинка — ж керланиг,
+// керла хӏума» — and heading the block with the whole list gave every article a
+// block of its own: «керланиг» came back as four separate Chechen entries and
+// «сингаттаме» as thirteen, with the meaning the reader wanted spread across
+// all of them.
+//
+// Only an item that is the query itself is taken. «дог эшна сингаттаме хилар»
+// is a phrase the word appears in, not a synonym of it, and stays whole.
+func narrowToItem(gloss string, k queryKey) string {
+	if !strings.Contains(gloss, ",") {
+		return gloss
+	}
+	for _, item := range strings.Split(gloss, ",") {
+		if item = strings.TrimSpace(item); item == "" {
+			continue
+		}
+		if k.is(trimPunct(stripParens(item))) {
+			return item
+		}
+	}
+	return gloss
+}
+
+func (k queryKey) is(text string) bool {
+	if k.fold {
+		return FoldSearch(text) == k.text
+	}
+	return NormalizeSearch(text) == k.text
 }
