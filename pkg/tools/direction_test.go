@@ -384,3 +384,36 @@ func TestCard_ArticleIsToldApartFromAPlainPair(t *testing.T) {
 		t.Errorf("the article's example was lost:\n%s", article)
 	}
 }
+
+// The grammar note describes dosham's own headword, which is always the Chechen
+// side. Under a Russian headword the senses are different Chechen words, and the
+// note was taken from whichever pair happened to carry one: «дом» announced
+// «сущ., мн. -аш» — the plural of «хӀусам» — directly above the line «1. цӏа».
+func TestCard_GrammarBelongsToTheWordItLabels(t *testing.T) {
+	card := FormatCard("дом", []models.TranslationPairs{
+		{Original: "Дом", Translate: "м цӏа", OriginalLang: "RUS", TranslateLang: "CHE", Packed: true, EntryType: "WORD", Rate: 100},
+		{Original: "хӀусам", Translate: "дом", OriginalLang: "CHE", TranslateLang: "RUS", EntryType: "WORD", Subtype: 2, Rate: 16, Notes: "мн. -аш"},
+	})
+	if !strings.Contains(card, "1. <b>цӏа</b>") {
+		t.Fatalf("the card does not lead with цӏа, so the test proves nothing:\n%s", card)
+	}
+	if strings.Contains(card, "мн. -аш") {
+		t.Errorf("the second sense's plural is worn by the first:\n%s", card)
+	}
+
+	// The same note on the word the card does lead with still shows.
+	own := FormatCard("хӀусам", []models.TranslationPairs{
+		{Original: "хӀусам", Translate: "дом", OriginalLang: "CHE", TranslateLang: "RUS", EntryType: "WORD", Subtype: 2, Rate: 16, Notes: "мн. -аш"},
+	})
+	if !strings.Contains(own, "мн. -аш") {
+		t.Errorf("the headword's own plural was dropped:\n%s", own)
+	}
+
+	// And a Russian headword whose leading gloss carries the note keeps it.
+	lead := FormatCard("вода", []models.TranslationPairs{
+		{Original: "хи", Translate: "вода", OriginalLang: "CHE", TranslateLang: "RUS", EntryType: "WORD", Subtype: 2, Rate: 16, Notes: "мн. -ш"},
+	})
+	if !strings.Contains(lead, "мн. -ш") {
+		t.Errorf("the leading gloss's own plural was dropped:\n%s", lead)
+	}
+}

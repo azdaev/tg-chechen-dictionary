@@ -172,6 +172,25 @@ func isGrammarNote(note string) bool {
 	return grammarNoteRe.MatchString(strings.TrimSpace(strings.ToLower(note)))
 }
 
+// takeNote records the grammar the chip shows. The note describes dosham's own
+// headword, which is always the Chechen side, so it belongs to the Chechen word
+// this block leads with and to no other. Under a Russian headword the senses are
+// different Chechen words: «дом» is glossed «цӏа» by the articles and «хӀусам»
+// by the compact corpus, and only the second carries «мн. -аш». Taken from
+// whichever pair happened to have one, the card announced «дом · рус. → чеч.,
+// сущ., мн. -аш» directly above the line «1. цӏа» — a plural belonging to a word
+// two lines further down. Under a Chechen headword every pair is the same word
+// by construction, so any of their notes fits.
+func (b *block) takeNote(note string, senses []string) {
+	if b.notes != "" || !isGrammarNote(note) || len(senses) == 0 {
+		return
+	}
+	if b.cheHead || len(b.senses) == 0 ||
+		FoldSearch(firstVariant(b.senses[0])) == FoldSearch(firstVariant(senses[0])) {
+		b.notes = note
+	}
+}
+
 // block is one headword-and-homonym: the unit a card repeats.
 type block struct {
 	head     string
@@ -228,9 +247,6 @@ func collect(query string, pairs []models.TranslationPairs) collected {
 		if b.pos == 0 {
 			b.pos = p.Subtype
 		}
-		if b.notes == "" && isGrammarNote(p.Notes) {
-			b.notes = p.Notes
-		}
 		return b
 	}
 
@@ -238,6 +254,7 @@ func collect(query string, pairs []models.TranslationPairs) collected {
 		switch pl := q.classify(p); pl.role {
 		case roleEntry:
 			b := blockFor(p, pl.head, pl.cheHead)
+			b.takeNote(p.Notes, pl.senses)
 			b.senses = append(b.senses, pl.senses...)
 			b.examples = append(b.examples, pl.examples...)
 
