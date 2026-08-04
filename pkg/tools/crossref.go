@@ -130,3 +130,23 @@ func isPointer(sense string) bool {
 	sense = strings.TrimSpace(sense)
 	return crossRefOnlyRe.MatchString(sense) || derivedFromRe.MatchString(sense)
 }
+
+// Summary states in plain text what a card says the query means: the senses the
+// card would number, joined. The inline picker shows one line under each row,
+// and Telegram renders it as plain text — so it cannot be the card, and it was
+// the raw gloss instead: «дом» was offered as «м 1) цӏа; деревянный ~- дечиган
+// цӏа», dictionary markup and all, in the very line the reader picks by.
+func Summary(query string, pairs []models.TranslationPairs) string {
+	var out []string
+	seen := map[string]bool{}
+	for _, b := range collect(query, pairs).blocks {
+		for _, s := range b.senses {
+			if s = strings.TrimSpace(s); s == "" || seen[s] {
+				continue
+			}
+			seen[s] = true
+			out = append(out, s)
+		}
+	}
+	return strings.Join(out, ", ")
+}

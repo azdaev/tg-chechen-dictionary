@@ -81,7 +81,7 @@ func inlineArticles(id, query string, pairs []models.TranslationPairs, suggested
 		if card == "" {
 			return nil
 		}
-		articles = append(articles, inlineArticle(id+"card", tools.Clean(query), inlineDescription(summarize(pairs)), card))
+		articles = append(articles, inlineArticle(id+"card", tools.Clean(query), inlineDescription(tools.Summary(query, pairs)), card))
 	}
 
 	for i := range pairs {
@@ -105,11 +105,15 @@ func inlineArticles(id, query string, pairs []models.TranslationPairs, suggested
 		if formatted == "" {
 			continue
 		}
-		// The description comes from the data, not from the rendered card: the
-		// picker shows plain text, so a card carrying <b> would leak the literal
-		// tags, and slicing a headword prefix off the front breaks the moment
-		// the card's opening line changes.
-		articles = append(articles, inlineArticle(id+strconv.Itoa(i), title, inlineDescription(pairs[i].Translate), formatted))
+		// The subtitle says what the entry means, in the words the card uses.
+		// Never by slicing the card itself: the picker shows plain text, so a
+		// <b> would reach the reader as literal tags, and cutting a headword
+		// prefix off the front breaks the moment the card's first line changes.
+		desc := tools.Summary(pairs[i].Original, pairs[i:i+1])
+		if desc == "" {
+			desc = pairs[i].Translate // a collocation has no card of its own
+		}
+		articles = append(articles, inlineArticle(id+strconv.Itoa(i), title, inlineDescription(desc), formatted))
 	}
 	return articles
 }
@@ -119,22 +123,6 @@ func inlineArticle(id, title, description, text string) tgbotapi.InlineQueryResu
 	article.Description = description
 	article.InputMessageContent = tgbotapi.InputTextMessageContent{Text: text, ParseMode: "html"}
 	return article
-}
-
-// summarize joins the glosses behind a lookup into the picker's one-line
-// subtitle for the whole-card row.
-func summarize(pairs []models.TranslationPairs) string {
-	seen := map[string]bool{}
-	var parts []string
-	for _, p := range pairs {
-		gloss := strings.TrimSpace(tools.Clean(p.Translate))
-		if gloss == "" || seen[gloss] {
-			continue
-		}
-		seen[gloss] = true
-		parts = append(parts, gloss)
-	}
-	return strings.Join(parts, ", ")
 }
 
 // answerInlineUnavailable tells the user the dictionary is down instead of
@@ -196,8 +184,8 @@ func (n *Net) answerInlineDiscovery(ctx context.Context, iq *tgbotapi.InlineQuer
 }
 
 // inlineDescription renders the one-line subtitle under an inline result. It
-// takes the raw gloss rather than the rendered card, so it is plain text by
-// construction.
+// takes plain text — a gloss or tools.Summary — never the rendered card, whose
+// markup Telegram would show literally.
 func inlineDescription(gloss string) string {
 	desc := strings.Join(strings.Fields(tools.Clean(gloss)), " ")
 	runes := []rune(desc)

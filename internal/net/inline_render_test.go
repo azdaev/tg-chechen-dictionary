@@ -133,3 +133,30 @@ func TestInlineSuggestionsSurvive(t *testing.T) {
 		t.Errorf("suggestion not marked as a guess: %q", title)
 	}
 }
+
+// The picker's subtitle is the line a reader chooses a row by, and it was the
+// raw gloss: «дом» was offered as «м 1) цӏа; деревянный ~- дечиган цӏа», the
+// dictionary's own markup and all, under a card that says «цӏа».
+func TestInlineDescription_SaysWhatTheCardSays(t *testing.T) {
+	p := models.TranslationPairs{
+		Original: "Дом", Translate: "м 1) цӏа; деревянный ~- дечиган цӏа",
+		OriginalLang: "RUS", TranslateLang: "CHE", Packed: true,
+		EntryType: "WORD", Rate: 100,
+	}
+	desc := inlineDescription(tools.Summary(p.Original, []models.TranslationPairs{p}))
+	if desc != "цӏа" {
+		t.Errorf("subtitle = %q, want the meaning the card states", desc)
+	}
+	for _, leak := range []string{"~", "1)", "м "} {
+		if strings.Contains(desc, leak) {
+			t.Errorf("dictionary markup %q reached the picker: %q", leak, desc)
+		}
+	}
+
+	// A Chechen query reads the same entry the other way round, and the
+	// subtitle has to follow: the picker must never label a word with itself.
+	desc = inlineDescription(tools.Summary("цӏа", []models.TranslationPairs{p}))
+	if desc != "дом" {
+		t.Errorf("subtitle = %q, want the Russian side for a Chechen query", desc)
+	}
+}
