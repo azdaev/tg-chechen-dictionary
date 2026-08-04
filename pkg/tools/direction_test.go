@@ -133,3 +133,23 @@ func TestCard_PhrasePunctuationIsNotIdentity(t *testing.T) {
 		t.Errorf("the greeting is printed %d times:\n%s", n, greeting)
 	}
 }
+
+// «спокойной ночи» is glossed twice — inside the article «Ночь» and inside
+// «Пожелать» — and is nobody's headword. Every example was filed under an entry
+// the query did not name, so all of them were dropped and the bot answered «нет
+// перевода» while holding the translation twice over.
+func TestCard_PhraseLivesOnlyInsideAnotherEntry(t *testing.T) {
+	card := FormatCard("спокойной ночи", []models.TranslationPairs{
+		{Original: "Ночь", Translate: "ж буьйса; спокойной ночи! - буьйса декъала хуьлда!; полярная ~ - къилбаседера буьйса", OriginalLang: "RUS", TranslateLang: "CHE", Rate: 100, EntryType: "WORD"},
+	})
+	if !strings.Contains(card, "буьйса декъала хуьлда!") {
+		t.Fatalf("the gloss dosham holds did not make a card:\n%s", card)
+	}
+	if !strings.Contains(card, "рус. → чеч.") {
+		t.Errorf("the card does not say which way it reads:\n%s", card)
+	}
+	// The article's own unrelated examples stay out of it.
+	if strings.Contains(card, "къилбаседера") {
+		t.Errorf("«полярная ночь» came along for the ride:\n%s", card)
+	}
+}

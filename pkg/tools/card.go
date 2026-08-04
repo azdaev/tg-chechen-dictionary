@@ -284,6 +284,19 @@ func collect(query string, pairs []models.TranslationPairs) collected {
 		b.senses = dedupSenses(b.senses)
 		kept = append(kept, b)
 	}
+
+	// A phrase the dictionary only ever shows inside somebody else's entry is
+	// still the answer. «спокойной ночи» is glossed «буьйса декъала хуьлда!»
+	// twice — inside the article «Ночь» and inside «Пожелать» — and nowhere as
+	// an entry of its own, so every example was orphaned and the bot answered
+	// «нет перевода» while holding the translation.
+	if len(kept) == 0 && len(orphaned) > 0 {
+		kept = append(kept, &block{
+			head:    strings.TrimSpace(Clean(query)),
+			cheHead: !containsWord(orphaned[0].russian, key),
+			index:   1,
+		})
+	}
 	assignExamples(kept, orphaned)
 	for _, b := range kept {
 		b.examples = dedupExamples(b.examples, FoldSearch(b.head))
@@ -453,7 +466,9 @@ func (b *block) render() string {
 		examples = examples[:maxCardExampleLines]
 	}
 	if len(examples) > 0 {
-		lines = append(lines, "")
+		if len(senses) > 0 {
+			lines = append(lines, "")
+		}
 		for _, ex := range examples {
 			lines = append(lines, FormatExample(ex.chechen, ex.russian))
 		}
