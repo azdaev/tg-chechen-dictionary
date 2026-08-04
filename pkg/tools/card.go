@@ -401,6 +401,9 @@ func (b *block) render() string {
 	}
 
 	examples := b.examples
+	if b.cheHead {
+		examples = freeUsesFirst(examples, name)
+	}
 	if len(examples) > maxCardExampleLines {
 		examples = examples[:maxCardExampleLines]
 	}
@@ -413,6 +416,42 @@ func (b *block) render() string {
 		}
 	}
 	return strings.Join(lines, "\n")
+}
+
+// freeUsesFirst puts the examples that use the headword as a word of its own
+// ahead of the ones that only use it inside a compound. Chechen builds compounds
+// freely, and «нана» came back illustrated by «Нана-пӏелг дӏабуьгу еха оьзг» —
+// three lines of the muscle that moves the thumb, ahead of «Нана юй хьан? —
+// мать у тебя есть?». Both are real; only one of them teaches the word that was
+// looked up. Stable, so within each group the dictionary's own order stands.
+//
+// Only for a Chechen headword. On the Russian side the same test reads as a
+// preference for the nominative — «собака вцепилась» over «собаку съел» — which
+// is a judgement about case, not about compounds, and not one to make quietly.
+func freeUsesFirst(examples []example, head string) []example {
+	if len(examples) < 2 {
+		return examples
+	}
+	free := make([]example, 0, len(examples))
+	compound := make([]example, 0, len(examples))
+	for _, ex := range examples {
+		if usesWordFreely(ex.chechen, NormalizeSearch(head)) {
+			free = append(free, ex)
+		} else {
+			compound = append(compound, ex)
+		}
+	}
+	if len(free) == 0 || len(compound) == 0 {
+		return examples
+	}
+	return append(free, compound...)
+}
+
+// usesWordFreely reports whether text uses key as a word of its own. A hyphen
+// joins what it separates: for this test «Нана-пӏелг» is one word, and not a
+// use of «нана».
+func usesWordFreely(text, key string) bool {
+	return containsWord(strings.ReplaceAll(text, "-", ""), key)
 }
 
 // chip is the note after the headword: reading direction first, then grammar.

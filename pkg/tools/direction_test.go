@@ -316,3 +316,39 @@ func TestCard_QualifiedHeadIsTheSameWord(t *testing.T) {
 		t.Errorf("a qualifier that disambiguates was dropped:\n%s", dog)
 	}
 }
+
+// Chechen builds compounds freely, and dosham holds a lot of them. «нана» —
+// mother — came back illustrated by three lines about the muscle that moves the
+// thumb («Нана-пӏелг»), which took half the card's six example slots before the
+// one sentence that uses the word itself.
+func TestCard_CompoundExamplesYieldToRealOnes(t *testing.T) {
+	pairs := []models.TranslationPairs{
+		{Original: "нана", Translate: "мать", OriginalLang: "CHE", TranslateLang: "RUS", Rate: 10000, EntryType: "WORD"},
+	}
+	for _, ex := range []struct{ che, rus string }{
+		{"Нана-пӏелг дӏабуьгу еха оьзг", "Длинная мышца, отводящая большой палец кисти"},
+		{"Нана-пӏелг сатто еха оьзг", "Длинный сгибатель большого пальца кисти"},
+		{"Нана-маьӏда", "материнская порода"},
+		{"Нана юй хьан?", "мать у тебя есть?"},
+	} {
+		pairs = append(pairs, models.TranslationPairs{
+			Original: ex.che, Translate: ex.rus,
+			OriginalLang: "CHE", TranslateLang: "RUS", Rate: 100, EntryType: "TEXT",
+		})
+	}
+
+	card := FormatCard("нана", pairs)
+	free := strings.Index(card, "Нана юй хьан?")
+	compound := strings.Index(card, "Нана-пӏелг дӏабуьгу")
+	if free < 0 || compound < 0 {
+		t.Fatalf("both kinds of example should be on the card:\n%s", card)
+	}
+	if free > compound {
+		t.Errorf("the compounds lead the card:\n%s", card)
+	}
+
+	// The dictionary's own order stands inside each group.
+	if a, b := strings.Index(card, "Нана-пӏелг дӏабуьгу"), strings.Index(card, "Нана-пӏелг сатто"); a > b {
+		t.Errorf("the source order of the compounds was shuffled:\n%s", card)
+	}
+}
