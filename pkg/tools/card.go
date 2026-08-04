@@ -150,12 +150,11 @@ type collected struct {
 	neighbours []string
 }
 
-// collect turns ranked pairs into blocks. Which door a pair takes — headword,
-// gloss, article, collocation — is decided by dosham's own fields, not by
-// scanning the text for "1)" and "~" the way the old renderer did.
+// collect turns ranked pairs into the blocks a card is made of: classify each
+// pair, then file it.
 func collect(query string, pairs []models.TranslationPairs) collected {
-	key := NormalizeSearch(query)
-	folded := foldPhrase(query)
+	q := newLookup(query)
+	key := q.key
 	var c collected
 	blocks := map[string]*block{}
 
@@ -190,86 +189,21 @@ func collect(query string, pairs []models.TranslationPairs) collected {
 	}
 
 	for _, p := range pairs {
-		original, translate := Clean(p.Original), Clean(p.Translate)
-		isArticle := p.TranslateLang == "CHE"
+		switch pl := q.classify(p); pl.role {
+		case roleEntry:
+			b := blockFor(p, pl.head, pl.cheHead)
+			b.senses = append(b.senses, pl.senses...)
+			b.examples = append(b.examples, pl.examples...)
 
-		// The Russian–Chechen article: the one corpus that packs a whole entry
-		// into one string, so the only place left that parses text.
-		if isArticle {
-			glosses, examples := articleParts(p, original, translate)
-			switch {
-			// The user typed the article's own Russian headword.
-			case NormalizeSearch(original) == key:
-				b := blockFor(p, original, false)
-				b.senses = append(b.senses, glosses...)
-				b.examples = append(b.examples, examples...)
+		// Filed under an entry the user did not ask for. It gets a block of its
+		// own here and loses it below, where every senseless block's examples
+		// are handed to the entries they illustrate.
+		case roleExample:
+			b := blockFor(p, "", false)
+			b.examples = append(b.examples, pl.examples...)
 
-			// The user typed one of its Chechen glosses, so the answer is the
-			// article's headword — this carries «карандаш» onto «къолам».
-			case matchingGloss(glosses, key) != "":
-				b := blockFor(p, matchingGloss(glosses, key), true)
-				b.senses = append(b.senses, strings.ToLower(original))
-				b.examples = append(b.examples, relevant(examples, key)...)
-
-			// Body mention only. Never a sense — «А», «Его» and «Нет» all
-			// mention «карандаш» — but its examples for the word are real.
-			case containsWord(translate, key):
-				b := blockFor(p, "", false)
-				b.examples = append(b.examples, relevant(examples, key)...)
-
-			case strings.HasPrefix(NormalizeSearch(original), key):
-				c.neighbours = append(c.neighbours, original)
-			}
-			continue
-		}
-
-		switch {
-		// A collocation: dosham's own usage example, already in two languages.
-		// Asked for by name it is an entry — «телефон болх беш яц» is a phrase
-		// the dictionary holds, and rendering it only as somebody else's example
-		// left the query with no card at all.
-		case p.EntryType == "TEXT" && foldPhrase(original) == folded:
-			b := blockFor(p, original, p.OriginalLang == "CHE")
-			b.senses = append(b.senses, translate)
-
-		case p.EntryType == "TEXT" && foldPhrase(translate) == folded:
-			b := blockFor(p, translate, p.TranslateLang == "CHE")
-			b.senses = append(b.senses, original)
-
-		case p.EntryType == "TEXT":
-			if containsWord(original, key) || containsWord(translate, key) {
-				b := blockFor(p, "", false)
-				b.examples = append(b.examples, orient(p, original, translate))
-			}
-
-		// The query is this entry's headword: its glosses are the answer.
-		case NormalizeSearch(original) == key:
-			b := blockFor(p, original, p.OriginalLang == "CHE")
-			b.senses = append(b.senses, translate)
-
-		// The query is one of this entry's glosses: the headword is the answer.
-		case NormalizeSearch(translate) == key:
-			b := blockFor(p, translate, p.TranslateLang == "CHE")
-			b.senses = append(b.senses, original)
-
-		// Same, once the marks a keyboard cannot type are folded away. Every
-		// layer that reaches this renderer — the folded columns, the palochka
-		// cascade, rankPair's own folded bucket — matches on the folded key, so
-		// matching only the strict one here threw those answers away and the
-		// user was told the word does not exist. Exact stays above, so a true
-		// headword still wins the block.
-		case foldPhrase(original) == folded:
-			b := blockFor(p, original, p.OriginalLang == "CHE")
-			b.senses = append(b.senses, translate)
-
-		case foldPhrase(translate) == folded:
-			b := blockFor(p, translate, p.TranslateLang == "CHE")
-			b.senses = append(b.senses, original)
-
-		// Neighbour: how dosham's substring search answers «дом» with «Домбра».
-		// Never a card, worth one line at the foot.
-		case p.EntryType != "TEXT" && strings.HasPrefix(NormalizeSearch(original), key):
-			c.neighbours = append(c.neighbours, original)
+		case roleNeighbour:
+			c.neighbours = append(c.neighbours, pl.head)
 		}
 	}
 
@@ -377,36 +311,6 @@ func sharedPrefix(a, b string) int {
 	return n
 }
 
-// matchingGloss finds the article gloss holding the queried word. Glosses list
-// variants ("цӏа, цӏехьа"), so the test is whole-word, not equality.
-func matchingGloss(glosses []string, key string) string {
-	for _, g := range glosses {
-		if containsWord(g, key) {
-			return g
-		}
-	}
-	return ""
-}
-
-// relevant keeps the examples that actually illustrate the queried word.
-func relevant(examples []example, key string) []example {
-	out := make([]example, 0, len(examples))
-	for _, ex := range examples {
-		if containsWord(ex.chechen, key) || containsWord(ex.russian, key) {
-			out = append(out, ex)
-		}
-	}
-	return out
-}
-
-// orient puts the Chechen side first, the order every example in the bot uses.
-func orient(p models.TranslationPairs, original, translate string) example {
-	if p.TranslateLang == "CHE" {
-		return example{chechen: translate, russian: original}
-	}
-	return example{chechen: original, russian: translate}
-}
-
 func (c collected) render() string {
 	var out []string
 	for _, b := range c.blocks {
@@ -509,40 +413,6 @@ func superscript(n int) string {
 		return ""
 	}
 	return string(digits[n])
-}
-
-// containsWord tests for key as a whole word. Substring matching is what makes
-// dosham answer «къолам» with the article for «А».
-func containsWord(text, key string) bool {
-	if key == "" {
-		return false
-	}
-	hay := NormalizeSearch(text)
-	for i := 0; ; {
-		j := strings.Index(hay[i:], key)
-		if j < 0 {
-			return false
-		}
-		start := i + j
-		end := start + len(key)
-		if !isWordByte(hay, start-1) && !isWordByte(hay, end) {
-			return true
-		}
-		i = start + len(key)
-		if i >= len(hay) {
-			return false
-		}
-	}
-}
-
-// isWordByte reports whether the byte at i continues a word. Cyrillic is
-// two-byte, so any high byte counts as inside one.
-func isWordByte(s string, i int) bool {
-	if i < 0 || i >= len(s) {
-		return false
-	}
-	c := s[i]
-	return c >= 0x80 || c >= 'a' && c <= 'z' || c >= '0' && c <= '9'
 }
 
 // packedSenseRe spots the compact corpus's own shorthand: a plural ending
