@@ -19,57 +19,25 @@ func (n *Net) HandleInline(ctx context.Context, iq *tgbotapi.InlineQuery) error 
 		return n.answerInlineDiscovery(ctx, iq)
 	}
 
-	translations, err := n.business.Translate(iq.Query)
+	translations, resolved, err := n.business.TranslateResolved(iq.Query)
 	if err != nil {
 		n.log.WithError(err).WithField("query", iq.Query).Warn("inline lookup failed")
 		return n.answerInlineUnavailable(iq)
 	}
+	// The card renders against the headword that answered, not against what was
+	// typed: «лоьман» is resolved to «лом», and a card keyed on the form matches
+	// none of the lemma's pairs.
+	renderKey := iq.Query
+	if resolved != "" {
+		renderKey = resolved
+	}
+
+	articles := inlineArticles(iq.ID, renderKey, translations, false)
 
 	// A dead-end inline query used to show nothing at all; rescue it the same
 	// way the text path does — with lemma suggestions for the typed prefix.
-	suggested := false
-	if len(translations) == 0 {
-		translations = n.business.SuggestTranslations(iq.Query)
-		suggested = len(translations) > 0
-	}
-
-	// Telegram allows at most 50 results per inline query; sending more makes
-	// answerInlineQuery fail and the user sees nothing. Cap defensively — common
-	// words (e.g. "дать") can have far more than 50 translation pairs.
-	if len(translations) > InlineResultsLimit {
-		translations = translations[:InlineResultsLimit]
-	}
-
-	articles := make([]any, 0, len(translations))
-	for i := range translations {
-		title := tools.Clean(translations[i].Original)
-		if strings.TrimSpace(title) == "" {
-			// Telegram rejects the entire answer if any article title is empty,
-			// so one malformed entry would blank out the whole inline response.
-			continue
-		}
-		if suggested {
-			title = "🔍 " + title
-		}
-		// The sent message gets the same card the text path produces, instead
-		// of dumping the raw gloss ("м 1) цӏа; деревянный ~- …").
-		formatted := clampMessage(tools.FormatCard(translations[i].Original, translations[i:i+1]))
-		if formatted == "" {
-			// Telegram rejects empty message content, and a collocation renders
-			// no card of its own — it is an example, not an entry.
-			formatted = clampMessage(tools.FormatPairs(translations[i : i+1]))
-		}
-		article := tgbotapi.NewInlineQueryResultArticle(iq.ID+strconv.Itoa(i), title, "")
-		// The description comes from the data, not from the rendered card: the
-		// picker shows plain text, so a card carrying <b> would leak the literal
-		// tags, and slicing a headword prefix off the front breaks the moment
-		// the card's opening line changes.
-		article.Description = inlineDescription(translations[i].Translate)
-		article.InputMessageContent = tgbotapi.InputTextMessageContent{
-			Text:      formatted,
-			ParseMode: "html",
-		}
-		articles = append(articles, article)
+	if len(articles) == 0 {
+		articles = inlineArticles(iq.ID, iq.Query, n.business.SuggestTranslations(iq.Query), true)
 	}
 
 	// Dictionary results are identical for everyone and effectively static, so
@@ -89,6 +57,84 @@ func (n *Net) HandleInline(ctx context.Context, iq *tgbotapi.InlineQuery) error 
 
 	n.recordActivity(ctx, iq.From.ID, iq.From.UserName, models.ActivityTypeInline)
 	return nil
+}
+
+// inlineArticles builds the picker's rows. The first offers the whole card —
+// every sense, the direction chip, the examples — and the rest offer one entry
+// each, for when only one is wanted.
+//
+// Returning nothing when that card is empty is the point: whether a lookup
+// succeeded is one question with one answer. The picker used to ask a different
+// one — "did dosham return any rows?" — so a query that matched nothing but
+// noise was «нет перевода» in a chat and a list of results in the picker.
+func inlineArticles(id, query string, pairs []models.TranslationPairs, suggested bool) []any {
+	// Telegram allows at most 50 results per inline query; sending more makes
+	// answerInlineQuery fail and the user sees nothing. Cap defensively — common
+	// words (e.g. "дать") can have far more than 50 translation pairs.
+	if len(pairs) > InlineResultsLimit-1 {
+		pairs = pairs[:InlineResultsLimit-1]
+	}
+
+	articles := make([]any, 0, len(pairs)+1)
+	if !suggested {
+		card := clampMessage(tools.FormatCard(query, pairs))
+		if card == "" {
+			return nil
+		}
+		articles = append(articles, inlineArticle(id+"card", tools.Clean(query), inlineDescription(summarize(pairs)), card))
+	}
+
+	for i := range pairs {
+		title := tools.Clean(pairs[i].Original)
+		if strings.TrimSpace(title) == "" {
+			// Telegram rejects the entire answer if any article title is empty,
+			// so one malformed entry would blank out the whole inline response.
+			continue
+		}
+		if suggested {
+			title = "🔍 " + title
+		}
+		// The sent message gets the same card the text path produces, instead
+		// of dumping the raw gloss ("м 1) цӏа; деревянный ~- …").
+		formatted := clampMessage(tools.FormatCard(pairs[i].Original, pairs[i:i+1]))
+		if formatted == "" {
+			// Telegram rejects empty message content, and a collocation renders
+			// no card of its own — it is an example, not an entry.
+			formatted = clampMessage(tools.FormatPairs(pairs[i : i+1]))
+		}
+		if formatted == "" {
+			continue
+		}
+		// The description comes from the data, not from the rendered card: the
+		// picker shows plain text, so a card carrying <b> would leak the literal
+		// tags, and slicing a headword prefix off the front breaks the moment
+		// the card's opening line changes.
+		articles = append(articles, inlineArticle(id+strconv.Itoa(i), title, inlineDescription(pairs[i].Translate), formatted))
+	}
+	return articles
+}
+
+func inlineArticle(id, title, description, text string) tgbotapi.InlineQueryResultArticle {
+	article := tgbotapi.NewInlineQueryResultArticle(id, title, "")
+	article.Description = description
+	article.InputMessageContent = tgbotapi.InputTextMessageContent{Text: text, ParseMode: "html"}
+	return article
+}
+
+// summarize joins the glosses behind a lookup into the picker's one-line
+// subtitle for the whole-card row.
+func summarize(pairs []models.TranslationPairs) string {
+	seen := map[string]bool{}
+	var parts []string
+	for _, p := range pairs {
+		gloss := strings.TrimSpace(tools.Clean(p.Translate))
+		if gloss == "" || seen[gloss] {
+			continue
+		}
+		seen[gloss] = true
+		parts = append(parts, gloss)
+	}
+	return strings.Join(parts, ", ")
 }
 
 // answerInlineUnavailable tells the user the dictionary is down instead of
