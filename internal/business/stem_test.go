@@ -264,3 +264,31 @@ func TestTranslate_ExampleOnlyAnswerSurvivesWithoutALemma(t *testing.T) {
 	}
 	b.WaitBackground()
 }
+
+// dosham's own search resolves an inflected Chechen form to its entry —
+// find("кемсана") answers «кемс : виноград» — and the card dropped it, because
+// the card only renders what the query appears in. The lemma was recovered
+// afterwards by scanning the local table, which holds the entry only once the
+// detached write of this very lookup has landed: on the first reading of the
+// word the reader raced a goroutine for the answer. It is in the reply already.
+func TestTranslate_LemmaComesOffWhatDoshamAnswered(t *testing.T) {
+	probe := &doshamProbe{
+		primaries: map[string]bool{"кемсана": true},
+		entries:   map[string]string{"кемсана": "кемс"},
+	}
+	probe.start(t)
+
+	// Nothing stored: no local pairs, no prefix index, nothing written yet.
+	b := newStemBusiness(&stemDictRepo{})
+
+	got, resolved, err := b.TranslateResolved("кемсана")
+	if err != nil {
+		t.Fatalf("translate: %v", err)
+	}
+	if resolved != "кемс" {
+		t.Fatalf("resolved = %q, want the lemma dosham returned", resolved)
+	}
+	if len(got) == 0 || got[0].Original != "кемс" {
+		t.Fatalf("got %+v, want the lemma's pairs", got)
+	}
+}

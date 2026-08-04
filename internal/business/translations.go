@@ -184,6 +184,19 @@ func (b *Business) TranslateResolved(word string) ([]models.TranslationPairs, st
 		return translations, "", nil
 	}
 
+	// dosham's own search already resolved the form — it answers «кемсана» with
+	// «кемс», «декъахочун» with «декъахо» — and the card threw that away
+	// because the query does not appear in the entry. Reading the lemma off
+	// what came back costs nothing and is better evidence than the prefix scan
+	// below: the candidate is an entry the dictionary returned for this very
+	// query. Accepted only if the lemma's card then says what the word means.
+	if lemma := lemmaFromPairs(word, translations); lemma != "" {
+		byLemma := rankAndDedup(translations, lemma)
+		if tools.Render(lemma, byLemma).Glossed {
+			return byLemma, lemma, nil
+		}
+	}
+
 	// Russian endings have no paradigm to consult, so the lemma is guessed from
 	// the stem — but only here, once dosham has failed to answer under this
 	// spelling. Failed, not «returned nothing»: «собаку» brings back six rows,

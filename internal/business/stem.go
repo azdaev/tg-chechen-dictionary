@@ -97,3 +97,31 @@ func (b *Business) loadStemTranslations(ctx context.Context, word string) ([]mod
 	}
 	return pairs, lemma, nil
 }
+
+// lemmaFromPairs finds the lemma among the entries dosham returned for the
+// query. find() is word-oriented and resolves an inflected form to its entry on
+// its own — «кемсана» comes back as «кемс : виноград», «активисткаш» as
+// «активистка», «декъахочун» as «декъахо : пайщик» — but the card renders only
+// what the query appears in, so those answers were dropped and the reader was
+// told the dictionary holds no such word. Nothing here is guessed that the
+// stem layer below does not already guess; the source is simply better.
+func lemmaFromPairs(word string, pairs []models.TranslationPairs) string {
+	typed := tools.NormalizeSearch(word)
+	lemma := ""
+	for _, p := range pairs {
+		if p.EntryType == "TEXT" {
+			continue // a sentence containing the word is not its lemma
+		}
+		head := tools.NormalizeSearch(p.Original)
+		if head == "" || head == typed || strings.ContainsAny(head, " \t") {
+			continue
+		}
+		if !sameStem(typed, head) {
+			continue
+		}
+		if lemma == "" || utf8.RuneCountInString(head) < utf8.RuneCountInString(lemma) {
+			lemma = head
+		}
+	}
+	return lemma
+}
