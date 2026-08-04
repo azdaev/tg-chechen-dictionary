@@ -279,7 +279,7 @@ func collect(query string, pairs []models.TranslationPairs) collected {
 			orphaned = append(orphaned, b.examples...)
 			continue
 		}
-		b.senses = dedupSenses(b.senses)
+		b.senses = pointersLast(dedupSenses(b.senses))
 		kept = append(kept, b)
 	}
 	kept = mergeSpellings(kept)

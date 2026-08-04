@@ -2,6 +2,7 @@ package tools
 
 import (
 	"chetoru/internal/models"
+	"strings"
 	"testing"
 )
 
@@ -88,5 +89,29 @@ func TestFirstGloss_SkipsLabels(t *testing.T) {
 		if got != c.want {
 			t.Errorf("FirstGloss(%q) = %q, want %q", c.gloss, got, c.want)
 		}
+	}
+}
+
+// «тоийта» is glossed «понуд. от тоа; прекрати́ть», and the card spent its
+// first line on a word the reader neither asked about nor got translated.
+func TestCard_PointerSensesComeLast(t *testing.T) {
+	body := Render("тоийта", []models.TranslationPairs{
+		{Original: "тоийта", Translate: "понуд. от тоа", OriginalLang: "CHE", TranslateLang: "RUS", EntryType: "WORD"},
+		{Original: "тоийта", Translate: "прекрати́ть", OriginalLang: "CHE", TranslateLang: "RUS", EntryType: "WORD"},
+	}).Body
+	if !strings.Contains(body, "1. прекрати́ть") {
+		t.Errorf("the meaning is not the first thing on the card:\n%s", body)
+	}
+	if !strings.Contains(body, "понуд. от тоа") {
+		t.Errorf("the derivation was dropped rather than moved:\n%s", body)
+	}
+
+	// With nothing to move behind, the pointer stays — it is what CrossRef and
+	// DerivedFrom read to find the word that does get translated.
+	body = Render("ваха", []models.TranslationPairs{
+		{Original: "ваха", Translate: "см. даха", OriginalLang: "CHE", TranslateLang: "RUS", EntryType: "WORD"},
+	}).Body
+	if !strings.Contains(body, "см. даха") {
+		t.Errorf("a card that is only a pointer lost its pointer:\n%s", body)
 	}
 }

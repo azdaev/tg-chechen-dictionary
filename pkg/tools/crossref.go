@@ -103,3 +103,30 @@ func withoutLabels(variant string) string {
 	}
 	return variant
 }
+
+// pointersLast moves the senses that only name another entry behind the ones
+// that translate. A card whose meanings are «1. понуд. от тоа 2. прекрати́ть»
+// spends its first line on a word the reader did not ask about and did not get
+// translated either. Moved rather than dropped: the derivation is worth
+// knowing, just not first. When every sense is a pointer there is nothing to
+// move it behind, and the card stays a pointer — which is what CrossRef and
+// DerivedFrom then answer.
+func pointersLast(senses []string) []string {
+	var plain, pointers []string
+	for _, s := range senses {
+		if isPointer(s) {
+			pointers = append(pointers, s)
+			continue
+		}
+		plain = append(plain, s)
+	}
+	if len(plain) == 0 {
+		return senses
+	}
+	return append(plain, pointers...)
+}
+
+func isPointer(sense string) bool {
+	sense = strings.TrimSpace(sense)
+	return crossRefOnlyRe.MatchString(sense) || derivedFromRe.MatchString(sense)
+}
