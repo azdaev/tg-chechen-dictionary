@@ -20,22 +20,31 @@ const maxGrammarForms = 12
 // translation it belongs to — unattached, it reads as a message about nothing.
 // It is a no-op when the word has no analyzed grammar, so most TEXT/phrase
 // lookups send nothing.
-func (n *Net) sendGrammarCard(ctx context.Context, chatID int64, messageID int, card, word string) {
+//
+// base, when set, is the word this entry is derived from: looking up what it
+// means is a second dictionary round trip, and this is where the enrichments
+// that must not sit between the user and their translation are paid for.
+func (n *Net) sendGrammarCard(ctx context.Context, chatID int64, messageID int, card, word, base string) {
+	var extra []string
+	if base != "" {
+		if line := n.baseWordLine(base); line != "" {
+			extra = append(extra, line)
+		}
+	}
 	// Optional enrichment on top of a translation already delivered, so a
 	// failure just means no card — logged, never surfaced.
-	g, err := n.business.GrammarFor(ctx, word)
-	if err != nil {
+	if g, err := n.business.GrammarFor(ctx, word); err != nil {
 		n.log.WithError(err).WithField("word", word).Debug("grammar lookup failed")
-		return
+	} else if block := formatGrammarBlock(g, card); block != "" {
+		extra = append(extra, block)
 	}
-	block := formatGrammarBlock(g, card)
-	if block == "" {
+	if len(extra) == 0 {
 		return
 	}
 	// Grown into the translation rather than sent after it. As a second message
 	// it arrived whenever the API answered, which in a fast exchange put the
 	// grammar for one word underneath the answer to the next one.
-	edit := tgbotapi.NewEditMessageText(chatID, messageID, clampMessage(card+"\n\n"+block))
+	edit := tgbotapi.NewEditMessageText(chatID, messageID, clampMessage(card+"\n\n"+strings.Join(extra, "\n\n")))
 	edit.ParseMode = "html"
 	if _, err := n.send(edit); err != nil {
 		n.log.WithError(err).Debug("failed to append grammar to the card")

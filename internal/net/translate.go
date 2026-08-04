@@ -65,11 +65,6 @@ func (n *Net) HandleText(ctx context.Context, m *tgbotapi.Message) error {
 	if tools.NormalizeSearch(renderKey) != tools.NormalizeSearch(m.Text) {
 		card = fmt.Sprintf(ResolvedQueryFormat, tgbotapi.EscapeText(tgbotapi.ModeHTML, m.Text)) + "\n\n" + card
 	}
-	if base := tools.DerivedFrom(renderKey, translations); base != "" {
-		if line := n.baseWordLine(base); line != "" {
-			card += "\n\n" + line
-		}
-	}
 	if line := tools.FormatNeighbours(rendered.Neighbours); line != "" {
 		card += "\n\n" + line
 	}
@@ -116,8 +111,9 @@ func (n *Net) HandleText(ctx context.Context, m *tgbotapi.Message) error {
 		headword = rendered.Chechen
 	}
 	cardText := msg.Text
+	base := tools.DerivedFrom(renderKey, translations)
 	n.bg.Go(func() {
-		n.sendGrammarCard(context.Background(), m.Chat.ID, sent.MessageID, cardText, headword)
+		n.sendGrammarCard(context.Background(), m.Chat.ID, sent.MessageID, cardText, headword, base)
 	})
 
 	// Donation nudge runs detached: it is a DB check plus an extra Telegram
