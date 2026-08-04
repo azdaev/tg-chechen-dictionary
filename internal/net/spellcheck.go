@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
@@ -92,19 +93,23 @@ func (n *Net) runSpellcheck(ctx context.Context, chatID int64, replyTo int, text
 	// Format response
 	var responseText string
 	if result.Corrected != "" {
-		responseText = "✏️ " + result.Corrected
+		responseText = "✏️ " + markCorrections(text, result.Corrected)
 	}
 	if idx := strings.Index(result.Explanation, "CHANGES:"); idx != -1 {
 		changes := strings.TrimSpace(result.Explanation[idx+len("CHANGES:"):])
 		if changes != "" {
-			responseText += "\n\n📝 Изменения:\n" + changes
+			responseText += "\n\n📝 Изменения:\n" + tgbotapi.EscapeText(tgbotapi.ModeHTML, changes)
 		}
 	}
 	if responseText == "" {
-		responseText = result.Explanation
+		responseText = tgbotapi.EscapeText(tgbotapi.ModeHTML, result.Explanation)
 	}
 
 	msg := tgbotapi.NewMessage(chatID, responseText)
+	// The one card where bold carries information rather than decoration: which
+	// words the checker actually touched. A parse failure falls back to plain
+	// text on its own, so the markup can only add.
+	msg.ParseMode = "html"
 	msg.ReplyToMessageID = replyTo
 	msg.AllowSendingWithoutReply = true
 
@@ -337,4 +342,72 @@ func spellcheckFeedbackKeyboard(original, corrected string) tgbotapi.InlineKeybo
 			tgbotapi.NewInlineKeyboardButtonData("👎", "spell_dislike_"+hash),
 		),
 	)
+}
+
+// markCorrections bolds the words the checker changed. A correction the reader
+// has to find by comparing two spellings letter by letter is barely a
+// correction — and the words most often fixed here differ from what was typed
+// by one palochka.
+//
+// Compared as typed, lowercased and nothing else: folding the palochka away
+// would hide precisely the fix it is here to show.
+func markCorrections(original, corrected string) string {
+	typed := map[string]bool{}
+	for _, w := range words(original) {
+		typed[strings.ToLower(w)] = true
+	}
+	var b strings.Builder
+	for _, tok := range tokens(corrected) {
+		esc := tgbotapi.EscapeText(tgbotapi.ModeHTML, tok)
+		if isWordToken(tok) && !typed[strings.ToLower(tok)] {
+			esc = "<b>" + esc + "</b>"
+		}
+		b.WriteString(esc)
+	}
+	return b.String()
+}
+
+func words(text string) []string {
+	var out []string
+	for _, tok := range tokens(text) {
+		if isWordToken(tok) {
+			out = append(out, tok)
+		}
+	}
+	return out
+}
+
+// tokens splits text into alternating runs of word characters and everything
+// else, so rejoining them reproduces the input exactly — spacing, punctuation
+// and line breaks included.
+func tokens(text string) []string {
+	var out []string
+	start := 0
+	var inWord bool
+	for i, r := range text {
+		w := isWordRune(r)
+		if i == 0 {
+			inWord = w
+			continue
+		}
+		if w != inWord {
+			out = append(out, text[start:i])
+			start, inWord = i, w
+		}
+	}
+	if start < len(text) {
+		out = append(out, text[start:])
+	}
+	return out
+}
+
+func isWordToken(tok string) bool {
+	for _, r := range tok {
+		return isWordRune(r)
+	}
+	return false
+}
+
+func isWordRune(r rune) bool {
+	return unicode.IsLetter(r) || unicode.IsDigit(r) || r == '\''
 }

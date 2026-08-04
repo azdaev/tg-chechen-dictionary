@@ -5,6 +5,7 @@ import (
 	"chetoru/internal/cache"
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
@@ -102,5 +103,30 @@ func TestSpellcheckAccess_FailureIsNotExhaustion(t *testing.T) {
 	}
 	if got := spellcheckAccessFor(true, nil); got != spellcheckAllowed {
 		t.Errorf("a user with checks left reads as %v, want spellcheckAllowed", got)
+	}
+}
+
+// A correction the reader has to find by comparing two spellings letter by
+// letter is barely a correction. The reply carried the fixed text and no
+// markup at all — not even a parse mode — so the one card where bold would
+// carry information could not use it.
+func TestMarkCorrections(t *testing.T) {
+	cases := []struct{ name, typed, corrected, want string }{
+		{"одно слово исправлено", "г1ала чохь", "гӏала чохь", "<b>гӏала</b> чохь"},
+		{"ничего не изменилось", "гӏала", "гӏала", "гӏала"},
+		{"регистр — не правка", "Гӏала", "гӏала", "гӏала"},
+		{"пунктуация и пробелы на месте", "со ваха,  цига", "со вахна,  цига", "со <b>вахна</b>,  цига"},
+		{"перевод строки сохранён", "цӏа\nхи", "цӏа\nхиш", "цӏа\n<b>хиш</b>"},
+	}
+	for _, c := range cases {
+		if got := markCorrections(c.typed, c.corrected); got != c.want {
+			t.Errorf("%s: markCorrections(%q, %q) = %q, want %q", c.name, c.typed, c.corrected, got, c.want)
+		}
+	}
+
+	// The card is sent as HTML now, so anything the checker hands back has to
+	// survive it: an unescaped angle bracket would blank the whole message.
+	if got := markCorrections("a < b", "a < b"); strings.Contains(got, " < ") {
+		t.Errorf("angle bracket reached Telegram unescaped: %q", got)
 	}
 }
