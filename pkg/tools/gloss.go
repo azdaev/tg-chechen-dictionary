@@ -240,6 +240,12 @@ func newAbbreviationReplacer() *strings.Replacer {
 		"вин.":       "(винительный)",
 		"тв.":        "(творительный)",
 		"пр.":        "(предложный)",
+		// Every abbreviation that ends in a shorter one needs its own entry, or
+		// the replacer finds the short one inside it: without these, «с неопр.»
+		// came out as «с нео(предложный)» and «напр.» as «на(предложный)».
+		"неопр.": "(неопределённая форма)",
+		"деепр.": "(деепричастие)",
+		"напр.":  "(например)",
 	}
 
 	keys := make([]string, 0, len(abbreviations))

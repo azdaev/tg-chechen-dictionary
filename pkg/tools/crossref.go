@@ -8,7 +8,15 @@ import (
 	"chetoru/internal/models"
 )
 
-var crossRefOnlyRe = regexp.MustCompile(`^см\.\s*([^\s,;.]+)\.?$`)
+var (
+	crossRefOnlyRe = regexp.MustCompile(`^см\.\s*([^\s,;.¹²³]+)[¹²³,\s]*\.?$`)
+	// The derivational pointers: «яхчийта — понуд. от яхча», «диттадала —
+	// потенц. от дитта», «бежан — прил. к бажа». Together with «см.» they are
+	// 14% of the Chechen glosses sampled. Unlike «см.» these do not mean the
+	// same word, so the base word is shown beside the entry rather than
+	// instead of it — a causative is not its own verb.
+	derivedFromRe = regexp.MustCompile(`^(?:понуд|потенц|масд|прич|прил|нареч|сущ|уменьш|увелич|многокр|однокр)\.\s*(?:от|к)\s+([^\s,;.¹²³]+)[¹²³,\s]*\.?$`)
+)
 
 // CrossRef reports the entry a gloss points at instead of translating.
 //
@@ -24,6 +32,18 @@ var crossRefOnlyRe = regexp.MustCompile(`^см\.\s*([^\s,;.]+)\.?$`)
 // meaning. If any of them does translate the query, there is nothing to
 // follow — the card already says what it means.
 func CrossRef(query string, pairs []models.TranslationPairs) string {
+	return pointsAt(query, pairs, crossRefOnlyRe)
+}
+
+// DerivedFrom is CrossRef for the pointers that name a base word rather than a
+// synonym: «понуд. от яхча» is the causative of яхча, not яхча. The caller
+// shows the base word's meaning next to the entry; putting it in place of the
+// entry would state that «яхчийта» means «охладить», which it does not.
+func DerivedFrom(query string, pairs []models.TranslationPairs) string {
+	return pointsAt(query, pairs, derivedFromRe)
+}
+
+func pointsAt(query string, pairs []models.TranslationPairs, re *regexp.Regexp) string {
 	q := FoldSearch(NormalizeSearch(query))
 	target := ""
 	for _, p := range pairs {
@@ -36,7 +56,7 @@ func CrossRef(query string, pairs []models.TranslationPairs) string {
 		default:
 			continue
 		}
-		m := crossRefOnlyRe.FindStringSubmatch(strings.TrimSpace(Clean(gloss)))
+		m := re.FindStringSubmatch(strings.TrimSpace(Clean(gloss)))
 		switch {
 		case m == nil:
 			return "" // the word is translated here after all
@@ -49,4 +69,37 @@ func CrossRef(query string, pairs []models.TranslationPairs) string {
 		}
 	}
 	return target
+}
+
+// FirstGloss states what a card says the query means, in one line — the
+// leading sense of the block the card leads with.
+func FirstGloss(query string, pairs []models.TranslationPairs) string {
+	for _, b := range collect(query, pairs).blocks {
+		for _, sense := range b.senses {
+			for _, variant := range strings.Split(stripParens(sense), ",") {
+				if g := withoutLabels(variant); g != "" {
+					return g
+				}
+			}
+		}
+	}
+	return ""
+}
+
+// withoutLabels drops the abbreviations a sense opens with. The academic corpus
+// writes «прям., перен. закали́ться»; quoting «прям.» as what a word means is
+// worse than saying nothing.
+func withoutLabels(variant string) string {
+	variant = strings.TrimSpace(variant)
+	for {
+		fields := strings.Fields(variant)
+		if len(fields) < 2 || !strings.HasSuffix(fields[0], ".") {
+			break
+		}
+		variant = strings.TrimSpace(strings.TrimPrefix(variant, fields[0]))
+	}
+	if strings.HasSuffix(variant, ".") {
+		return "" // a label standing alone
+	}
+	return variant
 }

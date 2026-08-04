@@ -40,3 +40,53 @@ func TestCrossRef(t *testing.T) {
 		t.Errorf("CrossRef = %q; the word is translated here", got)
 	}
 }
+
+// «яхчийта — понуд. от яхча» names two Chechen words and translates neither.
+// Unlike «см.» the pointer is not an equivalence — a causative is not its base
+// verb — so the base is reported for showing beside the entry, not instead.
+func TestDerivedFrom(t *testing.T) {
+	pair := func(head, gloss string) models.TranslationPairs {
+		return models.TranslationPairs{Original: head, Translate: gloss,
+			OriginalLang: "CHE", TranslateLang: "RUS", EntryType: "WORD"}
+	}
+	cases := []struct{ name, query, gloss, want string }{
+		{"понудительная", "яхчийта", "понуд. от яхча", "яхча"},
+		{"потенциальная", "диттадала", "потенц. от дитта", "дитта"},
+		{"без пробела", "юхаловзадала", "потенц.от юхаловза", "юхаловза"},
+		{"прилагательное", "бежан", "прил. к бажа", "бажа"},
+		{"с надстрочным номером", "вахавала", "потенц. от ваха¹,²", "ваха"},
+		{"«см.» — не сюда", "ваха", "см. даха", ""},
+		{"это перевод", "бежан", "табунный", ""},
+	}
+	for _, c := range cases {
+		if got := DerivedFrom(c.query, []models.TranslationPairs{pair(c.query, c.gloss)}); got != c.want {
+			t.Errorf("%s: DerivedFrom(%q) = %q, want %q", c.name, c.gloss, got, c.want)
+		}
+	}
+
+	// A sense of its own leaves nothing to explain.
+	if got := DerivedFrom("бежан", []models.TranslationPairs{
+		pair("бежан", "прил. к бажа"), pair("бежан", "табунный"),
+	}); got != "" {
+		t.Errorf("DerivedFrom = %q; the word is translated here", got)
+	}
+}
+
+// The academic corpus opens a sense with its labels — «прям., перен.
+// закали́ться» — and the base-word line used to quote «прям.» as the meaning.
+func TestFirstGloss_SkipsLabels(t *testing.T) {
+	cases := []struct{ gloss, want string }{
+		{"прям., перен. закали́ться, закаля́ться", "закали́ться"},
+		{"грам. гла́сный", "гла́сный"},
+		{"вы́стирать", "вы́стирать"},
+	}
+	for _, c := range cases {
+		got := FirstGloss("дахча", []models.TranslationPairs{{
+			Original: "дахча", Translate: c.gloss,
+			OriginalLang: "CHE", TranslateLang: "RUS", EntryType: "WORD", Rate: 10000,
+		}})
+		if got != c.want {
+			t.Errorf("FirstGloss(%q) = %q, want %q", c.gloss, got, c.want)
+		}
+	}
+}

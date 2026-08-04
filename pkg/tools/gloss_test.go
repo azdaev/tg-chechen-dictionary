@@ -25,3 +25,20 @@ func TestCard_AspectLabelWithAComma(t *testing.T) {
 		}
 	}
 }
+
+// The replacer scans longest-first so a short abbreviation is never found
+// inside a longer one — but only for the ones it knows. «пр.» sat inside three
+// it did not, and «с неопр.» reached the card as «с нео(предложный)».
+func TestExpandAbbreviations_LongerOnesWin(t *testing.T) {
+	cases := []struct{ in, want string }{
+		{"чему и с неопр. ӏама", "чему и с (неопределённая форма) ӏама"},
+		{"хьекхо (напр. одежду)", "хьекхо ((например) одежду)"},
+		{"деепр. вприпры́жку", "(деепричастие) вприпры́жку"},
+		{"в пр. падеже", "в (предложный) падеже"},
+	}
+	for _, c := range cases {
+		if got := expandAbbreviations(c.in); got != c.want {
+			t.Errorf("expandAbbreviations(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}

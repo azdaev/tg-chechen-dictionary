@@ -32,7 +32,11 @@ const (
 	// word that was typed: «кемсана» is filed under «кемс», and Chechen marks
 	// noun class on the verb, so «ваха» is filed under «даха». Without a line
 	// saying so the reader is handed a different word and no reason for it.
-	ResolvedQueryFormat       = "<i>по запросу «%s»:</i>"
+	ResolvedQueryFormat = "<i>по запросу «%s»:</i>"
+	// Shown under an entry the dictionary defines only by naming the word it
+	// is built from — «яхчийта — понуд. от яхча». Without the base word's
+	// meaning the card names two Chechen words and translates neither.
+	DerivedFromFormat         = "<b>%s</b> — %s"
 	MissingWordsLimit         = 30
 	MissingWordsHeader        = "<b>🔍 Слова без перевода</b>\n\n<i>Слова, которые искали пользователи, но в словаре не нашлось перевода. Это подсказывает, какие слова стоит добавить.</i>\n\n"
 	MissingWordsEmpty         = "Пока нет слов без перевода 🎉"

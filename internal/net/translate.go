@@ -65,6 +65,11 @@ func (n *Net) HandleText(ctx context.Context, m *tgbotapi.Message) error {
 	if tools.NormalizeSearch(renderKey) != tools.NormalizeSearch(m.Text) {
 		card = fmt.Sprintf(ResolvedQueryFormat, tgbotapi.EscapeText(tgbotapi.ModeHTML, m.Text)) + "\n\n" + card
 	}
+	if base := tools.DerivedFrom(renderKey, translations); base != "" {
+		if line := n.baseWordLine(base); line != "" {
+			card += "\n\n" + line
+		}
+	}
 	if line := tools.FormatNeighbours(rendered.Neighbours); line != "" {
 		card += "\n\n" + line
 	}
@@ -345,4 +350,27 @@ func parseMoreCallback(data string) (word string, offset int, ok bool) {
 		return "", 0, false
 	}
 	return rest[:idx], n, true
+}
+
+// baseWordLine states what the word an entry is built from means. The
+// dictionary defines a causative or a potential only by naming its base —
+// «яхчийта — понуд. от яхча» — so without this the card holds two Chechen
+// words and no Russian. One extra lookup, on the 8% of Chechen glosses that
+// are nothing but such a pointer; a failure just leaves the card as it was.
+func (n *Net) baseWordLine(base string) string {
+	pairs, resolved, err := n.business.TranslateResolved(base)
+	if err != nil || len(pairs) == 0 {
+		return ""
+	}
+	// Whatever the bot answers for the base word is what the reader would get
+	// by looking it up themselves, redirects included: «яхча» is filed under
+	// «дахча», and the gloss found there is the one that belongs on this line.
+	gloss := tools.FirstGloss(base, pairs)
+	if gloss == "" && resolved != "" {
+		gloss = tools.FirstGloss(resolved, pairs)
+	}
+	if gloss == "" {
+		return ""
+	}
+	return fmt.Sprintf(DerivedFromFormat, tools.Clean(base), gloss)
 }
