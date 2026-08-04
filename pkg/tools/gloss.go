@@ -23,7 +23,11 @@ var (
 	// Part-of-speech labels join them, period-terminated only — a bare "союз" is
 	// also a real Russian word. The trailing group accepts a colon because
 	// «Заострить» stores "сов.: заострить карандаш - къолам ирбан".
-	verbLabelRe = regexp.MustCompile(`^((не)?сов\.|однокр\.|многокр\.|перех\.|неперех\.|безл\.|нескл\.|нареч\.|числ\.|мест\.|межд\.|предл\.|част\.|прил\.|сущ\.|гл\.|вводн\. сл\.|вводн\.|частица|междометие|союз|предлог|в разн\. знач\.|разн\. знач\.|т\.к\.|тк\.|мн\.|ед\.|собир\.|кратк\. ф\.|в знач\. сказ\.|в знач\. сущ\.|кому-чему|кого-что|о ком|о чём|кому|чему|кого|кем|чем|ком|что)(?:[,;:]?\s+|:)`)
+	// The aspect label is the one that also comes with a comma for its period
+	// — «Обрить» opens "сов, что [дӏа]даша" — and it is the label a gloss is
+	// most likely to open with, so a miss shows the reader "сов, что дӏадаша"
+	// as the Chechen for «обрить».
+	verbLabelRe = regexp.MustCompile(`^((не)?сов[.,]|однокр\.|многокр\.|перех\.|неперех\.|безл\.|нескл\.|нареч\.|числ\.|мест\.|межд\.|предл\.|част\.|прил\.|сущ\.|гл\.|вводн\. сл\.|вводн\.|частица|междометие|союз|предлог|в разн\. знач\.|разн\. знач\.|т\.к\.|тк\.|мн\.|ед\.|собир\.|кратк\. ф\.|в знач\. сказ\.|в знач\. сущ\.|кому-чему|кого-что|о ком|о чём|кому|чему|кого|кем|чем|ком|что)(?:[,;:]?\s+|:)`)
 	// crossRefRe strips a reference to another entry along with the entry it
 	// points at: «Камешек» opens "м уменьш. от камень тӏулг", and cutting only
 	// the abbreviation left «от камень тӏулг» standing in as the Chechen word.
