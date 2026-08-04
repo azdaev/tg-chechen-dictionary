@@ -27,6 +27,9 @@ type doshamProbe struct {
 	hold <-chan struct{}
 	// fail names the lookups that answer with an HTTP error instead of rows.
 	fail map[string]bool
+	// texts answers a word with a collocation that merely contains it, the way
+	// dosham answers an inflected Russian form.
+	texts map[string]string
 
 	mu        sync.Mutex
 	calls     map[string]int
@@ -84,7 +87,9 @@ func (p *doshamProbe) start(t *testing.T) {
 		}
 
 		find := "[]"
-		if headword, ok := p.entries[word]; ok {
+		if text, ok := p.texts[word]; ok {
+			find = fmt.Sprintf(`[{"entryId":"e1","content":%q,"type":"TEXT","translations":[{"translationId":"t1","content":%q,"languageCode":"ru"}]}]`, text, "перевод "+word)
+		} else if headword, ok := p.entries[word]; ok {
 			find = fmt.Sprintf(`[{"entryId":"e1","content":%q,"type":"WORD","translations":[{"translationId":"t1","content":"перевод","languageCode":"ru"}]}]`, headword)
 		}
 		fmt.Fprintf(w, `{"data":{"find":%s}}`, find)

@@ -54,6 +54,12 @@ type Rendered struct {
 	// «карандаш» never reaches «къолам», whose Russian side the academic corpus
 	// spells «каранда́ш» — so the paradigm has to be asked for by name.
 	Chechen string
+	// Glossed says some block actually states what the query means. A card can
+	// render without it: «собаку» brings back six sentences that contain the
+	// word and no entry for it, so the card is six illustrations of a word it
+	// never translates. That is worth showing when it is all there is, and worth
+	// stepping past when another layer can do better.
+	Glossed bool
 }
 
 func Render(query string, pairs []models.TranslationPairs) Rendered {
@@ -61,7 +67,21 @@ func Render(query string, pairs []models.TranslationPairs) Rendered {
 	if len(c.blocks) == 0 {
 		return Rendered{Neighbours: c.neighbours}
 	}
-	return Rendered{Body: c.render(), Neighbours: c.neighbours, Chechen: c.chechenSide()}
+	return Rendered{
+		Body:       c.render(),
+		Neighbours: c.neighbours,
+		Chechen:    c.chechenSide(),
+		Glossed:    c.glossed(),
+	}
+}
+
+func (c collected) glossed() bool {
+	for _, b := range c.blocks {
+		if len(b.senses) > 0 {
+			return true
+		}
+	}
+	return false
 }
 
 func (c collected) chechenSide() string {

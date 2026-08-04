@@ -178,20 +178,35 @@ func (b *Business) TranslateResolved(word string) ([]models.TranslationPairs, st
 	}
 	translations, _ := v.([]models.TranslationPairs)
 	translations = rankAndDedup(translations, word)
-	if len(translations) > 0 {
+	rendered := tools.Render(word, translations)
+	if rendered.Glossed {
 		b.cacheTranslationsAsync(ctx, cacheKey, translations)
 		return translations, "", nil
 	}
 
 	// Russian endings have no paradigm to consult, so the lemma is guessed from
-	// the stem — but only here, once dosham has said it holds nothing under this
-	// spelling. Guessing earlier answers «столб», a word of its own, with «стол».
+	// the stem — but only here, once dosham has failed to answer under this
+	// spelling. Failed, not «returned nothing»: «собаку» brings back six rows,
+	// every one of them a sentence that merely contains the word, and the card
+	// built from them has examples and no translation at all — the user is shown
+	// six illustrations of a word the bot never names. The card is asked, since
+	// the card is what decides. Guessing earlier answers «столб», a word of its
+	// own, with «стол» — and that stays true: «столб» renders, so it never
+	// reaches here.
 	// Not cached: the key is the form the user typed, which moderation cannot
 	// reach, and the layer is one indexed read anyway.
 	stemmed, headword, err := b.loadStemTranslations(ctx, word)
 	degraded = degraded || err != nil
 	if len(stemmed) > 0 {
 		return stemmed, headword, nil
+	}
+
+	// Nothing better exists, so the illustrations are the answer after all:
+	// «даться» is held only as «не даться в обман», and a card carrying that one
+	// line beats «нет перевода».
+	if rendered.Body != "" {
+		b.cacheTranslationsAsync(ctx, cacheKey, translations)
+		return translations, "", nil
 	}
 
 	// Nothing found, and part of the dictionary never answered. Reporting that

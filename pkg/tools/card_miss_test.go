@@ -121,3 +121,27 @@ func TestCard_FoldedHitStillRenders(t *testing.T) {
 		t.Errorf("folded homograph was absorbed into the exact block:\n%s", body)
 	}
 }
+
+// A card can render without ever saying what the query means: dosham answers an
+// inflected Russian form with the sentences that contain it and no entry of its
+// own. Glossed is what lets the layer above tell that apart from an answer.
+func TestRender_ExamplesWithoutAGlossAreNotGlossed(t *testing.T) {
+	examples := []models.TranslationPairs{
+		{Original: "жӏаьла караӏамо", Translate: "выдрессировать собаку", OriginalLang: "CHE", TranslateLang: "RUS", EntryType: "TEXT", Rate: 100},
+		{Original: "жӏаьла дардан", Translate: "злить собаку", OriginalLang: "CHE", TranslateLang: "RUS", EntryType: "TEXT", Rate: 100},
+	}
+	r := Render("собаку", examples)
+	if r.Body == "" {
+		t.Fatal("the illustrations are worth showing when they are all there is")
+	}
+	if r.Glossed {
+		t.Errorf("a card with no translation on it reports itself as an answer:\n%s", r.Body)
+	}
+
+	// An entry of its own is glossed, examples or not.
+	if !Render("собака", append(examples, models.TranslationPairs{
+		Original: "Собака", Translate: "ж жӏаьла", OriginalLang: "RUS", TranslateLang: "CHE", EntryType: "WORD", Rate: 100,
+	})).Glossed {
+		t.Error("a card that names the translation does not report it")
+	}
+}

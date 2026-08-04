@@ -3,6 +3,8 @@ package business
 import (
 	"chetoru/internal/cache"
 	"chetoru/internal/models"
+	"chetoru/internal/repository"
+	"chetoru/pkg/tools"
 	"context"
 	"testing"
 
@@ -21,6 +23,12 @@ func (r *stemDictRepo) FindTranslationPairs(_ context.Context, cleanWord string,
 
 func (r *stemDictRepo) FindTranslationPairsByPrefix(_ context.Context, prefix string, _ int) ([]models.TranslationPairs, error) {
 	return r.byPrefix[prefix], nil
+}
+
+// The embedded fake posts every insert to a channel a test must drain; these
+// tests care about the read path, so writes are dropped instead.
+func (r *stemDictRepo) InsertTranslationPair(context.Context, repository.TranslationPair) (int64, bool, error) {
+	return 0, false, nil
 }
 
 func newStemBusiness(repo *stemDictRepo) *Business {
@@ -201,4 +209,58 @@ func TestTranslate_FormSkipsAnEmptyLemma(t *testing.T) {
 	} else if resolved != "лом" {
 		t.Fatalf("resolved = %q, want лом", resolved)
 	}
+}
+
+// dosham answers an inflected Russian form with the sentences that contain it
+// and no entry: «собаку» comes back as six collocations about a dog and nothing
+// that says what a dog is. Rows arrived, so the lemma layer below never ran, and
+// the user read six illustrations of a word the bot never translated.
+func TestTranslate_ExampleOnlyAnswerStillReachesTheLemma(t *testing.T) {
+	probe := &doshamProbe{
+		primaries: map[string]bool{"собаку": true},
+		texts:     map[string]string{"собаку": "жӏаьла караӏамо"},
+	}
+	probe.start(t)
+
+	repo := &stemDictRepo{
+		byWord: map[string][]models.TranslationPairs{
+			"собака": {{Original: "Собака", Translate: "ж жӏаьла", OriginalLang: "RUS", TranslateLang: "CHE", EntryType: "WORD", Rate: 100}},
+		},
+		byPrefix: map[string][]models.TranslationPairs{
+			"собак": {{Original: "собака", Translate: "жӏаьла", OriginalLang: "RUS", TranslateLang: "CHE"}},
+		},
+	}
+	b := newStemBusiness(repo)
+
+	got, resolved, err := b.TranslateResolved("собаку")
+	if err != nil {
+		t.Fatalf("translate: %v", err)
+	}
+	if resolved != "собака" {
+		t.Fatalf("resolved = %q, want the lemma: %+v", resolved, got)
+	}
+	if !tools.Render(resolved, got).Glossed {
+		t.Errorf("the lemma's card still says nothing about the word: %+v", got)
+	}
+	b.WaitBackground()
+}
+
+// The other side of the same rule: when no lemma is better, the illustrations
+// are the answer. «даться» is held only as «не даться в обман».
+func TestTranslate_ExampleOnlyAnswerSurvivesWithoutALemma(t *testing.T) {
+	probe := &doshamProbe{
+		primaries: map[string]bool{"даться": true},
+		texts:     map[string]string{"даться": "ӏеха ца вайта"},
+	}
+	probe.start(t)
+
+	b := newStemBusiness(&stemDictRepo{})
+	got, _, err := b.TranslateResolved("даться")
+	if err != nil {
+		t.Fatalf("translate: %v", err)
+	}
+	if len(got) == 0 {
+		t.Fatal("the one line the dictionary holds was dropped for «нет перевода»")
+	}
+	b.WaitBackground()
 }

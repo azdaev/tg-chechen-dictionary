@@ -65,6 +65,17 @@ func (n *Net) HandleText(ctx context.Context, m *tgbotapi.Message) error {
 	if line := tools.FormatNeighbours(rendered.Neighbours); line != "" {
 		card += "\n\n" + line
 	}
+	// A card that shows the word in use but never says what it means is half an
+	// answer: «собаку» comes back as six sentences that contain it and no entry
+	// of its own, so the user reads «жӏаьла караӏамо — выдрессировать собаку»
+	// and still does not learn that a dog is жӏаьла. The lemma is one prefix
+	// lookup away, and the miss path already knows how to find it. Offered, not
+	// asserted — a guess at the lemma is not the same thing as an entry.
+	if !rendered.Glossed {
+		if suggestions := n.business.SuggestTranslations(m.Text); len(suggestions) > 0 {
+			card += "\n\n" + SuggestionsHeaderText + "\n\n" + tools.FormatSuggestions(suggestions)
+		}
+	}
 	msg := tgbotapi.NewMessage(m.Chat.ID, clampMessage(card))
 	msg.ParseMode = "html"
 
