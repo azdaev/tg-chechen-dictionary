@@ -1,6 +1,9 @@
 package tools
 
-import "testing"
+import (
+	"chetoru/internal/models"
+	"testing"
+)
 
 func BenchmarkClean(b *testing.B) {
 	for b.Loop() {
@@ -14,9 +17,16 @@ func BenchmarkCleanPlain(b *testing.B) {
 	}
 }
 
-func BenchmarkFormatTranslationLite(b *testing.B) {
-	const entry = "**черный** -ая, -ое 1) Ӏаьржа; ~ое море - Ӏаьржа хӀорд; перен. ~ день - вон де 2) разг. сийна; ~ хлеб - сийна бепиг"
+func BenchmarkCard(b *testing.B) {
+	pairs := []models.TranslationPairs{{
+		Original:      "Чёрный",
+		Translate:     "-ая, -ое 1) Ӏаьржа; ~ое море - Ӏаьржа хӀорд; перен. ~ день - вон де 2) разг. сийна; ~ хлеб - сийна бепиг",
+		OriginalLang:  "RUS",
+		TranslateLang: "CHE",
+		EntryType:     "WORD",
+		Rate:          100,
+	}}
 	for b.Loop() {
-		FormatTranslationLite(entry, "черный", true)
+		FormatCard("чёрный", pairs)
 	}
 }

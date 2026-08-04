@@ -105,21 +105,23 @@ func main() {
 			rendered++
 			// Only CE translations get here, so the gloss is the Chechen side
 			// and the headword is Russian.
+			pairs := []models.TranslationPairs{{
+				Original:      e.Content,
+				Translate:     t.Content,
+				OriginalLang:  "RUS",
+				TranslateLang: "CHE",
+				EntryType:     e.Type,
+			}}
 			if *examples {
-				pair := models.TranslationPairs{
-					Original:      e.Content,
-					Translate:     t.Content,
-					OriginalLang:  "RUS",
-					TranslateLang: "CHE",
-					EntryType:     e.Type,
-				}
-				if ex, ok := tools.FirstExampleFor(e.Content, []models.TranslationPairs{pair}); ok {
+				if ex, ok := tools.FirstExampleFor(e.Content, pairs); ok {
 					flagged++
 					fmt.Printf("%s: %s\n", e.Content, ex)
 				}
 				continue
 			}
-			out := tools.FormatTranslationLite("**"+e.Content+"** - "+t.Content, e.Content, true)
+			// The card the bot actually sends. Auditing the retired renderer
+			// flagged defects nobody could see and missed the ones they could.
+			out := tools.FormatCard(e.Content, pairs)
 			if sus := suspicions(out); len(sus) > 0 {
 				flagged++
 				fmt.Printf("=== %s [%s]\nGLOSS: %s\nOUT:\n%s\n\n", e.Content, strings.Join(sus, ", "), t.Content, out)

@@ -149,3 +149,60 @@ func TestParseArticle_FormListIsNotAMeaning(t *testing.T) {
 		}
 	}
 }
+
+// The article corpus writes a headword's grammar into the gloss — ending lists,
+// aspect and government labels, the palochka standing in for a homonym number —
+// and its examples with a tilde for the headword. These five entries carried
+// that coverage for the renderer the card replaced; they guard the card now.
+func TestCard_ArticleLabelsAndTildes(t *testing.T) {
+	cases := []struct {
+		head, body string
+		want       []string // must appear
+		gone       []string // must not
+	}{
+		{"Домашний", "-яя, -ее ӏ. цӏера; ~ий адрес – цӏера адрес 2. в знач. сущ. ~ие мн. цӏеранаш",
+			[]string{"1. <b>цӏера</b>", "<i>цӏера адрес → домашний адрес</i>"},
+			[]string{"-яя", "ӏ.", "в знач. сущ."}},
+		{"Даться", "сов., кому 1) не ~ в обман - ӏеха ца вайта",
+			[]string{"не даться в обман"},
+			[]string{"сов.", "кому"}},
+		// ~о on an adjective inflects off the stem: «оглушительно», not the head.
+		{"Оглушительный", "-ая, -ое къорден; ~о кричать - мохь хьакха",
+			[]string{"<b>къорден</b>", "оглушительно кричать"},
+			[]string{"-ая", "~"}},
+		{"Губа", "ӏ ж 1) балда; кусать губы - церга балда леца",
+			[]string{"<b>балда</b>", "<i>церга балда леца → кусать губы</i>"},
+			[]string{"ӏ ж", "1)"}},
+		{"Давать", "несов. 1) дала; ~ книгу - книга яла 2) (позволить) дита",
+			[]string{"1. <b>дала</b>", "2. <b>дита</b>", "давать книгу"},
+			[]string{"несов."}},
+	}
+	for _, c := range cases {
+		got := FormatCard(c.head, []models.TranslationPairs{article(c.head, c.body)})
+		for _, want := range c.want {
+			if !strings.Contains(got, want) {
+				t.Errorf("%s: missing %q:\n%s", c.head, want, got)
+			}
+		}
+		for _, gone := range c.gone {
+			if strings.Contains(got, gone) {
+				t.Errorf("%s: %q leaked into the card:\n%s", c.head, gone, got)
+			}
+		}
+	}
+}
+
+// expandAbbreviations walks a map, so its output was once order-dependent —
+// «хим.» could expand before or after the «им.» inside it. The card is the only
+// caller now, and a card that renders differently between two lookups of the
+// same word is a card that disagrees with its own cache.
+func TestCard_IsDeterministic(t *testing.T) {
+	pairs := []models.TranslationPairs{article("Дом",
+		"м 1) хим. им. род. цӏа; ~ культуры - культуран цӏа; ~ отдыха – садаӏаран цӏа 2) (учреждение) тех. ист. цӏа; детский ~ - берийн цӏа")}
+	first := FormatCard("дом", pairs)
+	for i := range 200 {
+		if got := FormatCard("дом", pairs); got != first {
+			t.Fatalf("card differs at iteration %d:\n first=%q\n got  =%q", i, first, got)
+		}
+	}
+}

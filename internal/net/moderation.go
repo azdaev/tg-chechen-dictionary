@@ -1,6 +1,7 @@
 package net
 
 import (
+	"chetoru/internal/models"
 	"chetoru/internal/repository"
 	"chetoru/pkg/tools"
 	"context"
@@ -182,13 +183,29 @@ func formatModerationMessage(pair repository.TranslationPair) string {
 	fmt.Fprintf(&sb, "raw: %s → %s\n", pair.OriginalRaw, pair.TranslationRaw)
 	fmt.Fprintf(&sb, "source: %s\n\n", pair.Source)
 
-	legacyFormat := tools.FormatTranslationLite(
-		fmt.Sprintf("**%s** - %s", pair.OriginalRaw, pair.TranslationRaw),
-		pair.OriginalRaw,
-		pair.TranslationLang == "CHE" && pair.OriginalLang != "CHE",
-	)
-	sb.WriteString("📋 Legacy:\n")
-	sb.WriteString(legacyFormat)
+	// What the bot would actually send for this pair. The preview used to render
+	// with the parser the bot retired, so the moderator was choosing between the
+	// AI rendering and a format no user has seen since — and could reject one
+	// that reads better than what ships.
+	current := tools.FormatCard(pair.OriginalRaw, []models.TranslationPairs{{
+		Original:      pair.OriginalRaw,
+		Translate:     pair.TranslationRaw,
+		OriginalLang:  pair.OriginalLang,
+		TranslateLang: pair.TranslationLang,
+		Rate:          pair.Rate,
+		EntryType:     pair.EntryType,
+		Subtype:       pair.Subtype,
+		EntryIndex:    pair.EntryIndex,
+		Notes:         pair.EntryNotes,
+	}})
+	if current == "" {
+		current = tools.FormatPairs([]models.TranslationPairs{{
+			Original: pair.OriginalRaw, Translate: pair.TranslationRaw,
+			OriginalLang: pair.OriginalLang, TranslateLang: pair.TranslationLang,
+		}})
+	}
+	sb.WriteString("📋 Сейчас:\n")
+	sb.WriteString(current)
 	sb.WriteString("\n\n")
 
 	if pair.FormattedAI.Valid && pair.FormattedAI.String != "" {

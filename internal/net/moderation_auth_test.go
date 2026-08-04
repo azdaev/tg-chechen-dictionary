@@ -1,8 +1,10 @@
 package net
 
 import (
+	"chetoru/internal/repository"
 	"context"
 	"os"
+	"strings"
 	"testing"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
@@ -60,5 +62,28 @@ func TestModerationCallback_RejectsPressesOutsideTheModerationChat(t *testing.T)
 	}()
 	if repo.calls != 1 {
 		t.Fatalf("the moderation chat lost its buttons: %d writes, want 1", repo.calls)
+	}
+}
+
+// The preview a moderator judges the AI rendering against has to be what the
+// bot actually sends. It used to be the renderer the bot retired, so the choice
+// was between the AI text and a format no user had seen in months.
+func TestModerationPreviewShowsTheCard(t *testing.T) {
+	text := formatModerationMessage(repository.TranslationPair{
+		ID:               7,
+		OriginalRaw:      "Карандаш",
+		OriginalClean:    "карандаш",
+		OriginalLang:     "RUS",
+		TranslationRaw:   "м къолам; химический ~ - шекъа долун къолам",
+		TranslationClean: "м къолам; химический ~ - шекъа долун къолам",
+		TranslationLang:  "CHE",
+		Rate:             100,
+		EntryType:        "WORD",
+	})
+	if !strings.Contains(text, "<b>къолам</b>") {
+		t.Errorf("preview is not the card:\n%s", text)
+	}
+	if !strings.Contains(text, "шекъа долун къолам → химический карандаш") {
+		t.Errorf("preview lost the example the card shows:\n%s", text)
 	}
 }

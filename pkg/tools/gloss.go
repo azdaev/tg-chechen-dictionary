@@ -69,41 +69,6 @@ func cleanTranslation(text string) string {
 	return text
 }
 
-// parseExamples splits a semicolon-separated example list into rendered lines,
-// capped at 5. Each example reads "headword phrase - gloss translation", so
-// which side is Chechen follows from the entry, not from the text: chechenLeads
-// says the headword side is the Chechen one and the source order already holds.
-func parseExamples(text string, chechenLeads bool) []string {
-	var examples []string
-
-	for part := range strings.SplitSeq(text, ";") {
-		part = strings.TrimSpace(part)
-		if part == "" {
-			continue
-		}
-
-		if left, right, ok := splitExample(part); ok {
-			if left != "" && right != "" {
-				if chechenLeads {
-					examples = append(examples, FormatExample(left, right))
-				} else {
-					examples = append(examples, FormatExample(right, left))
-				}
-			}
-		} else {
-			// Not a two-sided example — a whole-sentence illustration. Still an
-			// example, so it still gets the card's italic.
-			examples = append(examples, "<i>"+part+"</i>")
-		}
-	}
-
-	if len(examples) > 5 {
-		examples = examples[:5]
-	}
-
-	return examples
-}
-
 // splitExample splits one example at the dash separating its two sides. The
 // source data mixes hyphens with en/em dashes, so all three count, and the
 // separator needs a space on at least one side: live glosses glue it to the
