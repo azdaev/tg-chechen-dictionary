@@ -115,3 +115,26 @@ func TestCard_PointerSensesComeLast(t *testing.T) {
 		t.Errorf("a card that is only a pointer lost its pointer:\n%s", body)
 	}
 }
+
+// Two spellings of one word merge their senses, and the join put the first
+// block's pointer back ahead of the second block's meanings.
+func TestCard_PointerStaysLastAcrossAMerge(t *testing.T) {
+	che := func(head, gloss string, rate int) models.TranslationPairs {
+		return models.TranslationPairs{Original: head, Translate: gloss,
+			OriginalLang: "CHE", TranslateLang: "RUS", EntryType: "WORD", Rate: rate}
+	}
+	body := Render("бажа", []models.TranslationPairs{
+		che("бажа", "пасти́", 16),
+		che("бажа", "прил. к бежан", 16),
+		che("ба̃жа", "пасти́", 10000),
+		che("ба̃жа", "пастись", 10000),
+	}).Body
+	if !strings.Contains(body, "1. пасти́") {
+		t.Fatalf("the meaning lost its lead to a pointer:\n%s", body)
+	}
+	last := strings.LastIndex(body, "прил. к бежан")
+	other := strings.LastIndex(body, "пастись")
+	if last < other {
+		t.Errorf("the pointer sits ahead of a meaning after the merge:\n%s", body)
+	}
+}

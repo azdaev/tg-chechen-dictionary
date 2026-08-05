@@ -705,7 +705,10 @@ func mergeSpellings(blocks []*block) []*block {
 			if !oneWordTwice(into, b) {
 				continue
 			}
-			into.senses = dedupSenses(keepRicher(append(into.senses, b.senses...)))
+			// pointersLast ran per block before the merge, and joining two
+			// lists puts the first block's pointer ahead of the second block's
+			// meanings again. Re-applied so the invariant survives the join.
+			into.senses = pointersLast(dedupSenses(keepRicher(append(into.senses, b.senses...))))
 			into.examples = append(into.examples, b.examples...)
 			if b.rate > into.rate {
 				into.head, into.rate = b.head, b.rate
