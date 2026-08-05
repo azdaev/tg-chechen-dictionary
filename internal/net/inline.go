@@ -92,7 +92,7 @@ func inlineArticles(id, query, typed string, pairs []models.TranslationPairs, su
 	}
 
 	for i := range pairs {
-		title := tools.Clean(pairs[i].Original)
+		title := tools.HeadCase(tools.Clean(pairs[i].Original))
 		if strings.TrimSpace(title) == "" {
 			// Telegram rejects the entire answer if any article title is empty,
 			// so one malformed entry would blank out the whole inline response.

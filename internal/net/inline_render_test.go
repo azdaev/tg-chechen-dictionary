@@ -5,6 +5,7 @@ import (
 	"chetoru/pkg/tools"
 	"strings"
 	"testing"
+	"unicode"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
@@ -185,5 +186,28 @@ func TestInline_CardNamesTheQueryItAnswered(t *testing.T) {
 	text = got[0].(tgbotapi.InlineQueryResultArticle).InputMessageContent.(tgbotapi.InputTextMessageContent).Text
 	if strings.Contains(text, "по запросу") {
 		t.Errorf("a card explained a redirect that did not happen:\n%s", text)
+	}
+}
+
+// The picker lists headwords straight from the data, and the Russian–Chechen
+// articles store theirs capitalized while the other three corpora do not — so
+// one row read «Собака» and the next «жӏаьла». The card has lowercased its
+// headword for exactly this reason since it was written.
+func TestInline_TitlesAgreeOnCase(t *testing.T) {
+	got := inlineArticles("q", "собака", "собака", []models.TranslationPairs{
+		{Original: "Собака", Translate: "ж жӏаьла", OriginalLang: "RUS", TranslateLang: "CHE",
+			Packed: true, EntryType: "WORD", Rate: 100},
+		{Original: "жӏаьла", Translate: "собака", OriginalLang: "CHE", TranslateLang: "RUS",
+			EntryType: "WORD", Rate: 16},
+	}, false)
+
+	var titles []string
+	for _, a := range got {
+		titles = append(titles, a.(tgbotapi.InlineQueryResultArticle).Title)
+	}
+	for _, title := range titles {
+		if r := []rune(title); len(r) > 0 && unicode.IsUpper(r[0]) {
+			t.Errorf("row titled %q; the card lowercases the same headword", title)
+		}
 	}
 }

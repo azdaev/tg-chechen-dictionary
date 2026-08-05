@@ -144,9 +144,12 @@ func FormatNeighbours(neighbours []string) string {
 	return "<i>рядом:</i> " + strings.Join(names, ", ")
 }
 
-// headCase lowercases a headword's first letter. The Russian–Chechen articles
+// HeadCase lowercases a headword's first letter. The Russian–Chechen articles
 // store theirs capitalized and the other three corpora do not, so one lookup
-// answered «Карандаш» and the next «телефон».
+// answered «Карандаш» and the next «телефон». Exported for the inline picker,
+// which lists headwords straight from the data and had the same mix.
+func HeadCase(s string) string { return headCase(s) }
+
 func headCase(s string) string {
 	r := []rune(s)
 	if len(r) == 0 {
