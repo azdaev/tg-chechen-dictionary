@@ -32,12 +32,12 @@ func (n *Net) HandleInline(ctx context.Context, iq *tgbotapi.InlineQuery) error 
 		renderKey = resolved
 	}
 
-	articles := inlineArticles(iq.ID, renderKey, translations, false)
+	articles := inlineArticles(iq.ID, renderKey, iq.Query, translations, false)
 
 	// A dead-end inline query used to show nothing at all; rescue it the same
 	// way the text path does — with lemma suggestions for the typed prefix.
 	if len(articles) == 0 {
-		articles = inlineArticles(iq.ID, iq.Query, n.business.SuggestTranslations(iq.Query), true)
+		articles = inlineArticles(iq.ID, iq.Query, iq.Query, n.business.SuggestTranslations(iq.Query), true)
 	}
 
 	// Dictionary results are identical for everyone and effectively static, so
@@ -67,7 +67,7 @@ func (n *Net) HandleInline(ctx context.Context, iq *tgbotapi.InlineQuery) error 
 // succeeded is one question with one answer. The picker used to ask a different
 // one — "did dosham return any rows?" — so a query that matched nothing but
 // noise was «нет перевода» in a chat and a list of results in the picker.
-func inlineArticles(id, query string, pairs []models.TranslationPairs, suggested bool) []any {
+func inlineArticles(id, query, typed string, pairs []models.TranslationPairs, suggested bool) []any {
 	// Telegram allows at most 50 results per inline query; sending more makes
 	// answerInlineQuery fail and the user sees nothing. Cap defensively — common
 	// words (e.g. "дать") can have far more than 50 translation pairs.
@@ -77,10 +77,17 @@ func inlineArticles(id, query string, pairs []models.TranslationPairs, suggested
 
 	articles := make([]any, 0, len(pairs)+1)
 	if !suggested {
-		card := clampMessage(tools.FormatCard(query, pairs))
-		if card == "" {
+		body := tools.FormatCard(query, pairs)
+		if body == "" {
 			return nil
 		}
+		// The entry that answered is not always the word that was typed, and
+		// the picked result lands in somebody else's chat: «ваха» sends a card
+		// headed «даха» with nothing to say why. Same line the chat path adds.
+		if typed != "" && tools.NormalizeSearch(typed) != tools.NormalizeSearch(query) {
+			body = fmt.Sprintf(ResolvedQueryFormat, tgbotapi.EscapeText(tgbotapi.ModeHTML, typed)) + "\n\n" + body
+		}
+		card := clampMessage(body)
 		articles = append(articles, inlineArticle(id+"card", tools.Clean(query), inlineDescription(tools.Summary(query, pairs)), card))
 	}
 

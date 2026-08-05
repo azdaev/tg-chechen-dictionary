@@ -92,7 +92,7 @@ func TestInlineAgreesWithTheChatAboutAMiss(t *testing.T) {
 	if len(noise) == 0 {
 		t.Fatal("the old rule would call this a miss too, so the test proves nothing")
 	}
-	if got := inlineArticles("q", "стрим", noise, false); len(got) != 0 {
+	if got := inlineArticles("q", "стрим", "стрим", noise, false); len(got) != 0 {
 		t.Errorf("picker offered %d results for what the chat calls a miss", len(got))
 	}
 
@@ -100,7 +100,7 @@ func TestInlineAgreesWithTheChatAboutAMiss(t *testing.T) {
 	hit := []models.TranslationPairs{
 		{Original: "Дом", Translate: "м 1) цӏа; деревянный ~- дечиган цӏа", OriginalLang: "RUS", TranslateLang: "CHE", Packed: true, EntryType: "WORD", Rate: 100},
 	}
-	got := inlineArticles("q", "дом", hit, false)
+	got := inlineArticles("q", "дом", "дом", hit, false)
 	if len(got) < 2 {
 		t.Fatalf("got %d rows, want the whole card plus one per entry", len(got))
 	}
@@ -123,7 +123,7 @@ func TestInlineAgreesWithTheChatAboutAMiss(t *testing.T) {
 // Suggestions are other words, so they have no card for the query and must not
 // be silenced by the miss test above.
 func TestInlineSuggestionsSurvive(t *testing.T) {
-	got := inlineArticles("q", "яблоками", []models.TranslationPairs{
+	got := inlineArticles("q", "яблоками", "яблоками", []models.TranslationPairs{
 		{Original: "Яблоко", Translate: "с Ӏаж", OriginalLang: "RUS", TranslateLang: "CHE", Packed: true, EntryType: "WORD", Rate: 100},
 	}, true)
 	if len(got) != 1 {
@@ -158,5 +158,32 @@ func TestInlineDescription_SaysWhatTheCardSays(t *testing.T) {
 	desc = inlineDescription(tools.Summary("цӏа", []models.TranslationPairs{p}))
 	if desc != "дом" {
 		t.Errorf("subtitle = %q, want the Russian side for a Chechen query", desc)
+	}
+}
+
+// The picked inline result lands in somebody else's chat, so it has to carry
+// its own context: «ваха» is filed under «даха», and the card went out headed
+// by a word the sender never typed and with nothing to say why. The chat path
+// says «по запросу «ваха»:»; this one said nothing.
+func TestInline_CardNamesTheQueryItAnswered(t *testing.T) {
+	pairs := []models.TranslationPairs{{
+		Original: "даха", Translate: "жить",
+		OriginalLang: "CHE", TranslateLang: "RUS", EntryType: "WORD", Rate: 16,
+	}}
+	got := inlineArticles("q", "даха", "ваха", pairs, false)
+	if len(got) == 0 {
+		t.Fatal("no rows built")
+	}
+	card := got[0].(tgbotapi.InlineQueryResultArticle)
+	text := card.InputMessageContent.(tgbotapi.InputTextMessageContent).Text
+	if !strings.Contains(text, "ваха") {
+		t.Errorf("the sent card never names the word that was typed:\n%s", text)
+	}
+
+	// Typed and answered are the same word: no line, nothing to explain.
+	got = inlineArticles("q", "даха", "даха", pairs, false)
+	text = got[0].(tgbotapi.InlineQueryResultArticle).InputMessageContent.(tgbotapi.InputTextMessageContent).Text
+	if strings.Contains(text, "по запросу") {
+		t.Errorf("a card explained a redirect that did not happen:\n%s", text)
 	}
 }
