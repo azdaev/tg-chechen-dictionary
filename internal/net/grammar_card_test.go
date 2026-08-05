@@ -193,3 +193,26 @@ func TestGrammarSummaryLine(t *testing.T) {
 		}
 	})
 }
+
+// A card that answered under a different word than the one typed opens with
+// «по запросу «ваха»:», and the grammar block read that as the card's heading —
+// so it decided the headword was missing and repeated «🔤 даха» directly under
+// a card already headed «даха».
+func TestGrammarBlock_ReadsTheHeadwordLineNotTheFirstLine(t *testing.T) {
+	g := &models.WordGrammar{Headword: "даха", POS: "глагол", Forms: []string{"дехна", "деха"}}
+	card := "<i>по запросу «ваха»:</i>\n\n<b>даха</b> · <i>чеч. → рус., гл.</i>\n1. жить"
+
+	block := formatGrammarBlock(g, card)
+	if strings.Contains(block, "🔤") {
+		t.Errorf("grammar repeated a headword the card already carries:\n%s", block)
+	}
+	if !strings.Contains(block, "Формы:") {
+		t.Errorf("the paradigm went missing with the header:\n%s", block)
+	}
+
+	// A card that really is headed by another word still gets the label.
+	card = "<i>по запросу «руки»:</i>\n\nрука · <i>рус. → чеч., сущ.</i>\n<b>куьг</b>"
+	if block := formatGrammarBlock(&models.WordGrammar{Headword: "куьг", POS: "сущ.", Forms: []string{"куьйгаш"}}, card); !strings.Contains(block, "🔤") {
+		t.Errorf("the paradigm is unlabelled under a Russian headword:\n%s", block)
+	}
+}

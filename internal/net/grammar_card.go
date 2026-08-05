@@ -67,8 +67,7 @@ func formatGrammarBlock(g *models.WordGrammar, card string) string {
 	// unlabelled «Формы:» under «карандаш» reads as the forms of «карандаш».
 	// 🔤, not 📖: the book belongs to the Word of the Day, and a subscriber who
 	// gets both opens the grammar card reading it as today's word.
-	head, _, _ := strings.Cut(card, "\n")
-	headerNeeded := !strings.Contains(head, tools.Clean(g.Headword))
+	headerNeeded := !strings.Contains(headwordLine(card), tools.Clean(g.Headword))
 	if headerNeeded {
 		header := "🔤 <b>" + tools.Clean(g.Headword) + "</b>"
 		if g.POS != "" {
@@ -119,4 +118,19 @@ func formatGrammarBlock(g *models.WordGrammar, card string) string {
 		return "" // nothing the card does not already say
 	}
 	return strings.Join(lines, "\n")
+}
+
+// headwordLine finds the line a card is headed by. Not simply the first line:
+// a card that answered under a different word than the one typed opens with
+// «по запросу «ваха»:», and reading that as the heading made every redirected
+// card repeat its own headword in the grammar block below it. Every block
+// header carries the direction chip, and nothing else on a card does.
+func headwordLine(card string) string {
+	for _, line := range strings.Split(card, "\n") {
+		if strings.Contains(line, " · ") {
+			return line
+		}
+	}
+	head, _, _ := strings.Cut(card, "\n")
+	return head
 }
