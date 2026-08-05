@@ -186,3 +186,28 @@ func TestParseMoreCallback(t *testing.T) {
 		}
 	}
 }
+
+// The palochka hint teaches how to type «ӏ» without the key. Gated on the query
+// merely looking Chechen, it went to people who had just typed two of them —
+// on a miss that already carries the apology, the note about the report, the
+// neighbours and the suggestions.
+func TestPalochkaHint_OnlyForSomeoneWhoDidNotTypeOne(t *testing.T) {
+	cases := []struct {
+		word string
+		want bool
+	}{
+		{"куьг", true},           // Chechen by its vowels, no palochka typed
+		{"чӏегӏардиг", false},    // typed two of them already
+		{"доьхьал", true},        // Chechen by its vowels; «хь» is not a palochka
+		{"гӏала", false},         // has one
+		{"г1ала", false},         // typed as a digit; the key normalizes it to «ӏ»
+		{"сущиствование", false}, // Russian: never got the hint, still does not
+	}
+	for _, c := range cases {
+		clean := tools.NormalizeSearch(c.word)
+		got := tools.LooksChechen(clean) && !strings.ContainsRune(clean, 'ӏ')
+		if got != c.want {
+			t.Errorf("hint for %q = %v, want %v", c.word, got, c.want)
+		}
+	}
+}

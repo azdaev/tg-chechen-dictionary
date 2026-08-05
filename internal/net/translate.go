@@ -151,7 +151,12 @@ func (n *Net) sendMiss(ctx context.Context, m *tgbotapi.Message, neighbours []st
 	if recordable {
 		text += "\n\n" + MissingWordRecordedText
 	}
-	if tools.LooksChechen(cleanWord) {
+	// Only for someone who did not type a palochka. The hint teaches a keyboard
+	// trick, and a query that already carries «ӏ» — typed as a digit or not,
+	// since the key is normalized by then — is from someone who knows it. Four
+	// blocks of consolation on a miss is enough without a lesson they have
+	// already learned.
+	if tools.LooksChechen(cleanWord) && !strings.ContainsRune(cleanWord, 'ӏ') {
 		text += "\n\n" + PalochkaHintText
 	}
 	if line := tools.FormatNeighbours(neighbours); line != "" {
