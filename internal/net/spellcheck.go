@@ -344,14 +344,20 @@ func spellcheckFeedbackKeyboard(original, corrected string) tgbotapi.InlineKeybo
 	)
 }
 
-// markCorrections bolds the words the checker changed. A correction the reader
-// has to find by comparing two spellings letter by letter is barely a
+// markCorrections highlights the words the checker changed. A correction the
+// reader has to find by comparing two spellings letter by letter is barely a
 // correction — and the words most often fixed here differ from what was typed
 // by one palochka.
 //
 // Compared as typed, lowercased and nothing else: folding the palochka away
 // would hide precisely the fix it is here to show.
+//
+// Still <b> and not the <mark> that exists for exactly this: the card is sent
+// as a reply, sendRichMessage takes reply_parameters that sendRich does not
+// pass yet, and <mark> outside a rich message is a tag Telegram rejects. Worth
+// doing after the rich card has been seen rendering somewhere real.
 func markCorrections(original, corrected string) string {
+	const open, close = "<b>", "</b>"
 	typed := map[string]bool{}
 	for _, w := range words(original) {
 		typed[strings.ToLower(w)] = true
@@ -360,7 +366,7 @@ func markCorrections(original, corrected string) string {
 	for _, tok := range tokens(corrected) {
 		esc := tgbotapi.EscapeText(tgbotapi.ModeHTML, tok)
 		if isWordToken(tok) && !typed[strings.ToLower(tok)] {
-			esc = "<b>" + esc + "</b>"
+			esc = open + esc + close
 		}
 		b.WriteString(esc)
 	}

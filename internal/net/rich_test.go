@@ -29,10 +29,19 @@ func TestCardBuilder_RichWrapsEachPiece(t *testing.T) {
 	b.quote("по запросу «ваха»")
 	b.body("<h3>даха</h3>")
 	b.line("рядом: дахар")
+	b.credit()
 	got := b.String()
 	want := "<blockquote>по запросу «ваха»</blockquote><h3>даха</h3><p>рядом: дахар</p><footer>Словарь dosham.app</footer>"
 	if got != want {
 		t.Errorf("rich card =\n%q\nwant\n%q", got, want)
+	}
+
+	// The attribution is opt-in: crediting a dictionary under «нет перевода»
+	// would name a source for saying nothing.
+	uncredited := cardBuilder{rich: true}
+	uncredited.line(NoTranslationText)
+	if strings.Contains(uncredited.String(), "<footer>") {
+		t.Errorf("a card that shows no dictionary content still credited one: %s", uncredited.String())
 	}
 	// An empty piece must not leave an empty tag behind.
 	empty := cardBuilder{rich: true}
@@ -40,6 +49,30 @@ func TestCardBuilder_RichWrapsEachPiece(t *testing.T) {
 	empty.line("")
 	if strings.Contains(empty.String(), "<p></p>") {
 		t.Errorf("an absent piece emitted an empty paragraph: %s", empty.String())
+	}
+}
+
+// The miss card was hand-glued with «text += "\n\n" + …» before it moved onto
+// cardBuilder. The rich dialect is new; the plain one must be the same string
+// it always was, because that is what the overwhelming majority of users get.
+func TestMissCard_PlainAssemblyUnchanged(t *testing.T) {
+	b := cardBuilder{}
+	b.line(NoTranslationText)
+	b.line(MissingWordRecordedText)
+	b.quote(PalochkaHintText)
+	b.line("<i>рядом:</i> гӏала")
+	b.line(SuggestionsHeaderText)
+	b.line("гӏала — башня")
+
+	// Exactly the old concatenation, spelled out.
+	want := NoTranslationText +
+		"\n\n" + MissingWordRecordedText +
+		"\n\n" + PalochkaHintText +
+		"\n\n" + "<i>рядом:</i> гӏала" +
+		"\n\n" + SuggestionsHeaderText +
+		"\n\n" + "гӏала — башня"
+	if got := b.String(); got != want {
+		t.Errorf("plain miss card changed:\n got: %q\nwant: %q", got, want)
 	}
 }
 

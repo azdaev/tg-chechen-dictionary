@@ -77,26 +77,29 @@ func richUsable(body string) bool {
 	return richMessages && body != "" && len(body) <= richLimit
 }
 
-// deliverCard sends a translation card, rich when the feature is on and the
-// card fits, plain otherwise. plain is a function because building it costs a
-// second parse of the article, and that parse is only owed when a rich send
-// actually fails.
+// sendMaybeRich delivers a message as rich when the feature is on and the body
+// fits, and as the plain HTML it has always been otherwise — including when the
+// rich send fails. plain is a function because rebuilding it can cost a second
+// parse of the article, and that parse is only owed if rich actually fails.
 //
 // It returns the text that ended up in the message and whether it went as rich:
-// the grammar card is grown into this same message later and has to edit it in
+// the grammar card is grown into the translation later and has to edit it in
 // the dialect it was written in.
-func (n *Net) deliverCard(chatID int64, rich string, plain func() string) (sent tgbotapi.Message, text string, wasRich bool, err error) {
+func (n *Net) sendMaybeRich(chatID int64, rich string, plain func() string, markup any) (sent tgbotapi.Message, text string, wasRich bool, err error) {
 	if richUsable(rich) {
-		if sent, err = n.sendRich(chatID, rich, nil); err == nil {
+		if sent, err = n.sendRich(chatID, rich, markup); err == nil {
 			return sent, rich, true, nil
 		}
-		// The method is new and nothing about a dictionary card needs it, so a
-		// failure costs the formatting and never the answer.
+		// The method is new and no message here needs it, so a failure costs the
+		// formatting and never the answer.
 		n.log.WithError(err).Warn("rich send failed, falling back to plain")
 	}
 	text = clampMessage(plain())
 	msg := tgbotapi.NewMessage(chatID, text)
 	msg.ParseMode = "html"
+	if markup != nil {
+		msg.ReplyMarkup = markup
+	}
 	sent, err = n.send(msg)
 	return sent, text, false, err
 }
@@ -122,9 +125,16 @@ func firstTagText(s, tag string) (string, bool) {
 // is one decision made once — the reason this is a builder and not two copies
 // of the assembly.
 type cardBuilder struct {
-	rich  bool
-	parts []string
+	rich    bool
+	credits bool // append the dosham attribution footer
+	parts   []string
 }
+
+// credit asks for the licence footer dosham requires. Opt-in, because it earns
+// its place only where dictionary content is actually shown: under «нет
+// перевода» it would credit a source for saying nothing. A no-op in plain,
+// which has no footer to render it in.
+func (c *cardBuilder) credit() { c.credits = true }
 
 // body takes the rendered card, already in this builder's dialect.
 func (c *cardBuilder) body(s string) { c.push(s, "") }
@@ -151,5 +161,9 @@ func (c *cardBuilder) String() string {
 	if !c.rich {
 		return strings.Join(c.parts, "\n\n")
 	}
-	return strings.Join(c.parts, "") + tools.RichFooter
+	out := strings.Join(c.parts, "")
+	if c.credits {
+		out += tools.RichFooter
+	}
+	return out
 }

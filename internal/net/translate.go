@@ -96,6 +96,7 @@ func (n *Net) HandleText(ctx context.Context, m *tgbotapi.Message) error {
 		if hintInline {
 			b.line(MoreTranslationsHelpText)
 		}
+		b.credit()
 		return b.String()
 	}
 
@@ -109,7 +110,7 @@ func (n *Net) HandleText(ctx context.Context, m *tgbotapi.Message) error {
 			return assemble(false, plain.Body, plain.Neighbours)
 		}
 	}
-	sent, card, rich, err := n.deliverCard(m.Chat.ID, built, plainCard)
+	sent, card, rich, err := n.sendMaybeRich(m.Chat.ID, built, plainCard, nil)
 	if err != nil {
 		return fmt.Errorf("send: %w", err)
 	}
@@ -167,39 +168,40 @@ func (n *Net) sendMiss(ctx context.Context, m *tgbotapi.Message, neighbours []st
 		})
 	}
 
-	text := NoTranslationText
-	// Straight after the bad news, not below the suggestions, where it read as a
-	// remark about whichever near-miss happened to be last.
-	if recordable {
-		text += "\n\n" + MissingWordRecordedText
+	// The same pieces in the same order for both dialects; only what separates
+	// them differs. The hint is a quotation rather than one more paragraph — it
+	// is the bot talking about the keyboard, not about the word.
+	miss := func(rich bool) string {
+		b := cardBuilder{rich: rich}
+		b.line(NoTranslationText)
+		// Straight after the bad news, not below the suggestions, where it read
+		// as a remark about whichever near-miss happened to be last.
+		if recordable {
+			b.line(MissingWordRecordedText)
+		}
+		// Only for someone who did not type a palochka. The hint teaches a
+		// keyboard trick, and a query that already carries «ӏ» — typed as a
+		// digit or not, since the key is normalized by then — is from someone
+		// who knows it. Four blocks of consolation on a miss is enough without a
+		// lesson they have already learned.
+		if tools.LooksChechen(cleanWord) && !strings.ContainsRune(cleanWord, 'ӏ') {
+			b.quote(PalochkaHintText)
+		}
+		b.line(tools.FormatNeighbours(neighbours))
+		if suggestions := n.business.SuggestTranslations(m.Text); len(suggestions) > 0 {
+			b.line(SuggestionsHeaderText)
+			b.line(tools.FormatSuggestions(suggestions))
+		}
+		return b.String()
 	}
-	// Only for someone who did not type a palochka. The hint teaches a keyboard
-	// trick, and a query that already carries «ӏ» — typed as a digit or not,
-	// since the key is normalized by then — is from someone who knows it. Four
-	// blocks of consolation on a miss is enough without a lesson they have
-	// already learned.
-	if tools.LooksChechen(cleanWord) && !strings.ContainsRune(cleanWord, 'ӏ') {
-		text += "\n\n" + PalochkaHintText
-	}
-	if line := tools.FormatNeighbours(neighbours); line != "" {
-		text += "\n\n" + line
-	}
-	if suggestions := n.business.SuggestTranslations(m.Text); len(suggestions) > 0 {
-		text += "\n\n" + SuggestionsHeaderText + "\n\n" + tools.FormatSuggestions(suggestions)
-	}
-
-	// Clamped like every other card: three long glosses clear 4096 characters,
-	// and Telegram answers an oversized message by sending nothing — turning a
-	// near miss into a blank screen.
-	msg := tgbotapi.NewMessage(m.Chat.ID, clampMessage(text))
-	msg.ParseMode = "html"
 
 	// A miss used to be a dead end. It now says what happened to the word and
 	// offers the one thing that most often explains it — a typo, which the
 	// checker already knows how to find.
+	var markup any
 	if recordable && n.ai != nil {
 		if data, ok := checkCallbackData(m.Text); ok {
-			msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(
+			markup = tgbotapi.NewInlineKeyboardMarkup(
 				tgbotapi.NewInlineKeyboardRow(
 					tgbotapi.NewInlineKeyboardButtonData(CheckSpellingButtonText, data),
 				),
@@ -207,7 +209,11 @@ func (n *Net) sendMiss(ctx context.Context, m *tgbotapi.Message, neighbours []st
 		}
 	}
 
-	_, err := n.send(msg)
+	// Clamped like every other card: three long glosses clear 4096 characters,
+	// and Telegram answers an oversized message by sending nothing — turning a
+	// near miss into a blank screen.
+	_, _, _, err := n.sendMaybeRich(m.Chat.ID, miss(richMessages),
+		func() string { return miss(false) }, markup)
 	return err
 }
 
