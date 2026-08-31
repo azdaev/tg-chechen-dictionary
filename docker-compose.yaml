@@ -10,6 +10,7 @@ services:
       TG_BOT_TOKEN: ${TG_BOT_TOKEN}
       TG_ADMIN_ID: ${TG_ADMIN_ID}
       DONATION_LINK: ${DONATION_LINK}
+      RICH_MESSAGES: ${RICH_MESSAGES}
     build: .
     ports:
       - "8081:8081"

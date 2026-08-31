@@ -43,7 +43,13 @@ func (n *Net) HandleText(ctx context.Context, m *tgbotapi.Message) error {
 	if resolved != "" {
 		renderKey = resolved
 	}
+	// One parse either way: the two renderers share every judgement about what a
+	// card says and differ only in the tags they say it with, but each runs the
+	// article parser, and running both would run it twice per lookup.
 	rendered := tools.Render(renderKey, translations)
+	if richMessages {
+		rendered = tools.RenderRich(renderKey, translations)
+	}
 	if rendered.Body == "" {
 		return n.sendMiss(ctx, m, rendered.Neighbours)
 	}
@@ -61,35 +67,60 @@ func (n *Net) HandleText(ctx context.Context, m *tgbotapi.Message) error {
 	// One card holds the whole answer now, so there is no second page to offer:
 	// what «Ещё» used to paginate was the noise dosham's substring search
 	// returns, which the card drops instead of deferring.
-	card := rendered.Body
-	if tools.NormalizeSearch(renderKey) != tools.NormalizeSearch(m.Text) {
-		card = fmt.Sprintf(ResolvedQueryFormat, tgbotapi.EscapeText(tgbotapi.ModeHTML, m.Text)) + "\n\n" + card
-	}
-	if line := tools.FormatNeighbours(rendered.Neighbours); line != "" {
-		card += "\n\n" + line
-	}
 	// A card that shows the word in use but never says what it means is half an
 	// answer: «собаку» comes back as six sentences that contain it and no entry
 	// of its own, so the user reads «жӏаьла караӏамо — выдрессировать собаку»
 	// and still does not learn that a dog is жӏаьла. The lemma is one prefix
 	// lookup away, and the miss path already knows how to find it. Offered, not
 	// asserted — a guess at the lemma is not the same thing as an entry.
+	var suggestions []models.TranslationPairs
 	if !rendered.Glossed {
-		if suggestions := n.business.SuggestTranslations(m.Text); len(suggestions) > 0 {
-			card += "\n\n" + SuggestionsHeaderText + "\n\n" + tools.FormatSuggestions(suggestions)
+		suggestions = n.business.SuggestTranslations(m.Text)
+	}
+	hintInline := len(translations) > MaxTranslations && n.shouldHintInline(ctx, m.From.ID)
+
+	// Which pieces the message is made of, and in what order, is decided once;
+	// only the tags between them depend on how it goes out. The plain assembly
+	// has to stay reachable because a rich send can fail.
+	assemble := func(rich bool, body string, neighbours []string) string {
+		b := cardBuilder{rich: rich}
+		if tools.NormalizeSearch(renderKey) != tools.NormalizeSearch(m.Text) {
+			b.quote(fmt.Sprintf(ResolvedQueryFormat, tgbotapi.EscapeText(tgbotapi.ModeHTML, m.Text)))
+		}
+		b.body(body)
+		b.line(tools.FormatNeighbours(neighbours))
+		if len(suggestions) > 0 {
+			b.line(SuggestionsHeaderText)
+			b.line(tools.FormatSuggestions(suggestions))
+		}
+		if hintInline {
+			b.line(MoreTranslationsHelpText)
+		}
+		return b.String()
+	}
+
+	// A rich send that fails must not take the user's answer with it: the method
+	// is new, and nothing about this card actually needs it.
+	card := assemble(richMessages, rendered.Body, rendered.Neighbours)
+	var sent tgbotapi.Message
+	rich := richUsable(card)
+	if rich {
+		var richErr error
+		if sent, richErr = n.sendRich(m.Chat.ID, card, nil); richErr != nil {
+			n.log.WithError(richErr).WithField("word", m.Text).Warn("rich send failed, falling back to plain")
+			rich = false
+			plain := tools.Render(renderKey, translations)
+			card = assemble(false, plain.Body, plain.Neighbours)
 		}
 	}
-	msg := tgbotapi.NewMessage(m.Chat.ID, clampMessage(card))
-	msg.ParseMode = "html"
-
-	hintInline := len(translations) > MaxTranslations && n.shouldHintInline(ctx, m.From.ID)
-	if hintInline {
-		msg.Text += "\n\n" + MoreTranslationsHelpText
-	}
-
-	sent, err := n.send(msg)
-	if err != nil {
-		return fmt.Errorf("send: %w", err)
+	if !rich {
+		msg := tgbotapi.NewMessage(m.Chat.ID, clampMessage(card))
+		msg.ParseMode = "html"
+		var sendErr error
+		if sent, sendErr = n.send(msg); sendErr != nil {
+			return fmt.Errorf("send: %w", sendErr)
+		}
+		card = msg.Text
 	}
 	if hintInline {
 		// Marked only after it actually reached someone: a failed send means
@@ -110,10 +141,10 @@ func (n *Net) HandleText(ctx context.Context, m *tgbotapi.Message) error {
 	if rendered.Chechen != "" {
 		headword = rendered.Chechen
 	}
-	cardText := msg.Text
+	cardText := card
 	base := tools.DerivedFrom(renderKey, translations)
 	n.bg.Go(func() {
-		n.sendGrammarCard(context.Background(), m.Chat.ID, sent.MessageID, cardText, headword, base)
+		n.sendGrammarCard(context.Background(), m.Chat.ID, sent.MessageID, cardText, headword, base, rich)
 	})
 
 	// Donation nudge runs detached: it is a DB check plus an extra Telegram

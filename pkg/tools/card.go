@@ -387,21 +387,17 @@ func (c collected) render() string {
 }
 
 func (b *block) render() string {
-	bold := func(s string) string { return "<b>" + s + "</b>" }
 	var lines []string
 
 	// The headword carries qualifiers too — «Шпиц» glosses «собака» as
 	// "(собака) кӏезалг" — and inside the bold they read as Chechen, which is
 	// the one thing the bold is there to say.
-	headQuals, name := splitQualifiers(b.head)
-	headQuals = dropRepeats(headQuals, b.senses)
-	head := headCase(name)
+	name, headQuals := b.display()
+	head := name
 	if b.cheHead {
-		head = bold(head)
+		head = "<b>" + head + "</b>"
 	}
-	if b.index > 1 {
-		head += superscript(b.index)
-	}
+	head += b.homonym()
 	if len(headQuals) > 0 {
 		head += " <i>(" + strings.Join(headQuals, ", ") + ")</i>"
 	}
@@ -412,39 +408,16 @@ func (b *block) render() string {
 
 	// Russian qualifiers — "(почерк) хатӏ" — trail the gloss rather than sit
 	// inside its bold, since bold marks Chechen and nothing else.
-	// Only a one-word entry has one-word glosses. The corpora capitalize those
-	// inconsistently — «куьг» answered «1. Рука» — but a collocation's
-	// translation is a sentence and keeps its capital.
-	word := !strings.Contains(strings.TrimSpace(name), " ")
-	gloss := func(s string) string {
-		quals, rest := splitQualifiers(s)
-		if word {
-			rest = headCase(rest)
-		}
-		if !b.cheHead {
-			rest = bold(rest)
-		}
-		if len(quals) > 0 {
-			rest += " <i>(" + strings.Join(quals, ", ") + ")</i>"
-		}
-		return rest
-	}
-	senses := b.senses
-	if len(senses) > maxCardSenses {
-		senses = senses[:maxCardSenses]
-	}
+	senses := b.glosses()
 	if len(senses) == 1 {
-		lines = append(lines, gloss(senses[0]))
+		lines = append(lines, senses[0])
 	} else {
 		for i, s := range senses {
-			lines = append(lines, fmt.Sprintf("%d. %s", i+1, gloss(s)))
+			lines = append(lines, fmt.Sprintf("%d. %s", i+1, s))
 		}
 	}
 
-	examples := b.examples
-	if b.cheHead {
-		examples = freeUsesFirst(examples, name)
-	}
+	examples := b.orderedExamples()
 	if len(examples) > maxCardExampleLines {
 		examples = examples[:maxCardExampleLines]
 	}

@@ -68,7 +68,18 @@ func normLang(c string) string {
 	return ""
 }
 
+// checked tallies the rich cards this run produced, so a sweep over many words
+// ends with a number instead of a wall to read.
+var checked struct {
+	ok, bad                    int
+	cardExamples, richExamples int
+}
+
 func main() {
+	defer func() {
+		fmt.Printf("\n===== ИТОГ: карточек без ошибок разметки %d, с ошибками %d; примеров показано: обычная %d, rich %d =====\n",
+			checked.ok, checked.bad, checked.cardExamples, checked.richExamples)
+	}()
 	for _, word := range os.Args[1:] {
 		fmt.Printf("\n========== ЗАПРОС: %q ==========\n", word)
 		entries := find(word)
@@ -120,6 +131,20 @@ func main() {
 		rendered := tools.Render(word, pairs)
 		fmt.Println("\n--- СООБЩЕНИЕ БОТА ---")
 		fmt.Println(tools.FormatCard(word, pairs))
+
+		rich := tools.FormatRichCard(word, pairs)
+		fmt.Println("\n--- RICH ---")
+		fmt.Println(rich)
+		if problems := checkRich(rich); len(problems) > 0 {
+			checked.bad++
+			for _, p := range problems {
+				fmt.Println("  ✗ " + p)
+			}
+		} else {
+			checked.ok++
+		}
+		checked.cardExamples += strings.Count(tools.FormatCard(word, pairs), " → ")
+		checked.richExamples += strings.Count(rich, "<tr><td>")
 
 		// grammar card (mirrors business.computeGrammar / net.sendGrammarCard).
 		// Grammar is asked for by the Chechen side of the answer, not by the

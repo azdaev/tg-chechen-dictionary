@@ -12,3 +12,4 @@ database.db
 sim.db
 sim.db-*
 exprobe
+/sim
