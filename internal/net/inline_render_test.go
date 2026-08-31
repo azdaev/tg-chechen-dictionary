@@ -22,7 +22,7 @@ func TestInlineCardRendering(t *testing.T) {
 		Rate:      100,
 	}
 	formatted := tools.FormatCard(p.Original, []models.TranslationPairs{p})
-	if !strings.HasPrefix(formatted, "дом · <i>рус. → чеч.</i>\n<b>цӏа</b>") {
+	if !strings.HasPrefix(formatted, "дом — <i>русский</i>\n<b>цӏа</b> — <i>чеченский</i>") {
 		t.Errorf("formatted card = %q, want it to open with the headword and its gloss", formatted)
 	}
 	if strings.Contains(formatted, "~") || strings.Contains(formatted, "1)") {
@@ -113,7 +113,7 @@ func TestInlineAgreesWithTheChatAboutAMiss(t *testing.T) {
 		t.Fatalf("first result is %T", got[0])
 	}
 	text := first.InputMessageContent.(tgbotapi.InputTextMessageContent).Text
-	if !strings.Contains(text, "рус. → чеч.") || !strings.Contains(text, "дечиган цӏа") {
+	if !strings.Contains(text, "дом — <i>русский</i>") || !strings.Contains(text, "дечиган цӏа") {
 		t.Errorf("the lead row is not the whole card:\n%s", text)
 	}
 	if strings.ContainsAny(first.Description, "<>") {

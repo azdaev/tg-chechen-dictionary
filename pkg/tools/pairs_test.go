@@ -43,9 +43,6 @@ func TestFormatCard_OneBlockPerHeadword(t *testing.T) {
 	if !strings.Contains(card, "1. рука́ (кисть)") || !strings.Contains(card, "2. по́дпись") {
 		t.Fatalf("senses lost their source order:\n%s", card)
 	}
-	if !strings.Contains(card, "сущ.") {
-		t.Fatalf("part of speech missing:\n%s", card)
-	}
 }
 
 // цӀа the noun and цӀа the adverb are different words.

@@ -34,7 +34,7 @@ func TestRichCard_NamesBothLanguages(t *testing.T) {
 		chePhrase("къолам ирбан", "заострить карандаш"),
 	})
 	for _, want := range []string{
-		"<h3>къолам</h3>",
+		"<h3>къолам" + tag(LabelChechen) + "</h3>",
 		"<th>чеченский</th><th>русский</th>",
 		"<td>къолам ирбан</td><td>заострить карандаш</td>",
 		RichFooter,

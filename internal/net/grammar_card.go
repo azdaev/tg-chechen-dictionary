@@ -87,13 +87,8 @@ func formatGrammarRich(g *models.WordGrammar, card string) string {
 	var body strings.Builder
 	// Whether anything here is not already on the card. A header that only
 	// repeats the headword, with no part of speech to add, is not.
-	said := false
-	if grammarHeaderNeeded(g, card) {
-		header := "🔤 <b>" + tools.Clean(g.Headword) + "</b>"
-		if g.POS != "" {
-			header += " · " + g.POS
-			said = true
-		}
+	said := g.POS != ""
+	if header := grammarHeader(g, card); header != "" {
 		body.WriteString("<p>" + header + "</p>")
 	}
 	if forms := grammarForms(g); forms != "" {
@@ -116,12 +111,7 @@ func formatGrammarBlock(g *models.WordGrammar, card string) string {
 	}
 
 	var lines []string
-	headerNeeded := grammarHeaderNeeded(g, card)
-	if headerNeeded {
-		header := "🔤 <b>" + tools.Clean(g.Headword) + "</b>"
-		if g.POS != "" {
-			header += " · " + g.POS
-		}
+	if header := grammarHeader(g, card); header != "" {
 		lines = append(lines, header)
 	}
 
@@ -138,10 +128,32 @@ func formatGrammarBlock(g *models.WordGrammar, card string) string {
 		lines = append(lines, idioms...)
 	}
 
-	if len(lines) == 0 || (headerNeeded && len(lines) == 1 && g.POS == "") {
-		return "" // nothing the card does not already say
+	// A header that only repeats a word the card already leads with, and carries
+	// no part of speech, says nothing the reader does not have.
+	if len(lines) == 0 || (len(lines) == 1 && g.POS == "") {
+		return ""
 	}
 	return strings.Join(lines, "\n")
+}
+
+// grammarHeader names what the paradigm below belongs to. When the card above
+// is already headed by the word, only the part of speech is left to say — and
+// it has to be said here, because the card stopped carrying «сущ.» when the
+// abbreviations came off it. Empty when there is nothing to add.
+func grammarHeader(g *models.WordGrammar, card string) string {
+	if !grammarHeaderNeeded(g, card) {
+		if g.POS == "" {
+			return ""
+		}
+		// Italic, or a lone «существительное» under a card of translations
+		// reads as one more of them.
+		return "<i>" + g.POS + "</i>"
+	}
+	header := "🔤 <b>" + tools.Clean(g.Headword) + "</b>"
+	if g.POS != "" {
+		header += " · " + g.POS
+	}
+	return header
 }
 
 // grammarHeaderNeeded reports whether the block has to name its own word. The
@@ -212,7 +224,7 @@ func headwordLine(card string) string {
 		return head
 	}
 	for _, line := range strings.Split(card, "\n") {
-		if strings.Contains(line, " · ") {
+		if tools.IsHeadwordLine(line) {
 			return line
 		}
 	}

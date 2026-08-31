@@ -155,7 +155,7 @@ func TestCard_OneWordSpelledTwiceIsOneBlock(t *testing.T) {
 		{Original: "гаьзло", Translate: "левша", OriginalLang: "CHE", TranslateLang: "RUS", Rate: 16, EntryType: "WORD"},
 		{Original: "гаьзло̃", Translate: "левша́", OriginalLang: "CHE", TranslateLang: "RUS", Rate: 10000, EntryType: "WORD"},
 	}).Body
-	if strings.Count(body, "·") != 1 {
+	if len(headLangs(body)) != 1 {
 		t.Fatalf("one word rendered as two entries:\n%s", body)
 	}
 
@@ -166,7 +166,7 @@ func TestCard_OneWordSpelledTwiceIsOneBlock(t *testing.T) {
 		{Original: "лом", Translate: "лев", OriginalLang: "CHE", TranslateLang: "RUS", Rate: 16, EntryType: "WORD"},
 		{Original: "ло̃м", Translate: "не тот", OriginalLang: "CHE", TranslateLang: "RUS", Rate: 10000, EntryType: "WORD"},
 	}).Body
-	if strings.Count(body, "·") != 2 {
+	if len(headLangs(body)) != 2 {
 		t.Fatalf("two words merged into one entry:\n%s", body)
 	}
 

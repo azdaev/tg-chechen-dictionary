@@ -50,15 +50,12 @@ func (b *block) renderRich() string {
 	if len(quals) > 0 {
 		sb.WriteString(" <i>(" + strings.Join(quals, ", ") + ")</i>")
 	}
-	sb.WriteString("</h3>")
-	if chip := b.chip(); chip != "" {
-		sb.WriteString("<p><i>" + chip + "</i></p>")
-	}
+	sb.WriteString(tag(b.headLang()) + "</h3>")
 
 	// Bold still marks the Chechen side and only that. Under a Chechen headword
 	// the senses are Russian and carry none — the <h3> is what sets the headword
 	// apart there, so bold is free to keep its one meaning.
-	senses := b.glosses()
+	senses := b.senseLines()
 	switch {
 	case len(senses) == 1:
 		sb.WriteString("<p>" + senses[0] + "</p>")
@@ -180,6 +177,29 @@ func (b *block) homonym() string {
 		return ""
 	}
 	return superscript(b.index)
+}
+
+// senseLines returns the senses as displayed, with the language named where the
+// list cannot say it for itself.
+//
+// One sense is labelled outright. A numbered list is not, because repeating
+// «чеченский» down four lines is the pile-up the labels replaced — with one
+// exception: a sense spelled like the headword. «телефон» is Russian on the
+// headword line and Chechen in the list, and nothing but the label says so.
+// That is the case the whole labelling exists for.
+func (b *block) senseLines() []string {
+	rendered := b.glosses()
+	if len(rendered) == 1 {
+		return []string{rendered[0] + tag(b.senseLang())}
+	}
+	_, name := splitQualifiers(b.head)
+	key := FoldSearch(trimPunct(name))
+	for i := range rendered {
+		if FoldSearch(trimPunct(firstVariant(b.senses[i]))) == key {
+			rendered[i] += tag(b.senseLang())
+		}
+	}
+	return rendered
 }
 
 // glosses returns the senses as displayed, capped and with the Chechen side

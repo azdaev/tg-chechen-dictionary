@@ -20,17 +20,6 @@ import (
 // Bold marks Chechen — on the header for a Chechen lookup, on the senses for a
 // Russian one. Nothing else moves.
 
-// posLabels covers only the subtypes whose `details` key set proves the
-// reading; an unlisted one renders no chip, since a wrong part of speech
-// miseducates and the chip is decoration.
-var posLabels = map[int]string{
-	1: "гл.",
-	2: "сущ.",
-	3: "нареч.",
-	4: "прил.",
-	6: "мест.",
-}
-
 const (
 	// Generous by design: these stop a runaway entry («Идти» has 26 senses).
 	maxCardSenses       = 10
@@ -167,47 +156,10 @@ func headCase(s string) string {
 	return string(r)
 }
 
-// grammarNoteRe matches what a grammar note looks like: a Russian abbreviation
-// and the ending it introduces, «мн. -аш».
-var grammarNoteRe = regexp.MustCompile(`^(мн|ед|род|дат|вин|твор|предл|собир|уменьш)\.`)
-
-// isGrammarNote reports whether a pair's note belongs in the header chip.
-//
-// The field carries two different things and only one of them is grammar. The
-// compact corpus writes «мн. -аш»; the encyclopedic one writes a definition in
-// Chechen — «Сагаран вока» for «бӏаьрг», «4 хара йолуш ду» for «дог» — and the
-// chip printed those as if they were labels, so «дог» came out as a noun that
-// «has four holes». Sampled over 25 words: every rate-16 note was «мн. -…» and
-// every rate-100 one was prose.
-func isGrammarNote(note string) bool {
-	return grammarNoteRe.MatchString(strings.TrimSpace(strings.ToLower(note)))
-}
-
-// takeNote records the grammar the chip shows. The note describes dosham's own
-// headword, which is always the Chechen side, so it belongs to the Chechen word
-// this block leads with and to no other. Under a Russian headword the senses are
-// different Chechen words: «дом» is glossed «цӏа» by the articles and «хӀусам»
-// by the compact corpus, and only the second carries «мн. -аш». Taken from
-// whichever pair happened to have one, the card announced «дом · рус. → чеч.,
-// сущ., мн. -аш» directly above the line «1. цӏа» — a plural belonging to a word
-// two lines further down. Under a Chechen headword every pair is the same word
-// by construction, so any of their notes fits.
-func (b *block) takeNote(note string, senses []string) {
-	if b.notes != "" || !isGrammarNote(note) || len(senses) == 0 {
-		return
-	}
-	if b.cheHead || len(b.senses) == 0 ||
-		FoldSearch(firstVariant(b.senses[0])) == FoldSearch(firstVariant(senses[0])) {
-		b.notes = note
-	}
-}
-
 // block is one headword-and-homonym: the unit a card repeats.
 type block struct {
 	head     string
 	cheHead  bool // the header is the Chechen side, so bold goes there
-	pos      int
-	notes    string
 	senses   []string
 	examples []example
 	index    int // homonym number; 1 when the word has no homonyms
@@ -255,9 +207,6 @@ func collect(query string, pairs []models.TranslationPairs) collected {
 		if p.Rate > b.rate && head != "" {
 			b.head, b.rate = head, p.Rate
 		}
-		if b.pos == 0 {
-			b.pos = p.Subtype
-		}
 		return b
 	}
 
@@ -265,7 +214,6 @@ func collect(query string, pairs []models.TranslationPairs) collected {
 		switch pl := q.classify(p); pl.role {
 		case roleEntry:
 			b := blockFor(p, pl.head, pl.cheHead)
-			b.takeNote(p.Notes, pl.senses)
 			b.senses = append(b.senses, pl.senses...)
 			b.examples = append(b.examples, pl.examples...)
 
@@ -409,14 +357,15 @@ func (b *block) render() string {
 	if len(headQuals) > 0 {
 		head += " <i>(" + strings.Join(headQuals, ", ") + ")</i>"
 	}
-	if chip := b.chip(); chip != "" {
-		head += " · <i>" + chip + "</i>"
-	}
-	lines = append(lines, head)
+	lines = append(lines, head+tag(b.headLang()))
 
 	// Russian qualifiers — "(почерк) хатӏ" — trail the gloss rather than sit
 	// inside its bold, since bold marks Chechen and nothing else.
-	senses := b.glosses()
+	//
+	// The answer is labelled only when there is one of them. Repeating
+	// «чеченский» down four numbered senses is the pile-up this replaced, and a
+	// numbered list under a labelled headword can only be the other language.
+	senses := b.senseLines()
 	if len(senses) == 1 {
 		lines = append(lines, senses[0])
 	} else {
@@ -476,24 +425,50 @@ func usesWordFreely(text, key string) bool {
 	return containsWord(strings.ReplaceAll(text, "-", ""), key)
 }
 
-// chip is the note after the headword: reading direction first, then grammar.
-// Bold alone marked the Chechen side, and nothing told the user that — «телефон»
-// answered «1. телефон» and there was no way to tell which of the two was which.
-func (b *block) chip() string {
-	parts := make([]string, 0, 3)
-	if b.cheHead {
-		parts = append(parts, "чеч. → рус.")
-	} else {
-		parts = append(parts, "рус. → чеч.")
-	}
-	if label, ok := posLabels[b.pos]; ok {
-		parts = append(parts, label)
-	}
-	if b.notes != "" {
-		parts = append(parts, b.notes)
-	}
-	return strings.Join(parts, ", ")
+// Each word is labelled with the language it belongs to, spelled out. The card
+// used to stack four abbreviations into one line — «рус. → чеч., сущ., мн. -еш» —
+// so the reader decoded an arrow and three shorthands before reaching a
+// translation. Part of speech and the plural ending left the card entirely:
+// both come back on the grammar block a second later, where «мн. -еш» is the
+// full paradigm rather than an ending, and neither is what the reader came for.
+//
+// Bold alone marked the Chechen side and nothing told the user that — «телефон»
+// answered «1. телефон» with no way to tell which of the two was which. Naming
+// the language outright is the only version of this that survives a loanword.
+const (
+	LabelChechen = "чеченский"
+	LabelRussian = "русский"
+	// LangSep joins a word to its language. Exported with the labels because
+	// the grammar card finds the line a card is headed by, and this is the mark
+	// that says a line is one.
+	LangSep = " — "
+)
+
+// IsHeadwordLine reports whether a card line names a word and its language.
+// Matched against the rendered label, italics included: the card writes
+// «даха — <i>чеченский</i>», and looking for the bare words found nothing.
+func IsHeadwordLine(line string) bool {
+	return strings.Contains(line, tag(LabelChechen)) ||
+		strings.Contains(line, tag(LabelRussian))
 }
+
+// headLang names the language of this block's headword, senseLang the other.
+func (b *block) headLang() string {
+	if b.cheHead {
+		return LabelChechen
+	}
+	return LabelRussian
+}
+
+func (b *block) senseLang() string {
+	if b.cheHead {
+		return LabelRussian
+	}
+	return LabelChechen
+}
+
+// tag renders a language label as the card shows it.
+func tag(lang string) string { return LangSep + "<i>" + lang + "</i>" }
 
 func superscript(n int) string {
 	digits := []rune("⁰¹²³⁴⁵⁶⁷⁸⁹")
@@ -696,12 +671,6 @@ func mergeSpellings(blocks []*block) []*block {
 			into.examples = append(into.examples, b.examples...)
 			if b.rate > into.rate {
 				into.head, into.rate = b.head, b.rate
-			}
-			if into.notes == "" {
-				into.notes = b.notes
-			}
-			if into.pos == 0 {
-				into.pos = b.pos
 			}
 			merged = true
 			break

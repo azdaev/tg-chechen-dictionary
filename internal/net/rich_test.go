@@ -82,14 +82,14 @@ func TestMissCard_PlainAssemblyUnchanged(t *testing.T) {
 // true of almost any card, which silently dropped the header from every rich
 // card that answered under a different word.
 func TestHeadwordLine_ReadsTheRichHeading(t *testing.T) {
-	rich := "<blockquote>по запросу «ваха»</blockquote><h3>даха</h3><p><i>чеч. → рус., гл.</i></p>" +
+	rich := "<blockquote>по запросу «ваха»</blockquote><h3>даха — <i>чеченский</i></h3>" +
 		"<p>жить</p><table compact><tr><td>ваха хӏусам</td><td>жилой дом</td></tr></table>"
-	if got := headwordLine(rich); got != "даха" {
+	if got := headwordLine(rich); got != "даха — <i>чеченский</i>" {
 		t.Errorf("headwordLine(rich) = %q, want the <h3> contents", got)
 	}
 	// The plain card still works the old way: the heading is the line with the
 	// direction chip, not the «по запросу» line above it.
-	plain := "<i>по запросу «ваха»:</i>\n\n<b>даха</b> · <i>чеч. → рус., гл.</i>\nжить"
+	plain := "<i>по запросу «ваха»:</i>\n\n<b>даха</b> — <i>чеченский</i>\nжить"
 	if got := headwordLine(plain); !strings.Contains(got, "даха") {
 		t.Errorf("headwordLine(plain) = %q, want the headword line", got)
 	}

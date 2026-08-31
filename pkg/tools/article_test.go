@@ -70,7 +70,7 @@ func TestCard_SynonymListIsOneWord(t *testing.T) {
 		article("Новость", "ж керланиг, керла хӏума"),
 		article("Новичок", "м керланиг, керла дешархо"),
 	}).Body
-	if n := strings.Count(body, "·"); n != 1 {
+	if n := len(headLangs(body)); n != 1 {
 		t.Fatalf("one word rendered as %d entries:\n%s", n, body)
 	}
 	for _, want := range []string{"новинка", "новость", "новичок"} {

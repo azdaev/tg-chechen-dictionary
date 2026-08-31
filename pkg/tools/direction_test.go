@@ -6,22 +6,69 @@ import (
 	"testing"
 )
 
+// headLangs lists the language each block of a card is headed by, in order. It
+// is also how the tests count blocks: every block has exactly one headword line
+// and nothing else on a card carries a language label at the end of a line.
+func headLangs(body string) []string {
+	var out []string
+	for _, para := range strings.Split(body, "\n\n") {
+		head, _, _ := strings.Cut(para, "\n")
+		for _, lang := range []string{LabelChechen, LabelRussian} {
+			if strings.HasSuffix(head, tag(lang)) {
+				out = append(out, lang)
+			}
+		}
+	}
+	return out
+}
+
 // Bold was the only thing marking the Chechen side, and the card never said so.
 // Asked for a loanword the bot answered «телефон → 1. телефон» and there was no
-// way to tell which of the two was the Chechen one.
+// way to tell which of the two was the Chechen one. Both words are named now,
+// in full words rather than «рус. → чеч.».
 func TestCard_EveryBlockNamesItsDirection(t *testing.T) {
 	che := Render("къолам", []models.TranslationPairs{
 		{Original: "къолам", Translate: "карандаш", OriginalLang: "CHE", TranslateLang: "RUS", Rate: 16, EntryType: "WORD"},
 	}).Body
-	if !strings.Contains(che, "чеч. → рус.") {
-		t.Errorf("Chechen lookup did not say which side is Chechen:\n%s", che)
+	if !strings.HasPrefix(che, "<b>къолам</b>"+tag(LabelChechen)) {
+		t.Errorf("Chechen lookup did not name the headword's language:\n%s", che)
+	}
+	if !strings.Contains(che, "карандаш"+tag(LabelRussian)) {
+		t.Errorf("the lone translation was not named as Russian:\n%s", che)
 	}
 
 	rus := Render("карандаш", []models.TranslationPairs{
 		{Original: "Карандаш", Translate: "м къолам", OriginalLang: "RUS", TranslateLang: "CHE", Packed: true, Rate: 100, EntryType: "WORD"},
 	}).Body
-	if !strings.Contains(rus, "рус. → чеч.") {
-		t.Errorf("Russian lookup did not say which side is Chechen:\n%s", rus)
+	if !strings.HasPrefix(rus, "карандаш"+tag(LabelRussian)) {
+		t.Errorf("Russian lookup did not name the headword's language:\n%s", rus)
+	}
+	if !strings.Contains(rus, "<b>къолам</b>"+tag(LabelChechen)) {
+		t.Errorf("the lone translation was not named as Chechen:\n%s", rus)
+	}
+
+	// A loanword is the case none of this survives without: both sides are
+	// spelled the same, so only the label tells them apart.
+	loan := Render("телефон", []models.TranslationPairs{
+		{Original: "Телефон", Translate: "м телефон", OriginalLang: "RUS", TranslateLang: "CHE", Packed: true, Rate: 100, EntryType: "WORD"},
+	}).Body
+	if !strings.Contains(loan, "телефон"+tag(LabelRussian)) ||
+		!strings.Contains(loan, "телефон</b>"+tag(LabelChechen)) {
+		t.Errorf("a loanword card does not say which телефон is which:\n%s", loan)
+	}
+}
+
+// Repeating «чеченский» down every numbered sense is the pile-up the labels
+// replaced. A list under a labelled headword can only be the other language.
+func TestCard_ManySensesAreLabelledOnce(t *testing.T) {
+	body := Render("рука", []models.TranslationPairs{
+		{Original: "Рука", Translate: "ж 1) куьг 2) (почерк) хатӏ", OriginalLang: "RUS", TranslateLang: "CHE", Packed: true, Rate: 100, EntryType: "WORD"},
+	}).Body
+	if n := strings.Count(body, tag(LabelChechen)); n != 0 {
+		t.Errorf("the label is repeated on %d senses, want none under a list:\n%s", n, body)
+	}
+	if n := strings.Count(body, tag(LabelRussian)); n != 1 {
+		t.Errorf("the headword is labelled %d times, want once:\n%s", n, body)
 	}
 }
 
@@ -51,8 +98,8 @@ func TestCard_CrossLanguageHomographsDoNotMerge(t *testing.T) {
 			t.Fatalf("both readings landed in one block:\n%s", body)
 		}
 	}
-	if !strings.Contains(body, "чеч. → рус.") || !strings.Contains(body, "рус. → чеч.") {
-		t.Errorf("the two readings are not labelled apart:\n%s", body)
+	if got := headLangs(body); len(got) != 2 || got[0] == got[1] {
+		t.Errorf("the two readings are not labelled apart, got %v:\n%s", got, body)
 	}
 }
 
@@ -145,8 +192,8 @@ func TestCard_PhraseLivesOnlyInsideAnotherEntry(t *testing.T) {
 	if !strings.Contains(card, "буьйса декъала хуьлда!") {
 		t.Fatalf("the gloss dosham holds did not make a card:\n%s", card)
 	}
-	if !strings.Contains(card, "рус. → чеч.") {
-		t.Errorf("the card does not say which way it reads:\n%s", card)
+	if got := headLangs(card); len(got) != 1 || got[0] != LabelRussian {
+		t.Errorf("the card does not say which way it reads, got %v:\n%s", got, card)
 	}
 	// The article's own unrelated examples stay out of it.
 	if strings.Contains(card, "къилбаседера") {
@@ -213,38 +260,11 @@ func TestCard_QualifierIsNotTheGloss(t *testing.T) {
 	if !strings.Contains(card, "<b>жӏаьла</b>") {
 		t.Fatalf("the answer to the query is missing:\n%s", card)
 	}
-	if strings.Contains(card, "чеч. → рус.") {
-		t.Errorf("a Russian lookup produced a Chechen-headed block:\n%s", card)
-	}
-	if n := strings.Count(card, "→ чеч."); n != 1 {
-		t.Errorf("the card has %d blocks, want the one the query asked for:\n%s", n, card)
+	if got := headLangs(card); len(got) != 1 || got[0] != LabelRussian {
+		t.Errorf("a Russian lookup produced blocks %v, want one headed in Russian:\n%s", got, card)
 	}
 }
 
-// The notes field carries two different things and only one is grammar. The
-// compact corpus writes «мн. -аш»; the encyclopedic one writes a definition in
-// Chechen, and the chip printed those as labels — «дог · чеч. → рус., сущ., 4
-// хара йолуш ду», a noun that "has four holes".
-func TestCard_ChipTakesOnlyGrammarNotes(t *testing.T) {
-	card := FormatCard("дог", []models.TranslationPairs{
-		{Original: "дог", Translate: "сердце", OriginalLang: "CHE", TranslateLang: "RUS", EntryType: "WORD", Subtype: 2, Rate: 100, Notes: "4 хара йолуш ду"},
-	})
-	if strings.Contains(card, "хара йолуш") {
-		t.Errorf("an encyclopedic definition is worn as a grammar label:\n%s", card)
-	}
-	if !strings.Contains(card, "сущ.") {
-		t.Errorf("the part of speech went with it:\n%s", card)
-	}
-
-	// The real note still reaches the chip, even when a definition arrives first.
-	withPlural := FormatCard("глаз", []models.TranslationPairs{
-		{Original: "БӏаьргI", Translate: "Глаз", OriginalLang: "CHE", TranslateLang: "RUS", EntryType: "WORD", Subtype: 2, Rate: 100, Notes: "Сагаран вока"},
-		{Original: "бӏаьрг", Translate: "глаз", OriginalLang: "CHE", TranslateLang: "RUS", EntryType: "WORD", Subtype: 2, Rate: 16, Notes: "мн. -аш"},
-	})
-	if !strings.Contains(withPlural, "мн. -аш") {
-		t.Errorf("the plural note was crowded out by the definition:\n%s", withPlural)
-	}
-}
 
 // Three corpora folded the marks a keyboard cannot type and the fourth did not.
 // The Russian→Chechen articles are the one corpus that packs its entry into a
@@ -363,7 +383,7 @@ func TestCard_ArticleIsToldApartFromAPlainPair(t *testing.T) {
 		Original: "привет", Translate: "салам, -аш, 2маршалла",
 		OriginalLang: "RUS", TranslateLang: "CHE", EntryType: "TEXT", Rate: 16, EntryIndex: 1,
 	}})
-	if !strings.HasPrefix(compact, "привет · <i>рус. → чеч.") {
+	if !strings.HasPrefix(compact, "привет"+tag(LabelRussian)) {
 		t.Errorf("a Russian query was answered as Chechen:\n%s", compact)
 	}
 	for _, want := range []string{"<b>салам</b>", "<b>маршалла</b>"} {
@@ -385,35 +405,27 @@ func TestCard_ArticleIsToldApartFromAPlainPair(t *testing.T) {
 	}
 }
 
-// The grammar note describes dosham's own headword, which is always the Chechen
-// side. Under a Russian headword the senses are different Chechen words, and the
-// note was taken from whichever pair happened to carry one: «дом» announced
-// «сущ., мн. -аш» — the plural of «хӀусам» — directly above the line «1. цӏа».
-func TestCard_GrammarBelongsToTheWordItLabels(t *testing.T) {
-	card := FormatCard("дом", []models.TranslationPairs{
-		{Original: "Дом", Translate: "м цӏа", OriginalLang: "RUS", TranslateLang: "CHE", Packed: true, EntryType: "WORD", Rate: 100},
-		{Original: "хӀусам", Translate: "дом", OriginalLang: "CHE", TranslateLang: "RUS", EntryType: "WORD", Subtype: 2, Rate: 16, Notes: "мн. -аш"},
-	})
-	if !strings.Contains(card, "1. <b>цӏа</b>") {
-		t.Fatalf("the card does not lead with цӏа, so the test proves nothing:\n%s", card)
-	}
-	if strings.Contains(card, "мн. -аш") {
-		t.Errorf("the second sense's plural is worn by the first:\n%s", card)
-	}
 
-	// The same note on the word the card does lead with still shows.
-	own := FormatCard("хӀусам", []models.TranslationPairs{
-		{Original: "хӀусам", Translate: "дом", OriginalLang: "CHE", TranslateLang: "RUS", EntryType: "WORD", Subtype: 2, Rate: 16, Notes: "мн. -аш"},
-	})
-	if !strings.Contains(own, "мн. -аш") {
-		t.Errorf("the headword's own plural was dropped:\n%s", own)
-	}
+// The plural ending and the part of speech left the card with the rest of the
+// abbreviations, so the two tests that guarded how they were chosen went with
+// them: dosham's `notes` field mixed «мн. -аш» with encyclopedic definitions in
+// Chechen — «дог · сущ., 4 хара йолуш ду», a noun that "has four holes" — and
+// picking between them mattered only while the card printed either. The full
+// paradigm arrives on the grammar block a second later, which is a better answer
+// than an ending. Restore both from git if the label ever comes back.
 
-	// And a Russian headword whose leading gloss carries the note keeps it.
-	lead := FormatCard("вода", []models.TranslationPairs{
-		{Original: "хи", Translate: "вода", OriginalLang: "CHE", TranslateLang: "RUS", EntryType: "WORD", Subtype: 2, Rate: 16, Notes: "мн. -ш"},
-	})
-	if !strings.Contains(lead, "мн. -ш") {
-		t.Errorf("the leading gloss's own plural was dropped:\n%s", lead)
+// A loanword is spelled the same on both sides, so a numbered list cannot say
+// which entry is which. «телефон» answered «телефон — русский / 1. телефон
+// 2. тилпу», and the first sense is the Chechen word — the one case where the
+// list has to name its language even though the others do not.
+func TestCard_SenseSpelledLikeTheHeadwordIsLabelled(t *testing.T) {
+	body := Render("телефон", []models.TranslationPairs{
+		{Original: "Телефон", Translate: "м 1) телефон 2) тилпу", OriginalLang: "RUS", TranslateLang: "CHE", Packed: true, Rate: 100, EntryType: "WORD"},
+	}).Body
+	if !strings.Contains(body, "<b>телефон</b>"+tag(LabelChechen)) {
+		t.Errorf("the sense spelled like the headword is not named:\n%s", body)
+	}
+	if strings.Contains(body, "<b>тилпу</b>"+tag(LabelChechen)) {
+		t.Errorf("the unambiguous sense was labelled too — that is the pile-up:\n%s", body)
 	}
 }

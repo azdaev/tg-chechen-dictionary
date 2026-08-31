@@ -114,13 +114,24 @@ func TestFormatGrammarBlock_MergedIntoTheCard(t *testing.T) {
 		t.Errorf("the paradigm is the whole point and it is missing:\n%s", got)
 	}
 
-	// Nothing new to add means no edit at all.
+	// The word and its expressions are already on the card, so only the part of
+	// speech is left — and it has to be said here, because the card stopped
+	// carrying «сущ.» when the abbreviations came off it.
 	covered := &models.WordGrammar{
 		Headword: "телефон",
 		POS:      "существительное",
 		Idioms:   []models.Idiom{{Chechen: "телефон етта", Russian: "звонить по телефону"}},
 	}
-	if got := formatGrammarBlock(covered, card); got != "" {
+	if got := formatGrammarBlock(covered, card); got != "<i>существительное</i>" {
+		t.Errorf("block = %q, want just the part of speech", got)
+	}
+
+	// With no part of speech either, there is nothing to say and no edit at all.
+	silent := &models.WordGrammar{
+		Headword: "телефон",
+		Idioms:   []models.Idiom{{Chechen: "телефон етта", Russian: "звонить по телефону"}},
+	}
+	if got := formatGrammarBlock(silent, card); got != "" {
 		t.Errorf("block rendered nothing the card lacked: %q", got)
 	}
 
@@ -139,14 +150,14 @@ func TestFormatGrammarBlock_MergedIntoTheCard(t *testing.T) {
 		POS:      "существительное",
 		Idioms:   []models.Idiom{{Chechen: "телефо̃н етта", Russian: "звонить по телефону"}},
 	}
-	if got := formatGrammarBlock(marked, card); got != "" {
+	if got := formatGrammarBlock(marked, card); strings.Contains(got, "етта") {
 		t.Errorf("the same phrase spelled with marks was shown twice:\n%s", got)
 	}
 
 	// A Russian lookup gets the paradigm of its Chechen gloss, so the word is on
 	// the card but is not what heads it. Unlabelled, «Формы: къоламо̃…» under
 	// «карандаш» reads as the forms of «карандаш».
-	rusCard := "карандаш · <i>рус. → чеч., сущ.</i>\n<b>къолам</b>"
+	rusCard := "карандаш — <i>русский</i>\n<b>къолам</b> — <i>чеченский</i>"
 	gloss := &models.WordGrammar{Headword: "къолам", POS: "существительное", Forms: []string{"къоламан"}}
 	if got := formatGrammarBlock(gloss, rusCard); !strings.Contains(got, "🔤 <b>къолам</b>") {
 		t.Errorf("the paradigm of a gloss did not say which word it belongs to:\n%s", got)
@@ -200,7 +211,7 @@ func TestGrammarSummaryLine(t *testing.T) {
 // a card already headed «даха».
 func TestGrammarBlock_ReadsTheHeadwordLineNotTheFirstLine(t *testing.T) {
 	g := &models.WordGrammar{Headword: "даха", POS: "глагол", Forms: []string{"дехна", "деха"}}
-	card := "<i>по запросу «ваха»:</i>\n\n<b>даха</b> · <i>чеч. → рус., гл.</i>\n1. жить"
+	card := "<i>по запросу «ваха»:</i>\n\n<b>даха</b> — <i>чеченский</i>\n1. жить"
 
 	block := formatGrammarBlock(g, card)
 	if strings.Contains(block, "🔤") {
