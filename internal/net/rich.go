@@ -77,6 +77,30 @@ func richUsable(body string) bool {
 	return richMessages && body != "" && len(body) <= richLimit
 }
 
+// deliverCard sends a translation card, rich when the feature is on and the
+// card fits, plain otherwise. plain is a function because building it costs a
+// second parse of the article, and that parse is only owed when a rich send
+// actually fails.
+//
+// It returns the text that ended up in the message and whether it went as rich:
+// the grammar card is grown into this same message later and has to edit it in
+// the dialect it was written in.
+func (n *Net) deliverCard(chatID int64, rich string, plain func() string) (sent tgbotapi.Message, text string, wasRich bool, err error) {
+	if richUsable(rich) {
+		if sent, err = n.sendRich(chatID, rich, nil); err == nil {
+			return sent, rich, true, nil
+		}
+		// The method is new and nothing about a dictionary card needs it, so a
+		// failure costs the formatting and never the answer.
+		n.log.WithError(err).Warn("rich send failed, falling back to plain")
+	}
+	text = clampMessage(plain())
+	msg := tgbotapi.NewMessage(chatID, text)
+	msg.ParseMode = "html"
+	sent, err = n.send(msg)
+	return sent, text, false, err
+}
+
 // firstTagText returns the contents of the first <tag>…</tag> in s.
 func firstTagText(s, tag string) (string, bool) {
 	open, close := "<"+tag+">", "</"+tag+">"

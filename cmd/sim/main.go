@@ -9,9 +9,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
-	"unicode/utf8"
 
-	"chetoru/internal/models"
 	"chetoru/pkg/tools"
 )
 
@@ -96,46 +94,8 @@ func main() {
 			continue
 		}
 
-		var pairs []models.TranslationPairs
 		fmt.Println("--- сырые записи API ---")
-		for _, e := range entries {
-			for _, t := range e.Translations {
-				if normLang(t.LanguageCode) == "" {
-					continue
-				}
-				fmt.Printf("[%s rate=%d st=%d idx=%d forms=%d rel=%d] %s :: %s\n", e.Type, e.Rate, e.Subtype, e.EntryIndex, len(e.EntryForms), len(e.RelatedEntries), e.Content, t.Content)
-				lang := normLang(t.LanguageCode)
-				pairs = append(pairs, models.TranslationPairs{
-					Original:      tools.EscapeUnclosedTags(e.Content),
-					Translate:     tools.EscapeUnclosedTags(t.Content),
-					OriginalLang:  map[string]string{"CHE": "RUS", "RUS": "CHE"}[lang],
-					TranslateLang: lang,
-					Packed:        lang == "CHE",
-					Rate:          e.Rate,
-					EntryType:     e.Type,
-					Subtype:       e.Subtype,
-					EntryIndex:    e.EntryIndex,
-					Notes:         e.Notes,
-				})
-			}
-		}
-
-		// mirrors business.capShortQuery: entries capped, examples counted apart.
-		if utf8.RuneCountInString(word) <= 3 && len(pairs) > 10 {
-			folded := tools.FoldSearch(word)
-			kept, entries := pairs[:0:0], 0
-			for _, p := range pairs {
-				if p.EntryType != "TEXT" || tools.FoldSearch(p.Original) == folded || tools.FoldSearch(p.Translate) == folded {
-					if entries >= 10 {
-						continue
-					}
-					entries++
-				}
-				kept = append(kept, p)
-			}
-			pairs = kept
-		}
-
+		pairs := capShortQuery(word, toPairs(entries, true))
 		rendered := tools.Render(word, pairs)
 		fmt.Println("\n--- СООБЩЕНИЕ БОТА ---")
 		fmt.Println(tools.FormatCard(word, pairs))

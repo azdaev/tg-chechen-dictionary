@@ -63,12 +63,20 @@ type Rendered struct {
 }
 
 func Render(query string, pairs []models.TranslationPairs) Rendered {
+	return renderWith(query, pairs, collected.render)
+}
+
+// renderWith parses a lookup once and lets the caller pick the dialect its body
+// comes out in. Everything else a Rendered carries — the neighbours, which
+// Chechen word the card is about, whether anything was actually glossed — is
+// the same answer either way, and answering it twice is what this avoids.
+func renderWith(query string, pairs []models.TranslationPairs, body func(collected) string) Rendered {
 	c := collect(query, pairs)
 	if len(c.blocks) == 0 {
 		return Rendered{Neighbours: c.neighbours}
 	}
 	return Rendered{
-		Body:       c.render(),
+		Body:       body(c),
 		Neighbours: c.neighbours,
 		Chechen:    c.chechenSide(),
 		Glossed:    c.glossed(),

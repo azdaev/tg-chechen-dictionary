@@ -27,20 +27,11 @@ const (
 	maxRichExamples = 24
 )
 
-// RenderRich is Render with a rich-message body. Separate entry point rather
+// RenderRich is Render with a rich-message body. A separate entry point rather
 // than a second field on Rendered: the inline picker cannot send rich messages
-// at all, and it runs on every keystroke.
+// at all, and it runs on every keystroke, so it must not pay for one.
 func RenderRich(query string, pairs []models.TranslationPairs) Rendered {
-	c := collect(query, pairs)
-	if len(c.blocks) == 0 {
-		return Rendered{Neighbours: c.neighbours}
-	}
-	return Rendered{
-		Body:       c.renderRich(),
-		Neighbours: c.neighbours,
-		Chechen:    c.chechenSide(),
-		Glossed:    c.glossed(),
-	}
+	return renderWith(query, pairs, collected.renderRich)
 }
 
 func (c collected) renderRich() string {

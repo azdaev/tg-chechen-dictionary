@@ -99,28 +99,19 @@ func (n *Net) HandleText(ctx context.Context, m *tgbotapi.Message) error {
 		return b.String()
 	}
 
-	// A rich send that fails must not take the user's answer with it: the method
-	// is new, and nothing about this card actually needs it.
-	card := assemble(richMessages, rendered.Body, rendered.Neighbours)
-	var sent tgbotapi.Message
-	rich := richUsable(card)
-	if rich {
-		var richErr error
-		if sent, richErr = n.sendRich(m.Chat.ID, card, nil); richErr != nil {
-			n.log.WithError(richErr).WithField("word", m.Text).Warn("rich send failed, falling back to plain")
-			rich = false
+	built := assemble(richMessages, rendered.Body, rendered.Neighbours)
+	// With the feature off the card is already plain, and the fallback must not
+	// parse the article a second time to rediscover that.
+	plainCard := func() string { return built }
+	if richMessages {
+		plainCard = func() string {
 			plain := tools.Render(renderKey, translations)
-			card = assemble(false, plain.Body, plain.Neighbours)
+			return assemble(false, plain.Body, plain.Neighbours)
 		}
 	}
-	if !rich {
-		msg := tgbotapi.NewMessage(m.Chat.ID, clampMessage(card))
-		msg.ParseMode = "html"
-		var sendErr error
-		if sent, sendErr = n.send(msg); sendErr != nil {
-			return fmt.Errorf("send: %w", sendErr)
-		}
-		card = msg.Text
+	sent, card, rich, err := n.deliverCard(m.Chat.ID, built, plainCard)
+	if err != nil {
+		return fmt.Errorf("send: %w", err)
 	}
 	if hintInline {
 		// Marked only after it actually reached someone: a failed send means
