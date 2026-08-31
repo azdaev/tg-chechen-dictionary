@@ -80,7 +80,15 @@ func main() {
 		fmt.Printf("\n===== ИТОГ: карточек без ошибок разметки %d, с ошибками %d; примеров показано: обычная %d, rich %d =====\n",
 			checked.ok, checked.bad, checked.cardExamples, checked.richExamples)
 	}()
-	for _, word := range os.Args[1:] {
+	words := os.Args[1:]
+	// -send <chat_id> also posts each card to that chat. Opt-in by hand: the
+	// token in .env is the production bot's.
+	sendTo := ""
+	if len(words) > 2 && words[0] == "-send" {
+		sendTo, words = words[1], words[2:]
+		fmt.Printf("!! карточки будут отправлены в чат %s настоящим ботом\n", sendTo)
+	}
+	for _, word := range words {
 		fmt.Printf("\n========== ЗАПРОС: %q ==========\n", word)
 		entries := find(word)
 		if len(entries) == 0 {
@@ -145,6 +153,9 @@ func main() {
 		}
 		checked.cardExamples += strings.Count(tools.FormatCard(word, pairs), " → ")
 		checked.richExamples += strings.Count(rich, "<tr><td>")
+		if sendTo != "" {
+			sendRich(sendTo, rich)
+		}
 
 		// grammar card (mirrors business.computeGrammar / net.sendGrammarCard).
 		// Grammar is asked for by the Chechen side of the answer, not by the
