@@ -30,7 +30,7 @@ func rankAndDedup(pairs []models.TranslationPairs, query string) []models.Transl
 		return pairs
 	}
 
-	key := normalizeForRank(query)
+	key := tools.NormalizeSearch(query)
 	out := dedupPairs(pairs)
 
 	// Stable, and every tiebreaker deterministic: the first result freezes into
@@ -109,10 +109,6 @@ func isUsageExample(p models.TranslationPairs, folded string) bool {
 		tools.FoldSearch(p.Translate) != folded
 }
 
-func normalizeForRank(s string) string {
-	return stripStressMarks(tools.NormalizeSearch(s))
-}
-
 // pairIdentity is what makes two rows the same translation: both sides equal
 // once spelling is normalized and stress marks — which only the academic corpus
 // writes — are dropped. One definition, because there used to be two: the
@@ -121,7 +117,7 @@ func normalizeForRank(s string) string {
 // therefore throw away the moderated or better-sourced row before the second
 // pass was ever asked which to keep.
 func pairIdentity(p models.TranslationPairs) string {
-	return normalizeForRank(p.Original) + "\x00" + normalizeForRank(p.Translate)
+	return tools.NormalizeSearch(p.Original) + "\x00" + tools.NormalizeSearch(p.Translate)
 }
 
 // dedupPairs keeps one row per identity — the best one — at the position where
@@ -168,11 +164,11 @@ func approved(p models.TranslationPairs) bool {
 }
 
 func rankPair(p models.TranslationPairs, key string) int {
-	original := normalizeForRank(p.Original)
+	original := tools.NormalizeSearch(p.Original)
 	switch {
 	case original == key:
 		return 0
-	case normalizeForRank(p.Translate) == key:
+	case tools.NormalizeSearch(p.Translate) == key:
 		return 1
 	// A folded match is the answer to a query that dropped the palochka: the
 	// user typed «чегардиг» and meant «чӏегӏардиг». Without this bucket every

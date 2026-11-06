@@ -5,6 +5,8 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/sirupsen/logrus"
@@ -164,5 +166,30 @@ func TestEntryHasGrammar(t *testing.T) {
 				t.Errorf("entryHasGrammar(%+v) = %v, want %v", c.e, got, c.want)
 			}
 		})
+	}
+}
+
+// dosham stores «хи» with its forms out of order and names them by code. The
+// card prints them the way a grammar does, named, with the noun's class.
+func TestComputeGrammar_NamesClassAndCases(t *testing.T) {
+	form := func(content string, kase, number int) string {
+		return `{"content":"` + content + `","details":"{\"Case\":` + strconv.Itoa(kase) + `,\"NumeralType\":` + strconv.Itoa(number) + `}"}`
+	}
+	stubDoshamAPI(t, http.StatusOK, `{"data":{"find":[{"content":"хи","type":"WORD","rate":500,`+
+		`"details":"{\"Case\":1,\"Class\":4,\"Declension\":1}","relatedEntries":[],"entryForms":[`+
+		strings.Join([]string{form("хине̃", 7, 1), form("хиш", 1, 2), form("хино̃", 4, 1), form("хин", 2, 1), form("хе̃", 4, 1)}, ",")+`]}]}}`)
+
+	g, err := (&Business{}).computeGrammar(context.Background(), "хи")
+	if err != nil || g == nil {
+		t.Fatalf("got %+v, %v", g, err)
+	}
+	if g.Class != "ду" {
+		t.Errorf("class = %q, want ду", g.Class)
+	}
+	if got, want := strings.Join(g.Forms, " "), "хин хино̃ хе̃ хине̃ хиш"; got != want {
+		t.Errorf("forms = %q, want %q", got, want)
+	}
+	if got, want := strings.Join(g.Cases, "|"), "родительный|эргативный|эргативный|местный|множественное"; got != want {
+		t.Errorf("cases = %q, want %q", got, want)
 	}
 }

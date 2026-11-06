@@ -210,9 +210,9 @@ func hasExactOriginal(pairs []models.TranslationPairs, word string) bool {
 	// Same normalization as ranking. A headword that ranking calls an exact
 	// match must not read as a miss here, or the ё-variant fallback fires live
 	// queries for a word that was already found.
-	key := normalizeForRank(word)
+	key := tools.NormalizeSearch(word)
 	for _, p := range pairs {
-		if normalizeForRank(p.Original) == key {
+		if tools.NormalizeSearch(p.Original) == key {
 			return true
 		}
 	}
@@ -221,7 +221,7 @@ func hasExactOriginal(pairs []models.TranslationPairs, word string) bool {
 
 // hasFoldedOriginal reports whether any pair's headword matches the query once
 // both are folded. It, not hasExactOriginal, is the cascade's stop signal:
-// normalizeForRank keeps the palochka, so «чӏегӏардиг» never reads as an exact
+// NormalizeSearch keeps the palochka, so «чӏегӏардиг» never reads as an exact
 // match for «чегӏардиг» — the one comparison the palochka cascade exists to
 // make. Judging respellings by the strict key meant nothing ever stopped the
 // cascade and every candidate's substring hits merged into the answer.

@@ -3,10 +3,12 @@ package business
 import (
 	"chetoru/internal/cache"
 	"chetoru/internal/models"
+	"chetoru/pkg/tools"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 )
 
@@ -28,6 +30,60 @@ type grammarEntry struct {
 
 type grammarForm struct {
 	Content string `json:"content"`
+	Details string `json:"details"`
+}
+
+// morphology is the part of dosham's `details` the card names. The codes are
+// dosham's own enums; the names below are the ones dosham.app itself shows
+// (its frontend bundle and assets/i18n/ru.json, read 2026-11-06).
+type morphology struct {
+	Class       int
+	Case        int
+	NumeralType int
+}
+
+func parseMorphology(details string) morphology {
+	var m morphology
+	_ = json.Unmarshal([]byte(details), &m) // missing or broken details name nothing
+	return m
+}
+
+// nounClass is the singular agreement of each class. dosham labels the codes
+// 1 «в, б/д», 2 «й, б/д», 3 «й, й», 4 «д, д», 5 «б, б/й», 6 «б, д».
+var nounClass = map[int]string{1: "ву", 2: "йу", 3: "йу", 4: "ду", 5: "бу", 6: "бу"}
+
+var caseNames = map[int]string{
+	1: "именительный", 2: "родительный", 3: "дательный", 4: "эргативный",
+	5: "вещественный", 6: "творительный", 7: "местный", 8: "аллативный",
+	9: "аблативный", 10: "пролативный", 11: "сравнительный",
+}
+
+const pluralNumber = 2
+
+// caseName names a form: «родительный», «множественное» for the plural
+// nominative, «множественное, родительный» for the rest of the plural.
+func (m morphology) caseName() string {
+	name := caseNames[m.Case]
+	if m.NumeralType != pluralNumber {
+		return name
+	}
+	if name == "" || m.Case == 1 {
+		return "множественное"
+	}
+	return "множественное, " + name
+}
+
+// order sorts a paradigm the way grammars print it: the singular cases in
+// dosham's enum order, which is the textbook one, then the plural, then forms
+// dosham did not label.
+func (m morphology) order() int {
+	if m.Case == 0 && m.NumeralType != pluralNumber {
+		return 1000
+	}
+	if m.NumeralType == pluralNumber {
+		return 100 + m.Case
+	}
+	return m.Case
 }
 
 type relatedEntry struct {
@@ -141,9 +197,18 @@ func (b *Business) computeGrammar(ctx context.Context, word string) (*models.Wor
 		Headword: strings.TrimSpace(best.Content),
 		POS:      posFromDetails(best.Details),
 	}
-	for _, f := range best.EntryForms {
+	// dosham shows a class only on nouns, and so does the card.
+	if g.POS == "существительное" {
+		g.Class = nounClass[parseMorphology(best.Details).Class]
+	}
+	forms := slices.Clone(best.EntryForms)
+	slices.SortStableFunc(forms, func(a, b grammarForm) int {
+		return parseMorphology(a.Details).order() - parseMorphology(b.Details).order()
+	})
+	for _, f := range forms {
 		if s := strings.TrimSpace(f.Content); s != "" {
 			g.Forms = append(g.Forms, s)
+			g.Cases = append(g.Cases, parseMorphology(f.Details).caseName())
 		}
 	}
 	for _, r := range best.RelatedEntries {
@@ -185,7 +250,7 @@ func (b *Business) findGrammarEntries(ctx context.Context, word string) ([]gramm
 				type
 				rate
 				details
-				entryForms { content }
+				entryForms { content details }
 				relatedEntries { content translations { content languageCode } }
 			}
 		}
@@ -207,7 +272,7 @@ func (b *Business) findGrammarEntries(ctx context.Context, word string) ([]gramm
 // headwords differ from what reaches here by ё, by which character stands in
 // for the palochka, and by combining stress marks.
 func bestGrammarEntry(entries []grammarEntry, mustMatch string) *grammarEntry {
-	key := normalizeForRank(mustMatch)
+	key := tools.NormalizeSearch(mustMatch)
 	var best *grammarEntry
 	for i := range entries {
 		e := &entries[i]
@@ -217,7 +282,7 @@ func bestGrammarEntry(entries []grammarEntry, mustMatch string) *grammarEntry {
 		if e.Type != "WORD" || !entryHasGrammar(e) {
 			continue
 		}
-		if key != "" && normalizeForRank(e.Content) != key {
+		if key != "" && tools.NormalizeSearch(e.Content) != key {
 			continue
 		}
 		if best == nil || e.Rate > best.Rate {

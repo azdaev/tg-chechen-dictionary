@@ -19,12 +19,13 @@ type TranslationPairs struct {
 	FormattedAI     string `json:"formatted_ai,omitempty"`
 	FormattedChosen string `json:"formatted_chosen,omitempty"`
 	// Rate identifies which of dosham's source dictionaries this pair came
-	// from, not how good it is. Measured over 1097 live entries it takes three
-	// values: 10000 is the academic Chechen–Russian dictionary (senses already
-	// atomized one per translation row, stress marks, homonyms numbered), 16 a
-	// compact modern one, 100 both the Russian–Chechen dictionary — whose whole
-	// article arrives as a single Chechen-language blob — and a software
-	// localization glossary. Every tilde and every "1)" in the corpus lives in
+	// from, not how good it is: 500 is the academic Chechen–Russian dictionary
+	// (senses already atomized one per translation row, stress marks, homonyms
+	// numbered), 15 a compact modern one, 100 both the Russian–Chechen
+	// dictionary — whose whole article arrives as a single Chechen-language
+	// blob — and a software localization glossary. dosham renumbered them in
+	// 2026-11 (the first two were 10000 and 16), so code compares rates and
+	// never names one. Every tilde and every "1)" in the corpus lives in
 	// exactly one of those, so the corpus decides how a pair must be read.
 	Rate int `json:"rate,omitempty"`
 	// Packed says the Chechen side is a whole dictionary article in one string —
@@ -92,13 +93,13 @@ type RandomWord struct {
 
 // WordGrammar is lightweight grammatical info about a Chechen headword, sourced
 // from the dosham API's `details` (morphology) and `entryForms` (inflected
-// forms). Only fields safe to show without the undocumented integer legend are
-// kept: the part of speech (inferred from which `details` keys are present) and
-// the declension/conjugation paradigm.
+// forms).
 type WordGrammar struct {
 	Headword string   // the Chechen word
 	POS      string   // human-readable part of speech, or "" if uncertain
-	Forms    []string // inflected forms (entryForms), unlabeled
+	Class    string   // a noun's singular class agreement: ву, йу, бу or ду
+	Forms    []string // inflected forms (entryForms)
+	Cases    []string // Cases[i] names Forms[i] («родительный»), "" when dosham does not say
 	Idioms   []Idiom  // set phrases/collocations (relatedEntries) with a translation
 }
 
