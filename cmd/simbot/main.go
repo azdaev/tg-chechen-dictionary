@@ -99,7 +99,7 @@ func main() {
 
 	translator := business.NewBusiness(redisCache, repo, nil, log)
 	translator.SetFoldedReady()
-	service := net.NewNet(log, repo, bot, translator, redisCache, nil)
+	service := net.NewNet(log, repo, bot, translator, redisCache)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

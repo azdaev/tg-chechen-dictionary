@@ -1,11 +1,8 @@
 package cache
 
 import (
-	"chetoru/internal/ai"
 	"chetoru/internal/models"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -31,9 +28,6 @@ const (
 	// most expensive path (ё-variant fallbacks plus suggestion retries), but
 	// new words do get added to dosham, so misses must expire quickly.
 	negativeTTL = 24 * time.Hour
-	// spellcheckTTL stays a week: unlike a translation this is our own AI output,
-	// the prompt evolves, and a stale verdict should pick up improvements.
-	spellcheckTTL = 7 * 24 * time.Hour
 	// grammarTTL stays long and independent of translationTTL. Morphology does
 	// not churn, most lookups cache a negative ("no grammar") answer, and every
 	// miss costs a live dosham query — so grammar must not inherit a TTL chosen
@@ -217,37 +211,6 @@ func (c *Cache) SetGrammar(ctx context.Context, key string, g *models.WordGramma
 		return err
 	}
 	return c.client.Set(ctx, grammarKey(key), data, grammarTTL).Err()
-}
-
-// spellcheckKey hashes the checked text: spellcheck inputs are whole sentences,
-// and raw multi-line keys are awkward in Redis.
-func spellcheckKey(text string) string {
-	sum := sha256.Sum256([]byte(text))
-	return "spellcheck_" + hex.EncodeToString(sum[:])
-}
-
-func (c *Cache) GetSpellcheck(ctx context.Context, text string) (*ai.SpellCheckResult, error) {
-	val, err := c.client.Get(ctx, spellcheckKey(text)).Result()
-	if errors.Is(err, redis.Nil) {
-		return nil, ErrMiss
-	}
-	if err != nil {
-		return nil, err
-	}
-
-	var result ai.SpellCheckResult
-	if err := json.Unmarshal([]byte(val), &result); err != nil {
-		return nil, err
-	}
-	return &result, nil
-}
-
-func (c *Cache) SetSpellcheck(ctx context.Context, text string, result *ai.SpellCheckResult) error {
-	data, err := json.Marshal(result)
-	if err != nil {
-		return err
-	}
-	return c.client.Set(ctx, spellcheckKey(text), data, spellcheckTTL).Err()
 }
 
 // DeleteTranslation drops the cached lookup for a normalized word. It shares

@@ -18,31 +18,3 @@ func TestStripCodeFence(t *testing.T) {
 		}
 	}
 }
-
-func TestParseSpellCheck(t *testing.T) {
-	if r := parseSpellCheck("NO_ERRORS"); !r.NoErrors {
-		t.Error("bare NO_ERRORS not recognized")
-	}
-	if r := parseSpellCheck("```\nNO_ERRORS\n```"); !r.NoErrors {
-		t.Error("fenced NO_ERRORS not recognized")
-	}
-
-	raw := "CORRECTED: дала безам бу\nCHANGES:\n• беза → безам"
-	r := parseSpellCheck(raw)
-	if r.NoErrors {
-		t.Fatal("corrections misread as NO_ERRORS")
-	}
-	if r.Corrected != "дала безам бу" {
-		t.Errorf("Corrected = %q, want %q", r.Corrected, "дала безам бу")
-	}
-	if r.Explanation != raw {
-		t.Errorf("Explanation = %q, want the full response", r.Explanation)
-	}
-
-	// A free-form answer (e.g. "Это не чеченский текст") keeps the text as
-	// explanation with no corrected form.
-	r = parseSpellCheck("Это не чеченский текст")
-	if r.NoErrors || r.Corrected != "" || r.Explanation == "" {
-		t.Errorf("free-form result = %+v", r)
-	}
-}

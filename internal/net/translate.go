@@ -156,8 +156,7 @@ func (n *Net) HandleText(ctx context.Context, m *tgbotapi.Message) error {
 func (n *Net) sendMiss(ctx context.Context, m *tgbotapi.Message, neighbours []string) error {
 	cleanWord := tools.NormalizeSearch(m.Text)
 	// Whether the gap is worth recording also decides what we tell the user:
-	// promising that a URL or a whole sentence went on the list would be a lie,
-	// and offering to spellcheck one is no use either.
+	// promising that a URL or a whole sentence went on the list would be a lie.
 	recordable := isRecordableMissingWord(cleanWord)
 	if recordable {
 		// Detached, so the write never delays the reply the user is waiting on.
@@ -195,25 +194,11 @@ func (n *Net) sendMiss(ctx context.Context, m *tgbotapi.Message, neighbours []st
 		return b.String()
 	}
 
-	// A miss used to be a dead end. It now says what happened to the word and
-	// offers the one thing that most often explains it — a typo, which the
-	// checker already knows how to find.
-	var markup any
-	if recordable && n.ai != nil {
-		if data, ok := checkCallbackData(m.Text); ok {
-			markup = tgbotapi.NewInlineKeyboardMarkup(
-				tgbotapi.NewInlineKeyboardRow(
-					tgbotapi.NewInlineKeyboardButtonData(CheckSpellingButtonText, data),
-				),
-			)
-		}
-	}
-
 	// Clamped like every other card: three long glosses clear 4096 characters,
 	// and Telegram answers an oversized message by sending nothing — turning a
 	// near miss into a blank screen.
 	_, _, _, err := n.sendMaybeRich(m.Chat.ID, miss(richMessages),
-		func() string { return miss(false) }, markup)
+		func() string { return miss(false) }, nil)
 	return err
 }
 

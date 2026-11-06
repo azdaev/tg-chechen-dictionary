@@ -12,11 +12,10 @@
 - 🎲 `/random` — случайное чеченское слово
 - 🧠 `/quiz` — викторина в обе стороны (узнавание и воспроизведение), очки, дневные серии 🔥, рейтинг `/top`; в группах — нативные опросы
 - 📖 `/wotd` — слово дня по подписке, каждое утро в 9:00
-- ✍️ `/check` — проверка чеченской орфографии (или сообщение с точки: `.дала безам бу`); инлайн-проверка `@chetoru_bot . текст`
 
 ## Стек
 
-Go · SQLite (WAL, автомиграции goose) · Redis (кэш переводов, спеллчека и грамматики) · OpenRouter (AI-форматирование статей и спеллчек) · GraphQL API dosham.app
+Go · SQLite (WAL, автомиграции goose) · Redis (кэш переводов и грамматики) · OpenRouter (AI-форматирование статей) · GraphQL API dosham.app
 
 ```
 main → internal/net (Telegram handlers) → internal/business → internal/repository
@@ -38,7 +37,6 @@ go build ./... && go test ./...
 | `TG_ADMIN_ID` | админ-команды (`/stats`, `/missing`, `/moderate`, `/broadcast`, `/ai`) |
 | `TG_MOD_CHAT_ID` | чат модерации словарных пар |
 | `DONATION_LINK` | ссылка в сообщении о поддержке |
-| `PAYMENT_PROVIDER_TOKEN` | Telegram Payments для подписки на безлимитный спеллчек |
 | `DOSHAM_API_URL` | переопределение API (для тестов) |
 
 Миграции применяются автоматически при старте. Деплой — Docker (`Dockerfile` в корне).

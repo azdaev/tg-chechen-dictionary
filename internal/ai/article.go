@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"strings"
 )
 
 // articleSystemPrompt asks for structure and nothing else. The retired card
@@ -45,7 +44,7 @@ func (c *Client) StructureArticle(ctx context.Context, headword, article string)
 	}
 
 	var out models.ArticleStructure
-	if err := json.Unmarshal([]byte(trimJSONFence(raw)), &out); err != nil {
+	if err := json.Unmarshal([]byte(stripCodeFence(raw)), &out); err != nil {
 		return nil, fmt.Errorf("parse model output: %w", err)
 	}
 
@@ -55,16 +54,4 @@ func (c *Client) StructureArticle(ctx context.Context, headword, article string)
 		return nil, fmt.Errorf("model returned no structure")
 	}
 	return &out, nil
-}
-
-// trimJSONFence strips a ```json fence some models wrap the answer in.
-func trimJSONFence(s string) string {
-	s = strings.TrimSpace(s)
-	if !strings.HasPrefix(s, "```") {
-		return s
-	}
-	if i := strings.IndexByte(s, '\n'); i != -1 {
-		s = s[i+1:]
-	}
-	return strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(s), "```"))
 }

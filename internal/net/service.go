@@ -18,16 +18,12 @@ type Net struct {
 	log      *logrus.Logger
 	repo     Repository
 	business Business
-	ai       AI
 	bot      *tgbotapi.BotAPI
 	cache    *cache.Cache
 
 	broadcastMu       sync.Mutex
 	awaitingBroadcast bool
 	pendingBroadcast  *broadcastPayload
-
-	inlineSpellMu     sync.Mutex
-	inlineSpellLatest map[int64]string
 
 	quizClaimsMu sync.Mutex
 	quizClaims   map[quizKey]struct{}
@@ -42,15 +38,13 @@ func (n *Net) WaitBackground() {
 	n.bg.Wait()
 }
 
-func NewNet(log *logrus.Logger, repo Repository, bot *tgbotapi.BotAPI, business Business, cache *cache.Cache, aiClient AI) *Net {
+func NewNet(log *logrus.Logger, repo Repository, bot *tgbotapi.BotAPI, business Business, cache *cache.Cache) *Net {
 	return &Net{
-		log:               log,
-		repo:              repo,
-		bot:               bot,
-		business:          business,
-		ai:                aiClient,
-		cache:             cache,
-		inlineSpellLatest: make(map[int64]string),
+		log:      log,
+		repo:     repo,
+		bot:      bot,
+		business: business,
+		cache:    cache,
 	}
 }
 
@@ -60,8 +54,7 @@ func NewNet(log *logrus.Logger, repo Repository, bot *tgbotapi.BotAPI, business 
 const maxConcurrentUpdates = 8
 
 // slowUpdateThreshold flags handlers that keep a user waiting long enough to
-// notice. AI-backed paths (/check) legitimately take a few seconds; anything
-// past this is worth a look in the logs.
+// notice; anything past this is worth a look in the logs.
 const slowUpdateThreshold = 5 * time.Second
 
 // UpdatePollSeconds is how long Telegram holds a getUpdates request open when
@@ -138,24 +131,8 @@ func (n *Net) Start(ctx context.Context) {
 			continue
 		}
 
-		// Pre-checkout query (Telegram Payments) — must be answered fast and in
-		// order, kept in-loop.
-		if update.PreCheckoutQuery != nil {
-			if err := n.HandlePreCheckout(update.PreCheckoutQuery); err != nil {
-				n.log.WithError(err).Error("service.HandlePreCheckout")
-			}
-			continue
-		}
-
 		// Messages
 		if update.Message != nil {
-			// Successful payment — ordering matters, kept in-loop.
-			if update.Message.SuccessfulPayment != nil {
-				if err := n.HandleSuccessfulPayment(handlerCtx, update.Message); err != nil {
-					n.log.WithError(err).Error("service.HandleSuccessfulPayment")
-				}
-				continue
-			}
 			m := update.Message
 			dispatch("message", func() { n.routeMessage(handlerCtx, m) })
 			continue
@@ -182,8 +159,6 @@ func (n *Net) registerBotCommands() {
 		tgbotapi.BotCommand{Command: "top", Description: "🏆 Рейтинг знатоков"},
 		tgbotapi.BotCommand{Command: "me", Description: "👤 Мой прогресс"},
 		tgbotapi.BotCommand{Command: "wotd", Description: "📖 Слово дня"},
-		tgbotapi.BotCommand{Command: "check", Description: "✍️ Проверить орфографию"},
-		tgbotapi.BotCommand{Command: "subscribe", Description: "⭐ Подписка на безлимит"},
 	)
 	if _, err := n.bot.Request(cmds); err != nil {
 		n.log.WithError(err).Warn("failed to register bot commands")
@@ -205,10 +180,6 @@ func (n *Net) routeCallback(ctx context.Context, cq *tgbotapi.CallbackQuery) {
 		err = n.HandleQuizCallback(ctx, cq)
 	case strings.HasPrefix(data, "wotd_"):
 		err = n.HandleWordOfDayCallback(ctx, cq)
-	case strings.HasPrefix(data, "check_"):
-		err = n.HandleSpellcheckRequest(ctx, cq)
-	case strings.HasPrefix(data, "spell_"):
-		err = n.HandleSpellcheckFeedback(ctx, cq)
 	case strings.HasPrefix(data, "mod_"):
 		err = n.HandleModerationCallback(ctx, cq)
 	}
@@ -240,10 +211,6 @@ func (n *Net) routeMessage(ctx context.Context, m *tgbotapi.Message) {
 		err = n.HandleWordOfDay(ctx, m)
 	case "moderate":
 		err = n.HandleModerate(ctx, m)
-	case "check":
-		err = n.HandleCheck(ctx, m)
-	case "subscribe":
-		err = n.HandleSubscribe(ctx, m)
 	case "ai":
 		n.HandleAIToggle(m)
 		return
@@ -252,18 +219,6 @@ func (n *Net) routeMessage(ctx context.Context, m *tgbotapi.Message) {
 	case "broadcast_cancel":
 		err = n.HandleBroadcastCancel(m)
 	default:
-		// Spellcheck: message starts with "."
-		if strings.HasPrefix(m.Text, ".") && len(m.Text) > 1 {
-			m.Text = strings.TrimSpace(strings.TrimPrefix(m.Text, "."))
-			if m.Text != "" {
-				err = n.HandleCheck(ctx, m)
-				if err != nil {
-					n.log.WithError(err).Error("service.HandleCheck (dot prefix)")
-				}
-				return
-			}
-		}
-
 		if n.isAwaitingBroadcastContent(m) {
 			err = n.HandleBroadcastContent(m)
 		} else {
@@ -281,15 +236,7 @@ func (n *Net) routeMessage(ctx context.Context, m *tgbotapi.Message) {
 }
 
 func (n *Net) routeInline(ctx context.Context, iq *tgbotapi.InlineQuery) {
-	var err error
-
-	if strings.HasPrefix(iq.Query, ". ") && len(iq.Query) > 2 {
-		err = n.HandleInlineSpellcheck(ctx, iq)
-	} else {
-		err = n.HandleInline(ctx, iq)
-	}
-
-	if err != nil {
+	if err := n.HandleInline(ctx, iq); err != nil {
 		n.log.
 			WithField("user_id", iq.From.ID).
 			WithField("query", iq.Query).

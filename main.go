@@ -117,11 +117,7 @@ func main() {
 		translator.SetFoldedReady()
 	}()
 
-	var spellChecker net.AI
-	if aiClient != nil {
-		spellChecker = aiClient
-	}
-	botService := net.NewNet(log, repo, bot, translator, redisCache, spellChecker)
+	botService := net.NewNet(log, repo, bot, translator, redisCache)
 
 	// Wire callback: after AI formatting → send to moderation
 	translator.SetOnPairReady(func(pairID int64, cleanWord string) {

@@ -2,16 +2,10 @@
 package net
 
 import (
-	"chetoru/internal/ai"
 	"chetoru/internal/models"
 	"chetoru/internal/repository"
 	"context"
-	"time"
 )
-
-type AI interface {
-	SpellCheck(ctx context.Context, text string) (*ai.SpellCheckResult, error)
-}
 
 type Business interface {
 	Translate(word string) ([]models.TranslationPairs, error)
@@ -35,8 +29,6 @@ type Repository interface {
 	StatsStore
 	DictionaryStore
 	MissingWordStore
-	SpellcheckStore
-	SubscriptionStore
 	QuizStore
 	WordOfDayStore
 }
@@ -81,20 +73,6 @@ type MissingWordStore interface {
 	ResolveMissingWord(ctx context.Context, cleanWord string) error
 	TopMissingWords(ctx context.Context, limit int) ([]models.MissingWord, error)
 	CountMissingWords(ctx context.Context) (int, error)
-}
-
-// SpellcheckStore persists spellcheck feedback and per-user monthly usage (for
-// the free-tier quota).
-type SpellcheckStore interface {
-	StoreSpellcheckFeedback(ctx context.Context, userID int64, originalText, correctedText, feedback string) error
-	GetSpellcheckUsage(ctx context.Context, userID int64, month, year int) (int, error)
-	IncrementSpellcheckUsage(ctx context.Context, userID int64, month, year int) error
-}
-
-// SubscriptionStore tracks paid subscriptions purchased via Telegram Payments.
-type SubscriptionStore interface {
-	HasActiveSubscription(ctx context.Context, userID int64) (bool, error)
-	CreateSubscription(ctx context.Context, userID int64, expiresAt time.Time, telegramPaymentID string) error
 }
 
 // QuizStore records /quiz answers and the leaderboard behind /top.
