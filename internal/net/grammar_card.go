@@ -6,6 +6,7 @@ import (
 	"chetoru/pkg/tools"
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
@@ -65,11 +66,8 @@ func (n *Net) sendGrammarCard(ctx context.Context, chatID int64, messageID int, 
 	}
 }
 
-// formatGrammar renders a WordGrammar as a small block appended to the card.
-// Only facts safe to show without the dosham integer-code legend are included:
-// the part of speech (when confidently known) and the inflected forms. The
-// cases themselves stay unnamed — the legend that would name them is not
-// something we have.
+// formatGrammar renders a WordGrammar as a small block appended to the card:
+// the part of speech and a noun's class, the inflected forms, set expressions.
 func formatGrammar(g *models.WordGrammar, card string, rich bool) string {
 	if rich {
 		return formatGrammarRich(g, card)
@@ -91,8 +89,8 @@ func formatGrammarRich(g *models.WordGrammar, card string) string {
 	if header := grammarHeader(g, card); header != "" {
 		body.WriteString("<p>" + header + "</p>")
 	}
-	if forms := grammarForms(g); forms != "" {
-		body.WriteString("<p>" + forms + "</p>")
+	for _, line := range grammarFormLines(g) {
+		body.WriteString("<p>" + line + "</p>")
 		said = true
 	}
 	if rows := grammarIdiomRows(g, card); len(rows) > 0 {
@@ -115,9 +113,7 @@ func formatGrammarBlock(g *models.WordGrammar, card string) string {
 		lines = append(lines, header)
 	}
 
-	if forms := grammarForms(g); forms != "" {
-		lines = append(lines, forms)
-	}
+	lines = append(lines, grammarFormLines(g)...)
 
 	var idioms []string
 	for _, row := range grammarIdiomRows(g, card) {
@@ -147,13 +143,21 @@ func grammarHeader(g *models.WordGrammar, card string) string {
 		}
 		// Italic, or a lone «существительное» under a card of translations
 		// reads as one more of them.
-		return "<i>" + g.POS + "</i>"
+		return "<i>" + posLabel(g) + "</i>"
 	}
 	header := "🔤 <b>" + tools.Clean(g.Headword) + "</b>"
 	if g.POS != "" {
-		header += " · " + g.POS
+		header += " · " + posLabel(g)
 	}
 	return header
+}
+
+// posLabel is the part of speech, with a noun's class after it.
+func posLabel(g *models.WordGrammar) string {
+	if g.Class == "" {
+		return g.POS
+	}
+	return g.POS + ", класс " + g.Class
 }
 
 // grammarHeaderNeeded reports whether the block has to name its own word. The
@@ -166,28 +170,47 @@ func grammarHeaderNeeded(g *models.WordGrammar, card string) bool {
 	return !strings.Contains(headwordLine(card), tools.Clean(g.Headword))
 }
 
-// grammarForms is the inflected-forms line, capped. The cases go unnamed:
-// dosham reports them as integer codes and the legend is not available, so a
-// named case would be a guess printed as a fact.
-func grammarForms(g *models.WordGrammar) string {
-	if len(g.Forms) == 0 {
-		return ""
-	}
+// grammarFormLines lists the inflected forms, capped: one line per case when
+// dosham names the cases, a single «Формы:» line when it does not (verbs).
+func grammarFormLines(g *models.WordGrammar) []string {
 	forms := g.Forms
 	more := 0
 	if len(forms) > maxGrammarForms {
 		more = len(forms) - maxGrammarForms
 		forms = forms[:maxGrammarForms]
 	}
-	cleaned := make([]string, 0, len(forms))
-	for _, f := range forms {
-		cleaned = append(cleaned, tools.Clean(f))
+	caseOf := func(i int) string {
+		if i < len(g.Cases) {
+			return g.Cases[i]
+		}
+		return ""
 	}
-	line := "Формы: " + strings.Join(cleaned, ", ")
+
+	var lines []string
+	if slices.ContainsFunc(g.Cases, func(c string) bool { return c != "" }) {
+		lines = append(lines, "Формы:")
+		for i := 0; i < len(forms); {
+			label := caseOf(i)
+			var group []string
+			for ; i < len(forms) && caseOf(i) == label; i++ {
+				group = append(group, tools.Clean(forms[i]))
+			}
+			if label == "" {
+				label = "другие"
+			}
+			lines = append(lines, label+": "+strings.Join(group, ", "))
+		}
+	} else if len(forms) > 0 {
+		cleaned := make([]string, 0, len(forms))
+		for _, f := range forms {
+			cleaned = append(cleaned, tools.Clean(f))
+		}
+		lines = append(lines, "Формы: "+strings.Join(cleaned, ", "))
+	}
 	if more > 0 {
-		line += fmt.Sprintf(" … (+%d)", more)
+		lines[len(lines)-1] += fmt.Sprintf(" … (+%d)", more)
 	}
-	return line
+	return lines
 }
 
 // grammarIdiomRows lists the set expressions the card does not already show:

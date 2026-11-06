@@ -180,3 +180,14 @@ func TestCard_OneWordSpelledTwiceIsOneBlock(t *testing.T) {
 		t.Fatalf("one meaning numbered twice:\n%s", body)
 	}
 }
+
+// dosham puts the stress mark on every Russian–Chechen headword. Compared with
+// it, «писание» matched no article, and the bot filed the word as missing.
+func TestCard_StressedArticleHeadwordAnswers(t *testing.T) {
+	r := Render("писание", []models.TranslationPairs{
+		{Original: "Писа́ние", Translate: "с яздар ; свяще́нное ~ - жайна", OriginalLang: "RUS", TranslateLang: "CHE", Rate: 100, Packed: true, EntryType: "WORD"},
+	})
+	if !r.Glossed || !strings.Contains(r.Body, "яздар") {
+		t.Fatalf("the stressed article did not answer:\n%s", r.Body)
+	}
+}

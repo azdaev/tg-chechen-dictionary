@@ -46,12 +46,24 @@ func StripTags(text string) string {
 	return tagRe.ReplaceAllString(text, "")
 }
 
+// NormalizeSearch drops the stress mark along with case and ё: nobody types
+// «писа́ние», and dosham writes it on every Russian–Chechen headword, so a key
+// that kept it matched none of those articles.
 func NormalizeSearch(text string) string {
 	clean := Clean(text)
 	clean = strings.TrimSpace(clean)
 	clean = strings.ToLower(clean)
 	clean = strings.ReplaceAll(clean, "ё", "е")
-	return foldPalochka(clean)
+	return foldPalochka(StripStress(clean))
+}
+
+// StripStress drops combining acute accents («совеща́ние»): dictionary stress
+// metadata that renders unevenly in chat clients.
+func StripStress(s string) string {
+	if !strings.ContainsRune(s, '\u0301') {
+		return s
+	}
+	return strings.ReplaceAll(s, "\u0301", "")
 }
 
 // foldPalochka replaces the digit-1 and Latin i/l stand-ins for the Chechen

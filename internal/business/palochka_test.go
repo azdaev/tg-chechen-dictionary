@@ -3,6 +3,7 @@ package business
 import (
 	"chetoru/internal/cache"
 	"chetoru/internal/models"
+	"chetoru/pkg/tools"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -276,7 +277,7 @@ func TestTranslate_FoldedLocalHitSkipsTheAPI(t *testing.T) {
 }
 
 // The cascade must stop at the respelling that answers. It judges that by the
-// folded key: normalizeForRank keeps the palochka, so «чӏегӏардиг» never reads
+// folded key: NormalizeSearch keeps the palochka, so «чӏегӏардиг» never reads
 // as an exact match for «чегӏардиг» and the cascade used to run to the end,
 // merging every candidate's substring hits into the card.
 func TestCascade_StopsAtTheMatchAndDropsTheRest(t *testing.T) {
@@ -310,7 +311,7 @@ func TestCascade_StopsAtTheMatchAndDropsTheRest(t *testing.T) {
 // hit is not an exact hit by the strict key, so without its own bucket it tied
 // at the bottom with unrelated substring matches.
 func TestRankPair_FoldedHitOutranksUnrelated(t *testing.T) {
-	key := normalizeForRank("чегардиг")
+	key := tools.NormalizeSearch("чегардиг")
 	folded := models.TranslationPairs{Original: "Чӏегӏардиг", Translate: "ласточка"}
 	unrelated := models.TranslationPairs{Original: "Чегарда", Translate: "что-то"}
 	if rankPair(folded, key) >= rankPair(unrelated, key) {

@@ -37,7 +37,7 @@ func grammarSummaryLine(g *models.WordGrammar) string {
 	}
 	var parts []string
 	if g.POS != "" {
-		parts = append(parts, g.POS)
+		parts = append(parts, posLabel(g))
 	}
 	if len(g.Forms) > 0 {
 		forms := g.Forms

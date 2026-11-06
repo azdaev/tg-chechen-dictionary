@@ -227,3 +227,17 @@ func TestGrammarBlock_ReadsTheHeadwordLineNotTheFirstLine(t *testing.T) {
 		t.Errorf("the paradigm is unlabelled under a Russian headword:\n%s", block)
 	}
 }
+
+// Named cases print one per line, a case with two forms on one line.
+func TestFormatGrammarBlock_ClassAndCases(t *testing.T) {
+	g := &models.WordGrammar{
+		Headword: "хи", POS: "существительное", Class: "ду",
+		Forms: []string{"хин", "хино̃", "хе̃", "хиш"},
+		Cases: []string{"родительный", "эргативный", "эргативный", "множественное"},
+	}
+	got := formatGrammarBlock(g, "<b>хи</b> — <i>чеченский</i>")
+	want := "<i>существительное, класс ду</i>\nФормы:\nродительный: хин\nэргативный: хино̃, хе̃\nмножественное: хиш"
+	if got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}

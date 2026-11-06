@@ -40,7 +40,7 @@ const (
 // to the shape of models.TranslationPairs — a stored answer otherwise outlives
 // the release meant to replace it, and callers see the old output for a full
 // TTL. Bump it on every forward roll, including a re-deploy after a revert.
-const translationKeyVersion = 8
+const translationKeyVersion = 9
 
 // translationKey builds the Redis key for a lookup, shared by the read and
 // write paths so they cannot drift apart on the next version bump.
@@ -52,9 +52,9 @@ func translationKey(cleanWord string) string {
 // both through one version would wipe every grammar entry on a translation
 // format bump, and each grammar miss costs a live dosham query — a self-
 // inflicted upstream burst at deploy time. Grammar gets its own suffix if and
-// when its payload changes.
+// when its payload changes: grammar2 added the noun class and the case names.
 func grammarKey(cleanWord string) string {
-	return "grammar_" + cleanWord
+	return "grammar2_" + cleanWord
 }
 
 type Cache struct {
