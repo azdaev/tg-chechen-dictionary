@@ -150,8 +150,8 @@ func (n *Net) Start(ctx context.Context) {
 }
 
 // registerBotCommands publishes the user-facing command menu so Telegram shows
-// the "/" autocomplete list. Admin-only commands (stats, moderate, broadcast,
-// ai) are intentionally omitted. A failure here is non-fatal.
+// the "/" autocomplete list. Admin-only commands (stats, missing, broadcast)
+// are intentionally omitted. A failure here is non-fatal.
 func (n *Net) registerBotCommands() {
 	cmds := tgbotapi.NewSetMyCommands(
 		tgbotapi.BotCommand{Command: "random", Description: "🎲 Случайное чеченское слово"},
@@ -180,8 +180,6 @@ func (n *Net) routeCallback(ctx context.Context, cq *tgbotapi.CallbackQuery) {
 		err = n.HandleQuizCallback(ctx, cq)
 	case strings.HasPrefix(data, "wotd_"):
 		err = n.HandleWordOfDayCallback(ctx, cq)
-	case strings.HasPrefix(data, "mod_"):
-		err = n.HandleModerationCallback(ctx, cq)
 	}
 
 	if err != nil {
@@ -209,11 +207,6 @@ func (n *Net) routeMessage(ctx context.Context, m *tgbotapi.Message) {
 		err = n.HandleMe(ctx, m)
 	case "wotd":
 		err = n.HandleWordOfDay(ctx, m)
-	case "moderate":
-		err = n.HandleModerate(ctx, m)
-	case "ai":
-		n.HandleAIToggle(m)
-		return
 	case "broadcast":
 		err = n.HandleBroadcast(ctx, m)
 	case "broadcast_cancel":
@@ -247,26 +240,6 @@ func (n *Net) routeInline(ctx context.Context, iq *tgbotapi.InlineQuery) {
 
 func (n *Net) isAdmin(userID int64) bool {
 	return strconv.Itoa(int(userID)) == os.Getenv("TG_ADMIN_ID")
-}
-
-func (n *Net) HandleAIToggle(msg *tgbotapi.Message) {
-	if !n.isAdmin(msg.From.ID) {
-		return
-	}
-	switch strings.TrimSpace(msg.CommandArguments()) {
-	case "on":
-		n.business.SetAIFormatting(true)
-		n.send(tgbotapi.NewMessage(msg.Chat.ID, "AI formatting: ON"))
-	case "off":
-		n.business.SetAIFormatting(false)
-		n.send(tgbotapi.NewMessage(msg.Chat.ID, "AI formatting: OFF"))
-	default:
-		status := "OFF"
-		if n.business.AIFormattingEnabled() {
-			status = "ON"
-		}
-		n.send(tgbotapi.NewMessage(msg.Chat.ID, "AI formatting: "+status+"\n/ai on | /ai off"))
-	}
 }
 
 func (n *Net) isBlockedError(err error) bool {

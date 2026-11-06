@@ -178,55 +178,6 @@ func (r *Repository) FindTranslationPairsByPrefix(ctx context.Context, prefix st
 	return results, rows.Err()
 }
 
-// FindStrictlyApprovedPairs returns only pairs that have been explicitly moderated (formatted_chosen is not null and not 'deleted')
-func (r *Repository) FindStrictlyApprovedPairs(ctx context.Context, cleanWord string, limit int) ([]models.TranslationPairs, error) {
-	if limit <= 0 {
-		limit = 200
-	}
-
-	rows, err := r.db.QueryContext(
-		ctx,
-		`select
-			original_raw,
-			original_clean,
-			translation_raw,
-			translation_clean
-		from dictionary_pairs
-		where formatted_chosen is not null and formatted_chosen != 'deleted' and (original_clean = ? or translation_clean = ?)
-		limit ?;`,
-		cleanWord, cleanWord, limit,
-	)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	results := make([]models.TranslationPairs, 0, limit)
-	for rows.Next() {
-		var originalRaw, originalClean, translationRaw, translationClean string
-		if err := rows.Scan(&originalRaw, &originalClean, &translationRaw, &translationClean); err != nil {
-			return nil, err
-		}
-
-		if originalClean == cleanWord {
-			results = append(results, models.TranslationPairs{
-				Original:  originalRaw,
-				Translate: translationRaw,
-			})
-			continue
-		}
-
-		if translationClean == cleanWord {
-			results = append(results, models.TranslationPairs{
-				Original:  translationRaw,
-				Translate: originalRaw,
-			})
-		}
-	}
-
-	return results, rows.Err()
-}
-
 // CountDictionaryPairs returns the total number of stored pairs and how many of
 // them have been confirmed through moderation. Tracks dictionary growth — the
 // core metric for the mission of expanding Chechen coverage.
@@ -239,17 +190,4 @@ func (r *Repository) CountDictionaryPairs(ctx context.Context) (total int, appro
 		 FROM dictionary_pairs;`,
 	).Scan(&total, &approved)
 	return total, approved, err
-}
-
-// GetPairCleanWords returns clean words (original + translation) for a pair by ID.
-func (r *Repository) GetPairCleanWords(ctx context.Context, pairID int64) ([]string, error) {
-	var origClean, transClean string
-	err := r.db.QueryRowContext(ctx,
-		`SELECT original_clean, translation_clean FROM dictionary_pairs WHERE id = ?;`,
-		pairID,
-	).Scan(&origClean, &transClean)
-	if err != nil {
-		return nil, err
-	}
-	return []string{origClean, transClean}, nil
 }

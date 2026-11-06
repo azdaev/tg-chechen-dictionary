@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 )
 
 // articleSystemPrompt asks for structure and nothing else. The retired card
@@ -54,4 +55,20 @@ func (c *Client) StructureArticle(ctx context.Context, headword, article string)
 		return nil, fmt.Errorf("model returned no structure")
 	}
 	return &out, nil
+}
+
+// stripCodeFence unwraps a response the model wrapped in a markdown code
+// fence, including language-tagged fences ("```text").
+func stripCodeFence(s string) string {
+	s = strings.TrimSpace(s)
+	if !strings.HasPrefix(s, "```") {
+		return s
+	}
+	if i := strings.IndexByte(s, '\n'); i != -1 {
+		s = s[i+1:]
+	} else {
+		s = strings.TrimPrefix(s, "```")
+	}
+	s = strings.TrimSuffix(strings.TrimSpace(s), "```")
+	return strings.TrimSpace(s)
 }

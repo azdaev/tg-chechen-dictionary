@@ -1,5 +1,4 @@
-// A stored pair's life after dosham answered with it: insertion, the review
-// queue it lands in, and the moderator's verdict.
+// Storing a pair dosham answered with.
 package repository
 
 import (
@@ -20,9 +19,6 @@ type TranslationPair struct {
 	Source              string
 	SourceEntryID       sql.NullString
 	SourceTranslationID sql.NullString
-	FormattedAI         sql.NullString
-	FormattedChosen     sql.NullString
-	FormatVersion       sql.NullString
 	// Rate is dosham's source-dictionary marker, and EntryType/Subtype/
 	// EntryIndex/EntryNotes the entry structure the card renders from. They are
 	// stored rather than kept only in the cache because the local table is the
@@ -140,151 +136,4 @@ func (r *Repository) InsertTranslationPair(ctx context.Context, pair Translation
 		return 0, false, err
 	}
 	return existingID, false, nil
-}
-
-func (r *Repository) ListPendingTranslationPairs(ctx context.Context, limit int) ([]TranslationPair, error) {
-	if limit <= 0 {
-		limit = 20
-	}
-
-	rows, err := r.db.QueryContext(
-		ctx,
-		`select
-			id,
-			original_raw,
-			original_clean,
-			original_lang,
-			translation_raw,
-			translation_clean,
-			translation_lang,
-			source,
-			source_entry_id,
-			source_translation_id,
-			formatted_ai,
-			formatted_chosen,
-			format_version
-		from dictionary_pairs
-		where formatted_chosen is null and formatted_ai is not null
-		limit ?;`,
-		limit,
-	)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	result := make([]TranslationPair, 0, limit)
-	for rows.Next() {
-		var pair TranslationPair
-		if err := rows.Scan(
-			&pair.ID,
-			&pair.OriginalRaw,
-			&pair.OriginalClean,
-			&pair.OriginalLang,
-			&pair.TranslationRaw,
-			&pair.TranslationClean,
-			&pair.TranslationLang,
-			&pair.Source,
-			&pair.SourceEntryID,
-			&pair.SourceTranslationID,
-			&pair.FormattedAI,
-			&pair.FormattedChosen,
-			&pair.FormatVersion,
-		); err != nil {
-			return nil, err
-		}
-		result = append(result, pair)
-	}
-
-	return result, rows.Err()
-}
-
-func (r *Repository) ListPendingTranslationPairsByWord(ctx context.Context, cleanWord string, limit int) ([]TranslationPair, error) {
-	if limit <= 0 {
-		limit = 20
-	}
-
-	rows, err := r.db.QueryContext(
-		ctx,
-		`select
-			id,
-			original_raw,
-			original_clean,
-			original_lang,
-			translation_raw,
-			translation_clean,
-			translation_lang,
-			source,
-			source_entry_id,
-			source_translation_id,
-			formatted_ai,
-			formatted_chosen,
-			format_version
-		from dictionary_pairs
-		where formatted_chosen is null
-		  and formatted_ai is not null
-		  and (original_clean = ? or translation_clean = ?)
-		limit ?;`,
-		cleanWord, cleanWord, limit,
-	)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	result := make([]TranslationPair, 0, limit)
-	for rows.Next() {
-		var pair TranslationPair
-		if err := rows.Scan(
-			&pair.ID,
-			&pair.OriginalRaw,
-			&pair.OriginalClean,
-			&pair.OriginalLang,
-			&pair.TranslationRaw,
-			&pair.TranslationClean,
-			&pair.TranslationLang,
-			&pair.Source,
-			&pair.SourceEntryID,
-			&pair.SourceTranslationID,
-			&pair.FormattedAI,
-			&pair.FormattedChosen,
-			&pair.FormatVersion,
-		); err != nil {
-			return nil, err
-		}
-		result = append(result, pair)
-	}
-
-	return result, rows.Err()
-}
-
-func (r *Repository) SetTranslationPairFormattingChoice(ctx context.Context, id int64, choice string) error {
-	_, err := r.db.ExecContext(
-		ctx,
-		`update dictionary_pairs
-		set formatted_chosen = ?
-		where id = ?;`,
-		choice,
-		id,
-	)
-	return err
-}
-
-func (r *Repository) UpdateTranslationPairFormatting(ctx context.Context, id int64, formattedAI, formattedChosen string) error {
-	var chosenVal any
-	if formattedChosen != "" {
-		chosenVal = formattedChosen
-	}
-	_, err := r.db.ExecContext(
-		ctx,
-		`update dictionary_pairs
-		set formatted_ai = ?,
-		    formatted_chosen = ?,
-		    format_version = 'ai_v1'
-		where id = ?;`,
-		formattedAI,
-		chosenVal,
-		id,
-	)
-	return err
 }

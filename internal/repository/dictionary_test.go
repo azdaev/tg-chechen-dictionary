@@ -55,10 +55,8 @@ func TestFindTranslationPairs_IncludesUnmoderated(t *testing.T) {
 		t.Fatalf("FindTranslationPairs(дерево) = %+v (err %v), want swapped pair", found, err)
 	}
 
-	// Deleted pairs stay hidden.
-	if err := r.SetTranslationPairFormattingChoice(ctx, id, "deleted"); err != nil {
-		t.Fatalf("mark deleted: %v", err)
-	}
+	// Deleted pairs (a verdict from the retired moderation) stay hidden.
+	setChosen(t, r, id, "deleted")
 	if found, err := r.FindTranslationPairs(ctx, "дитт", 10); err != nil || len(found) != 0 {
 		t.Fatalf("FindTranslationPairs after delete = %+v (err %v), want none", found, err)
 	}
@@ -97,9 +95,7 @@ func TestFindTranslationPairs_ApprovedFirstThenShortest(t *testing.T) {
 	}
 
 	// A moderator-approved rendering outranks length.
-	if err := r.SetTranslationPairFormattingChoice(ctx, longestID, "ai"); err != nil {
-		t.Fatalf("approve: %v", err)
-	}
+	setChosen(t, r, longestID, "ai")
 	found, err = r.FindTranslationPairs(ctx, "дитт", 10)
 	if err != nil || found[0].Translate != "Дерево, растущее у дома" {
 		t.Fatalf("first = %+v (err %v), want the approved pair", found[0], err)
@@ -324,5 +320,14 @@ func TestFindTranslationPairs_PackedSurvivesTheSwap(t *testing.T) {
 		if found[0].Packed != c.want {
 			t.Errorf("FindTranslationPairs(%q).Packed = %v, want %v", c.query, found[0].Packed, c.want)
 		}
+	}
+}
+
+// setChosen writes a moderation verdict the way the retired moderation chat
+// did; stored verdicts are still honored on read.
+func setChosen(t *testing.T, r *Repository, id int64, choice string) {
+	t.Helper()
+	if _, err := r.db.Exec(`update dictionary_pairs set formatted_chosen = ? where id = ?`, choice, id); err != nil {
+		t.Fatalf("set formatted_chosen: %v", err)
 	}
 }

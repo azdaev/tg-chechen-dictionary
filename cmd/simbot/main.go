@@ -6,7 +6,7 @@
 // screen. So what the terminal shows is what a user would see, formatting and
 // keyboard included, without a token, a chat, or a deploy.
 //
-//	go run ./cmd/simbot          # ./sim.db, no Redis, no AI
+//	go run ./cmd/simbot          # ./sim.db, no Redis
 //	go run ./cmd/simbot -db :memory:
 package main
 
@@ -97,7 +97,7 @@ func main() {
 		fatal(err)
 	}
 
-	translator := business.NewBusiness(redisCache, repo, nil, log)
+	translator := business.NewBusiness(redisCache, repo, log)
 	translator.SetFoldedReady()
 	service := net.NewNet(log, repo, bot, translator, redisCache)
 

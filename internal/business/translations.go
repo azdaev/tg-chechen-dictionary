@@ -4,7 +4,6 @@
 package business
 
 import (
-	"chetoru/internal/ai"
 	"chetoru/internal/cache"
 	"chetoru/internal/models"
 	"chetoru/internal/repository"
@@ -19,20 +18,11 @@ import (
 	"golang.org/x/sync/singleflight"
 )
 
-// OnPairReady is called after a new pair is saved and AI formatting completes (or is skipped).
-// pairID is the database ID, cleanWord is the normalized search term.
-type OnPairReady func(pairID int64, cleanWord string)
-
 type Business struct {
 	cache    *cache.Cache
 	dictRepo DictionaryRepository
-	aiClient *ai.Client // optional, can be nil
-	// atomic: /ai flips it from the admin handler's goroutine while detached
-	// storeTranslationPair goroutines read it.
-	aiFormattingEnabled atomic.Bool
-	log                 *logrus.Logger
-	onPairReady         OnPairReady
-	pool                wordPool
+	log      *logrus.Logger
+	pool     wordPool
 
 	cacheHits   atomic.Int64
 	cacheMisses atomic.Int64
@@ -47,8 +37,7 @@ type Business struct {
 	// finishing the backfill does not go back and invalidate it.
 	foldedReady atomic.Bool
 
-	// bg tracks detached persistence work (pair storage, AI formatting, cache
-	// writes) so shutdown can wait for it instead of cutting writes mid-flight.
+	// bg tracks detached persistence work (pair storage, cache writes) so shutdown can wait for it instead of cutting writes mid-flight.
 	bg sync.WaitGroup
 }
 
@@ -74,32 +63,10 @@ type DictionaryRepository interface {
 	SaveWordForms(ctx context.Context, headword string, forms []string) error
 	FindTranslationPairsByPrefix(ctx context.Context, prefix string, limit int) ([]models.TranslationPairs, error)
 	InsertTranslationPair(ctx context.Context, pair repository.TranslationPair) (int64, bool, error)
-	UpdateTranslationPairFormatting(ctx context.Context, id int64, formattedAI, formattedChosen string) error
-	SetTranslationPairFormattingChoice(ctx context.Context, id int64, choice string) error
 }
 
-func NewBusiness(cache *cache.Cache, dictRepo DictionaryRepository, aiClient *ai.Client, log *logrus.Logger) *Business {
-	b := &Business{
-		cache:    cache,
-		dictRepo: dictRepo,
-		aiClient: aiClient,
-		log:      log,
-	}
-	b.aiFormattingEnabled.Store(aiClient != nil)
-	return b
-}
-
-// SetOnPairReady sets a callback that fires after a pair is saved and AI-formatted.
-func (b *Business) SetOnPairReady(fn OnPairReady) {
-	b.onPairReady = fn
-}
-
-func (b *Business) SetAIFormatting(enabled bool) {
-	b.aiFormattingEnabled.Store(enabled)
-}
-
-func (b *Business) AIFormattingEnabled() bool {
-	return b.aiFormattingEnabled.Load()
+func NewBusiness(cache *cache.Cache, dictRepo DictionaryRepository, log *logrus.Logger) *Business {
+	return &Business{cache: cache, dictRepo: dictRepo, log: log}
 }
 
 // Translate returns the ranked pairs for a word, discarding which headword
@@ -172,19 +139,15 @@ func (b *Business) translateResolved(word string) ([]models.TranslationPairs, st
 	folded, err := b.loadFoldedTranslations(ctx, word)
 	degraded = degraded || err != nil
 	if len(folded) > 0 {
-		// Deliberately not cached. The cache key is the user's spelling, and a
-		// word has many palochka-less spellings, so moderation's
-		// invalidateCacheForPair — which only knows original_clean and
-		// translation_clean — could never reach them: a pair a moderator deleted
-		// would keep being served under «гала» for the full 30-day TTL. The
-		// lookup it replaces is one indexed read, so caching buys almost nothing.
+		// Deliberately not cached: the cache key is the user's spelling, a word
+		// has many palochka-less spellings, and the lookup it would replace is
+		// one indexed read, so caching buys almost nothing.
 		return rankAndDedup(folded, word), "", nil
 	}
 
 	// «лоьман» is «лом» declined, and the grammar card has been printing that
 	// paradigm all along without anything indexing it. Not cached, for the same
-	// reason the folded layer is not: the key would be a spelling moderation
-	// cannot reach.
+	// reason the folded layer is not.
 	forms, headword, err := b.loadFormTranslations(ctx, word)
 	degraded = degraded || err != nil
 	if len(forms) > 0 {
@@ -230,8 +193,8 @@ func (b *Business) translateResolved(word string) ([]models.TranslationPairs, st
 	// the card is what decides. Guessing earlier answers «столб», a word of its
 	// own, with «стол» — and that stays true: «столб» renders, so it never
 	// reaches here.
-	// Not cached: the key is the form the user typed, which moderation cannot
-	// reach, and the layer is one indexed read anyway.
+	// Not cached: the key is the form the user typed, and the layer is one
+	// indexed read anyway.
 	stemmed, headword, err := b.loadStemTranslations(ctx, word)
 	degraded = degraded || err != nil
 	if len(stemmed) > 0 {

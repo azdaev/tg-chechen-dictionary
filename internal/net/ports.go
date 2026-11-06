@@ -3,7 +3,6 @@ package net
 
 import (
 	"chetoru/internal/models"
-	"chetoru/internal/repository"
 	"context"
 )
 
@@ -11,8 +10,6 @@ type Business interface {
 	Translate(word string) ([]models.TranslationPairs, error)
 	TranslateResolved(word string) ([]models.TranslationPairs, string, error)
 	SuggestTranslations(word string) []models.TranslationPairs
-	SetAIFormatting(enabled bool)
-	AIFormattingEnabled() bool
 	RandomWordFromAPI(ctx context.Context) (*models.RandomWord, error)
 	GenerateQuiz(ctx context.Context) (*models.QuizQuestion, error)
 	GrammarFor(ctx context.Context, word string) (*models.WordGrammar, error)
@@ -53,15 +50,9 @@ type StatsStore interface {
 	MonthlyActiveUsers(ctx context.Context, month int, year int) (int, error)
 }
 
-// DictionaryStore holds the user-contributed translation pairs and their
-// moderation/formatting state.
+// DictionaryStore reads the stored translation pairs.
 type DictionaryStore interface {
-	ListPendingTranslationPairs(ctx context.Context, limit int) ([]repository.TranslationPair, error)
-	ListPendingTranslationPairsByWord(ctx context.Context, cleanWord string, limit int) ([]repository.TranslationPair, error)
-	SetTranslationPairFormattingChoice(ctx context.Context, id int64, choice string) error
 	FindTranslationPairs(ctx context.Context, cleanWord string, limit int) ([]models.TranslationPairs, error)
-	FindStrictlyApprovedPairs(ctx context.Context, cleanWord string, limit int) ([]models.TranslationPairs, error)
-	GetPairCleanWords(ctx context.Context, pairID int64) ([]string, error)
 	RandomApprovedPair(ctx context.Context) (*models.RandomWord, error)
 	CountDictionaryPairs(ctx context.Context) (total int, approved int, err error)
 }

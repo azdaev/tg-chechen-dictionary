@@ -42,10 +42,8 @@ const (
 // TTL. Bump it on every forward roll, including a re-deploy after a revert.
 const translationKeyVersion = 8
 
-// translationKey builds the Redis key for a lookup. Key construction lives here
-// rather than in the caller so the read, write, and moderator-invalidation
-// paths cannot drift apart on the next version bump — that drift is exactly
-// what made invalidateCacheForPair delete keys nobody was writing.
+// translationKey builds the Redis key for a lookup, shared by the read and
+// write paths so they cannot drift apart on the next version bump.
 func translationKey(cleanWord string) string {
 	return fmt.Sprintf("tr%d_%s", translationKeyVersion, cleanWord)
 }
@@ -211,11 +209,4 @@ func (c *Cache) SetGrammar(ctx context.Context, key string, g *models.WordGramma
 		return err
 	}
 	return c.client.Set(ctx, grammarKey(key), data, grammarTTL).Err()
-}
-
-// DeleteTranslation drops the cached lookup for a normalized word. It shares
-// translationKey with the write path, so a version bump can never leave the
-// moderator-invalidation path deleting keys nobody writes.
-func (c *Cache) DeleteTranslation(ctx context.Context, cleanWord string) error {
-	return c.client.Del(ctx, translationKey(cleanWord)).Err()
 }

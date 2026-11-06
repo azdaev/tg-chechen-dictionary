@@ -1,7 +1,6 @@
 package main
 
 import (
-	"chetoru/internal/ai"
 	"chetoru/internal/business"
 	"chetoru/internal/cache"
 	"chetoru/internal/net"
@@ -97,32 +96,13 @@ func main() {
 
 	redisCache := cache.NewCache(os.Getenv("REDIS_ADDR"), os.Getenv("REDIS_PASSWORD"))
 
-	// Initialize AI client (optional)
-	var aiClient *ai.Client
-	openRouterKey := os.Getenv("OPENROUTER_API_KEY")
-	openRouterModel := os.Getenv("OPENROUTER_MODEL")
-	if openRouterKey != "" {
-		if openRouterModel == "" {
-			openRouterModel = "google/gemini-3-flash-preview"
-		}
-		aiClient = ai.New(openRouterKey, openRouterModel, log)
-		log.Printf("AI formatting enabled: %s", openRouterModel)
-	} else {
-		log.Println("AI formatting disabled (no OPENROUTER_API_KEY)")
-	}
-
-	translator := business.NewBusiness(redisCache, repo, aiClient, log)
+	translator := business.NewBusiness(redisCache, repo, log)
 	go func() {
 		<-backfillOK
 		translator.SetFoldedReady()
 	}()
 
 	botService := net.NewNet(log, repo, bot, translator, redisCache)
-
-	// Wire callback: after AI formatting → send to moderation
-	translator.SetOnPairReady(func(pairID int64, cleanWord string) {
-		botService.SendAutoModeration(context.Background(), cleanWord)
-	})
 
 	// Warm the word pool so the first /random or /quiz is instant.
 	go translator.WarmWordPool(ctx)

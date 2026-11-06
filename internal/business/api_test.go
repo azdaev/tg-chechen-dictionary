@@ -11,7 +11,6 @@ import (
 	"net/http/httptest"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"testing"
 
 	"github.com/sirupsen/logrus"
@@ -233,14 +232,6 @@ func (r *recordingDictRepo) InsertTranslationPair(_ context.Context, pair reposi
 	return 1, true, nil
 }
 
-func (r *recordingDictRepo) UpdateTranslationPairFormatting(context.Context, int64, string, string) error {
-	return nil
-}
-
-func (r *recordingDictRepo) SetTranslationPairFormattingChoice(context.Context, int64, string) error {
-	return nil
-}
-
 func TestFetchTranslations_StoresPairsDetached(t *testing.T) {
 	stubDoshamFind(t, map[string]string{"яблок": "Яблоко"})
 	repo := &recordingDictRepo{inserted: make(chan repository.TranslationPair, 1)}
@@ -315,11 +306,10 @@ func (r *swarmDictRepo) InsertTranslationPair(context.Context, repository.Transl
 	return r.nextID, true, nil
 }
 
-// dosham's search is a substring match, so «ца» comes back with 252 pairs. Every
-// new one used to start its own goroutine and its own paid LLM call — for a card
-// that shows ten rows. Storing them all is still right; the rendering is what
-// gets a budget, because it only feeds the moderation queue.
-func TestFetchTranslations_LLMBudgetPerLookup(t *testing.T) {
+// dosham's search is a substring match, so «ца» comes back with 252 pairs, and
+// every one of them is stored: the local table is what makes the next lookup
+// of any of them instant.
+func TestFetchTranslations_StoresEveryPair(t *testing.T) {
 	const entries = 40
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		rows := make([]string, 0, entries)
@@ -334,11 +324,7 @@ func TestFetchTranslations_LLMBudgetPerLookup(t *testing.T) {
 	t.Setenv("DOSHAM_API_URL", srv.URL)
 
 	repo := &swarmDictRepo{}
-	var queued atomic.Int32
 	b := &Business{log: logrus.New(), dictRepo: repo}
-	// No AI client, so onPairReady stands in for the work a rendering would
-	// start: it runs for exactly the pairs that were within budget.
-	b.onPairReady = func(int64, string) { queued.Add(1) }
 
 	if _, err := b.fetchTranslationsFromAPI("ца"); err != nil {
 		t.Fatalf("fetch: %v", err)
@@ -347,8 +333,5 @@ func TestFetchTranslations_LLMBudgetPerLookup(t *testing.T) {
 
 	if repo.inserts != entries {
 		t.Errorf("stored %d of %d pairs; the local table is what makes the next lookup instant", repo.inserts, entries)
-	}
-	if got := int(queued.Load()); got != maxAIFormatsPerLookup {
-		t.Errorf("%d pairs queued for the LLM, want the %d-pair budget", got, maxAIFormatsPerLookup)
 	}
 }

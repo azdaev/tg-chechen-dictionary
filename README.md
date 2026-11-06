@@ -15,11 +15,11 @@
 
 ## Стек
 
-Go · SQLite (WAL, автомиграции goose) · Redis (кэш переводов и грамматики) · OpenRouter (AI-форматирование статей) · GraphQL API dosham.app
+Go · SQLite (WAL, автомиграции goose) · Redis (кэш переводов и грамматики) · OpenRouter (только офлайн-утилита `cmd/parse_articles`) · GraphQL API dosham.app
 
 ```
 main → internal/net (Telegram handlers) → internal/business → internal/repository
-                                        ↘ internal/cache (Redis) · internal/ai (OpenRouter)
+                                        ↘ internal/cache (Redis)
 ```
 
 ## Запуск
@@ -33,9 +33,8 @@ go build ./... && go test ./...
 | `TG_BOT_TOKEN` | токен бота (обязательно) |
 | `DB_PATH` | путь к SQLite (по умолчанию `./database.db`) |
 | `REDIS_ADDR`, `REDIS_PASSWORD` | Redis; без него бот работает, но без кэша |
-| `OPENROUTER_API_KEY`, `OPENROUTER_MODEL` | AI-функции; без ключа отключаются |
-| `TG_ADMIN_ID` | админ-команды (`/stats`, `/missing`, `/moderate`, `/broadcast`, `/ai`) |
-| `TG_MOD_CHAT_ID` | чат модерации словарных пар |
+| `OPENROUTER_API_KEY`, `AI_MODEL` | только для `cmd/parse_articles`; бот их не читает |
+| `TG_ADMIN_ID` | админ-команды (`/stats`, `/missing`, `/broadcast`) |
 | `DONATION_LINK` | ссылка в сообщении о поддержке |
 | `DOSHAM_API_URL` | переопределение API (для тестов) |
 

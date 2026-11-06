@@ -1,5 +1,5 @@
-// The write path: persisting a pair dosham answered with, and formatting it
-// with the LLM afterwards. All of it detached from the request.
+// The write path: persisting what dosham answered with, detached from the
+// request.
 package business
 
 import (
@@ -8,17 +8,13 @@ import (
 	"chetoru/pkg/tools"
 	"context"
 	"database/sql"
-	"fmt"
 	"strings"
-	"time"
 )
 
-// storeTranslationPair persists one pair and reports whether it was new. mayFormat
-// says the caller still has LLM budget for it; a pair stored without one keeps
-// its place in the moderation table, it just arrives there without a suggestion.
-func (b *Business) storeTranslationPair(entry models.Entry, translation models.Translation, mayFormat bool) (inserted bool) {
+// storeTranslationPair persists one pair; a duplicate is a no-op.
+func (b *Business) storeTranslationPair(entry models.Entry, translation models.Translation) {
 	if b.dictRepo == nil {
-		return false
+		return
 	}
 
 	originalLang := inferOriginalLang(translation.LanguageCode)
@@ -43,56 +39,10 @@ func (b *Business) storeTranslationPair(entry models.Entry, translation models.T
 		EntryNotes:          entry.Notes,
 	}
 	if pair.OriginalClean == "" || pair.TranslationClean == "" {
-		return false
+		return
 	}
-
-	pairID, inserted, err := b.dictRepo.InsertTranslationPair(context.Background(), pair)
-	if err != nil {
+	if _, _, err := b.dictRepo.InsertTranslationPair(context.Background(), pair); err != nil {
 		b.log.Printf("failed to insert dictionary pair: %v\n", err)
-		return false
-	}
-	// Duplicates already went through formatting and moderation when first
-	// stored; re-running them would burn AI calls and overwrite the result.
-	if !inserted || pairID == 0 {
-		return false
-	}
-	if !mayFormat {
-		return true
-	}
-
-	if b.aiFormattingEnabled.Load() && b.aiClient != nil {
-		b.bg.Go(func() { b.formatPairWithAI(pairID, pair.OriginalClean, pair.OriginalRaw, pair.TranslationRaw) })
-	} else if b.onPairReady != nil {
-		// No AI client — trigger moderation immediately
-		b.bg.Go(func() { b.onPairReady(pairID, pair.OriginalClean) })
-	}
-	return true
-}
-
-// formatPairWithAI asynchronously formats a dictionary pair using AI, saves it, then triggers moderation.
-func (b *Business) formatPairWithAI(pairID int64, cleanWord, originalRaw, translationRaw string) {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
-	// Build raw entry for formatting
-	rawEntry := fmt.Sprintf("**%s** - %s", originalRaw, translationRaw)
-
-	// Format with AI
-	formatted, err := b.aiClient.FormatDictionaryEntry(ctx, rawEntry)
-	if err != nil {
-		b.log.Printf("ai formatting failed for pair %d: %v\n", pairID, err)
-	} else {
-		// Save to database
-		if err := b.dictRepo.UpdateTranslationPairFormatting(ctx, pairID, formatted, ""); err != nil {
-			b.log.Printf("failed to save ai formatting for pair %d: %v\n", pairID, err)
-		} else {
-			b.log.Printf("successfully formatted pair %d with AI\n", pairID)
-		}
-	}
-
-	// Trigger moderation after AI formatting (or failed attempt)
-	if b.onPairReady != nil {
-		b.onPairReady(pairID, cleanWord)
 	}
 }
 

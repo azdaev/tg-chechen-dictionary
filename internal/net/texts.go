@@ -72,7 +72,6 @@ const (
 	WotdNudgeText         = "📖 Кстати! Каждое утро бот может присылать вам одно чеченское слово с переводом — маленький шаг к языку каждый день."
 	WotdNudgeMinLookups   = 5
 	DonationMessageFormat = "🌱 Чтобы наш проект мог продолжить работать, вы можете помочь нам"
-	DefaultModerationChat = int64(-5204234916)
 	BroadcastParseMode    = "html"
 	// Shown when a broadcast could not start at all. The draft is kept, because
 	// the alternative is an admin retyping it with no idea it was lost.
