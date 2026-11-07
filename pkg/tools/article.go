@@ -18,6 +18,7 @@ func ParseArticle(head, body string) (glosses []string, examples []example) {
 	body = boldRe.ReplaceAllString(body, "")
 	body = stripLabels(strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(body), "-")))
 	body = stripFormList(body)
+	body = sensePeriodParenRe.ReplaceAllString(body, "$1. (")
 
 	for _, part := range meaningRe.Split(body, -1) {
 		part = strings.TrimSpace(part)
@@ -51,7 +52,10 @@ func ParseArticle(head, body string) (glosses []string, examples []example) {
 		// собир. тӏулг", and once that became "м, также (собирательное) тӏулг"
 		// there was no period left to cut at and no pattern to match, so the
 		// first Chechen word offered for «камень» was a gender marker.
-		if gloss := expandAbbreviations(stripLabels(dropLabelTail(cleanTranslation(main)))); gloss != "" {
+		// A qualifier alone is a heading over numbered sub-senses, not a sense:
+		// «Назначе́ние» opens "1. (действие) 1) (установление) билгалдар", and
+		// «(действие)» became sense one of the card, with no Chechen in it.
+		if gloss := expandAbbreviations(stripLabels(dropLabelTail(cleanTranslation(main)))); strings.TrimSpace(stripParens(gloss)) != "" {
 			if expanded, exact := replaceTildeWithWord(gloss, head); exact {
 				glosses = append(glosses, expanded)
 			}

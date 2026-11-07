@@ -88,3 +88,18 @@ func TestCard_SynonymListIsOneWord(t *testing.T) {
 		t.Errorf("a phrase was cut down to the word inside it:\n%s", body)
 	}
 }
+
+// «Назначе́ние» nests numbered sub-senses under qualifiers and once glues the
+// number to its qualifier. The qualifier alone was sense one, and «3.(функция)
+// хьажор» rode along inside the example before it.
+func TestParseArticle_NestedSenses(t *testing.T) {
+	glosses, examples := ParseArticle("Назначе́ние", "с 1. (действие) 1) (установление) билгалдар, хӏоттор 2) (направление) хӏоттор "+
+		"2. (цель, задача) ӏалашо, декхар; высо́кое ~е писа́теля - яздархочун лаккхара декхар 3.(функция) хьажор")
+	want := "(установление) билгалдар, хӏоттор|(направление) хӏоттор|(цель, задача) ӏалашо, декхар|(функция) хьажор"
+	if got := strings.Join(glosses, "|"); got != want {
+		t.Fatalf("glosses = %q, want %q", got, want)
+	}
+	if len(examples) != 1 || examples[0].chechen != "яздархочун лаккхара декхар" {
+		t.Fatalf("examples = %+v", examples)
+	}
+}

@@ -41,6 +41,10 @@ var (
 	// Sense markers come as "1)" but also as "ӏ. " (palochka standing in for
 	// the digit) and "2. " in live dosham glosses.
 	meaningRe = regexp.MustCompile(`(\d+\)|(?:^|\s)[ӏ\d]\.\s)`)
+	// sensePeriodParenRe finds a sense number glued to its qualifier:
+	// «Назначе́ние» writes "3.(функция) хьажор", which meaningRe does not split,
+	// so the third sense rode along inside an example of the second.
+	sensePeriodParenRe = regexp.MustCompile(`((?:^|\s)[ӏ\d])\.\(`)
 	// senseNumRe peels a sense number off the front of a gloss. The card
 	// numbers its own senses, so "2 м лев" arrives claiming to be sense 2 of a
 	// list the reader cannot see.
